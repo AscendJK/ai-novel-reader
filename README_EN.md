@@ -52,7 +52,7 @@ A browser-based intelligent novel reading tool powered by large language models.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/ai-novel-reader.git
+git clone https://github.com/AscendJK/ai-novel-reader.git
 cd ai-novel-reader
 
 # Install dependencies (first time only)

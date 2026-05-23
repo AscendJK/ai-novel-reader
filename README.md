@@ -52,7 +52,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/你的用户名/ai-novel-reader.git
+git clone https://github.com/AscendJK/ai-novel-reader.git
 cd ai-novel-reader
 
 # 安装依赖（仅首次需要）
