@@ -1,0 +1,39 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# Environment & local config
+.env
+.env.local
+.env.*.local
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# User data (IndexedDB is in-browser, but just in case)
+*.db
+*.sqlite
+
+# Temp scripts (Windows batch files for local use are fine to include)
+# but exclude any generated temp files
+*.tmp

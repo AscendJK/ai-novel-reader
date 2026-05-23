@@ -1,0 +1,364 @@
+import { useState, useCallback, useRef } from "react";
+import { useNovelStore } from "@/stores/novel-store";
+import { useAPIStore } from "@/stores/api-store";
+import { useSummaryStore, type SummaryItem } from "@/stores/summary-store";
+import { summarizerAgent, globalSummarizerAgent } from "@/agents/summarizer";
+import { characterAnalysisAgent, timelineAgent } from "@/agents/analyzers";
+import { characterGraphAgent } from "@/agents/graph-agent";
+import { getProvider } from "@/api/registry";
+import { loadNovel } from "@/db/repositories";
+import { saveSummary } from "@/db/repositories";
+import { APIError } from "@/api/error-handler";
+
+export interface GraphData {
+  nodes: { id: string; group: string; description: string }[];
+  edges: { source: string; target: string; label: string }[];
+}
+
+interface TempResult {
+  id: string;
+  title: string;
+  content: string;
+  tokensUsed: number;
+  createdAt: number;
+}
+
+export function useSummarizer() {
+  const [isRunning, setIsRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { currentNovel } = useNovelStore();
+  const { getActiveProvider } = useAPIStore();
+  const { addSummary, setProgress } = useSummaryStore();
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Create a fresh AbortController, aborting any previous one
+  const createSignal = useCallback(() => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    return ctrl.signal;
+  }, []);
+
+  const abortAll = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  const checkProvider = useCallback(() => {
+    const provider = getActiveProvider();
+    if (!provider) { setError("请先在设置中配置 API"); return null; }
+    return provider;
+  }, [getActiveProvider]);
+
+  const handleError = useCallback((err: unknown) => {
+    if (err instanceof APIError) {
+      if (err.code === "context_length") setError(`[上下文超限] ${err.message}\n建议：切换到支持更长上下文的模型。`);
+      else if (err.code === "auth") setError(`[认证失败] ${err.message}`);
+      else if (err.code === "network") setError(`[网络错误] ${err.message}`);
+      else setError(`[${err.code}] ${err.message}`);
+    } else {
+      setError(err instanceof Error ? err.message : "未知错误");
+    }
+  }, []);
+
+  const saveChapterSummary = useCallback(
+    async (chapterId: string, result: { success: boolean; data?: unknown; error?: string; tokensUsed?: number }) => {
+      if (!currentNovel || !result.success || !result.data) return;
+      const data = result.data as { summaries: { chapterTitle: string; content: string; tokens: number }[] };
+      for (const s of data.summaries) {
+        const summary: SummaryItem = {
+          id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
+          chapterTitle: s.chapterTitle, content: s.content,
+          tokensUsed: s.tokens, createdAt: Date.now(), type: "chapter",
+        };
+        addSummary(summary);
+        await saveSummary(summary);
+      }
+    },
+    [currentNovel, addSummary]
+  );
+
+  const saveGlobalSummary = useCallback(
+    async (result: { success: boolean; data?: unknown; error?: string; tokensUsed?: number }, type: SummaryItem["type"], title: string, chapterId: string) => {
+      if (!currentNovel || !result.success || !result.data) return;
+      const data = result.data as { content: string; usedFallback?: boolean };
+      const summary: SummaryItem = {
+        id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
+        chapterTitle: title + (data.usedFallback ? "（精简版）" : ""),
+        content: data.content, tokensUsed: result.tokensUsed || 0, createdAt: Date.now(), type,
+      };
+      addSummary(summary);
+      await saveSummary(summary);
+    },
+    [currentNovel, addSummary]
+  );
+
+  // --- Chapter summary ---
+  const summarizeChapter = useCallback(async (chapterId: string) => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal() });
+      if (result.success) await saveChapterSummary(chapterId, result);
+      else setError(result.error || "总结生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveChapterSummary, handleError]);
+
+  const regenerateChapter = useCallback(async (chapterId: string) => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal() });
+      if (result.success) await saveChapterSummary(chapterId, result);
+      else setError(result.error || "重新生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveChapterSummary, handleError]);
+
+  const summarizeAllChapters = useCallback(async () => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    const chapters = currentNovel.chapters;
+    setProgress({ current: 0, total: chapters.length });
+    try {
+      for (let i = 0; i < chapters.length; i++) {
+        const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapters[i].id], signal: createSignal() });
+        if (result.success) await saveChapterSummary(chapters[i].id, result);
+        setProgress({ current: i + 1, total: chapters.length });
+      }
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); setProgress(null); }
+  }, [currentNovel, checkProvider, saveChapterSummary, setProgress, handleError]);
+
+  // --- Global summary ---
+  const generateGlobalSummary = useCallback(async () => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) await saveGlobalSummary(result, "global", "全书总结", "__global__");
+      else setError(result.error || "全局总结生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  const regenerateGlobal = useCallback(async () => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) await saveGlobalSummary(result, "global", "全书总结", "__global__");
+      else setError(result.error || "重新生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  // --- Character analysis ---
+  const generateCharacterAnalysis = useCallback(async (): Promise<GraphData | null> => {
+    if (!currentNovel || !checkProvider()) return null;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) {
+        await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
+        const data = result.data as { content: string; graphData?: GraphData };
+        return data.graphData || null;
+      } else {
+        setError(result.error || "人物分析失败");
+        return null;
+      }
+    } catch (err) { handleError(err); return null; }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  const regenerateCharacters = useCallback(async (): Promise<GraphData | null> => {
+    if (!currentNovel || !checkProvider()) return null;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) {
+        await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
+        const data = result.data as { content: string; graphData?: GraphData };
+        return data.graphData || null;
+      } else {
+        setError(result.error || "重新生成失败");
+        return null;
+      }
+    } catch (err) { handleError(err); return null; }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  // --- Character graph only (no text analysis) ---
+  const generateCharacterGraph = useCallback(async (): Promise<GraphData | null> => {
+    if (!currentNovel || !checkProvider()) return null;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await characterGraphAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) {
+        const data = result.data as { graphData?: GraphData };
+        if (!data.graphData) setError("图谱生成成功但数据解析失败，请重试");
+        return data.graphData || null;
+      } else {
+        setError(result.error || "图谱生成失败");
+        return null;
+      }
+    } catch (err) { handleError(err); return null; }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, handleError]);
+
+  const regenerateCharacterGraph = useCallback(async (): Promise<GraphData | null> => {
+    if (!currentNovel || !checkProvider()) return null;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await characterGraphAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) {
+        const data = result.data as { graphData?: GraphData };
+        if (!data.graphData) setError("图谱生成成功但数据解析失败，请重试");
+        return data.graphData || null;
+      } else {
+        setError(result.error || "图谱生成失败");
+        return null;
+      }
+    } catch (err) { handleError(err); return null; }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, handleError]);
+
+  // --- Timeline ---
+  const generateTimeline = useCallback(async () => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__");
+      else setError(result.error || "时间线生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  const regenerateTimeline = useCallback(async () => {
+    if (!currentNovel || !checkProvider()) return;
+    setIsRunning(true); setError(null);
+    try {
+      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      if (result.success) await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__");
+      else setError(result.error || "重新生成失败");
+    } catch (err) { handleError(err); }
+    finally { setIsRunning(false); }
+  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+
+  // --- Temporary: range summary (in-memory, not saved to DB) ---
+  const generateRangeSummary = useCallback(
+    async (fromChapter: number, toChapter: number): Promise<TempResult | null> => {
+      if (!currentNovel || !checkProvider()) return null;
+      const provider = getActiveProvider();
+      if (!provider) return null;
+
+      const chapters = currentNovel.chapters.slice(fromChapter - 1, toChapter);
+      const combinedText = chapters
+        .map((c, i) => `[第${fromChapter + i}章: ${c.title}]\n${c.content.slice(0, 2500)}`)
+        .join("\n\n---\n\n");
+
+      const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
+
+要求：
+1. **核心情节**（概括该段落的整体剧情走向）
+2. **关键事件**（列出最重要的5-8个事件）
+3. **人物变化**（主要角色在该段落中的发展变化）
+4. **承上启下**（该段落在全书中的位置和作用）
+
+请用简洁清晰的中文回答。
+
+${combinedText}`;
+
+      try {
+        const providerInstance = getProvider(provider);
+        const response = await providerInstance.chat({
+          model: "", messages: [{ role: "user", content: prompt }],
+          max_tokens: 2048, temperature: 0.5,
+        });
+
+        return {
+          id: crypto.randomUUID(),
+          title: `第${fromChapter}-${toChapter}章 范围总结`,
+          content: response.content,
+          tokensUsed: response.tokensUsed.total,
+          createdAt: Date.now(),
+        };
+      } catch (err) {
+        handleError(err);
+        return null;
+      }
+    },
+    [currentNovel, checkProvider]
+  );
+
+  // --- Temporary: custom question with conversation history ---
+  const askCustomQuestion = useCallback(
+    async (
+      question: string,
+      history: { role: "user" | "assistant"; content: string }[]
+    ): Promise<{ answer: string; tokensUsed: number } | null> => {
+      if (!currentNovel || !checkProvider()) return null;
+      const provider = getActiveProvider();
+      if (!provider) return null;
+
+      // Build system context (only sent once)
+      const chapterList = currentNovel.chapters.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
+      const firstCh = currentNovel.chapters[0];
+      const lastCh = currentNovel.chapters[currentNovel.chapters.length - 1];
+      const samples = [
+        firstCh && `【${firstCh.title}】\n${firstCh.content.slice(0, 1500)}`,
+        lastCh && `【${lastCh.title}】\n${lastCh.content.slice(0, 1500)}`,
+      ].filter(Boolean).join("\n\n---\n\n");
+
+      const systemPrompt = `你是一位专业的小说分析助手。请根据以下小说信息回答用户问题。请用中文回答。
+
+**小说：**《${currentNovel.title}》
+**章节目录：**
+${chapterList}
+
+**内容参考：**
+${samples}
+
+记住：你可以基于提供的文本信息和章节目录进行回答。如果信息不足以回答，请诚实说明并基于已有信息给出推断。`;
+
+      // Build messages: system context + conversation history + new question
+      const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+        { role: "system", content: systemPrompt },
+      ];
+      for (const msg of history) {
+        messages.push(msg);
+      }
+      messages.push({ role: "user", content: question });
+
+      try {
+        const providerInstance = getProvider(provider);
+        const response = await providerInstance.chat({
+          model: "",
+          messages,
+          max_tokens: 2048,
+          temperature: 0.5,
+        });
+
+        return { answer: response.content, tokensUsed: response.tokensUsed.total };
+      } catch (err) {
+        handleError(err);
+        return null;
+      }
+    },
+    [currentNovel, checkProvider]
+  );
+
+  return {
+    isRunning, error,
+    summarizeChapter, summarizeAllChapters, regenerateChapter,
+    generateGlobalSummary, regenerateGlobal,
+    generateCharacterAnalysis, regenerateCharacters,
+    generateCharacterGraph, regenerateCharacterGraph,
+    generateTimeline, regenerateTimeline,
+    generateRangeSummary, askCustomQuestion,
+    clearError: () => setError(null),
+    abortAll,
+  };
+}

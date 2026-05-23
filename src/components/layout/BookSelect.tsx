@@ -1,0 +1,326 @@
+import { useCallback, useRef, useState, useEffect } from "react";
+import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2 } from "lucide-react";
+import { useFileParser } from "@/hooks/useFileParser";
+import { useNovelStore } from "@/stores/novel-store";
+import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatCharCount } from "@/lib/text-utils";
+import type { NovelMeta } from "@/parsers/types";
+
+export function BookSelect() {
+  const { parseFile, isParsing, progress } = useFileParser();
+  const { setCurrentNovel, addNovel, readingPositions } = useNovelStore();
+  const [savedNovels, setSavedNovels] = useState<NovelMeta[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [batchParsing, setBatchParsing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadAllNovelMeta().then((novels) => {
+      setSavedNovels(novels);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const processFiles = useCallback(
+    async (files: File[]) => {
+      const valid = files.filter(
+        (f) => f.name.endsWith(".txt") || f.name.endsWith(".epub")
+      );
+      if (valid.length === 0) {
+        setError("所选文件夹中未找到 .txt 或 .epub 文件");
+        return;
+      }
+      setError(null);
+      for (const file of valid) {
+        const novel = await parseFile(file);
+        if (novel) {
+          const meta: NovelMeta = {
+            id: novel.id, title: novel.title, author: novel.author,
+            fileName: novel.fileName, fileFormat: novel.fileFormat,
+            totalChars: novel.totalChars, chapterCount: novel.chapterCount,
+            createdAt: novel.createdAt, updatedAt: novel.updatedAt,
+          };
+          setSavedNovels((prev) => {
+            const filtered = prev.filter((n) => n.id !== meta.id);
+            return [meta, ...filtered];
+          });
+        }
+      }
+    },
+    [parseFile]
+  );
+
+  // Folder import: try showOpenFilePicker first (files visible + type filter), fallback to webkitdirectory
+  const handleFolderPick = useCallback(async () => {
+    setBatchParsing(true);
+    setError(null);
+
+    try {
+      // Primary: showOpenFilePicker - shows individual files with proper type filtering
+      if ("showOpenFilePicker" in window) {
+        const fileHandles = await window.showOpenFilePicker({
+          types: [
+            {
+              description: "小说文件",
+              accept: {
+                "text/plain": [".txt"],
+                "application/epub+zip": [".epub"],
+              },
+            },
+          ],
+          multiple: true,
+        });
+
+        const files: File[] = [];
+        for (const handle of fileHandles) {
+          try {
+            files.push(await handle.getFile());
+          } catch {
+            // skip unreadable files
+          }
+        }
+        await processFiles(files);
+      } else {
+        // Fallback: webkitdirectory on hidden input
+        folderInputRef.current?.click();
+      }
+    } catch (err) {
+      if ((err as DOMException)?.name === "AbortError") {
+        // User cancelled - no error
+      } else {
+        setError("导入失败：" + (err instanceof Error ? err.message : "未知错误"));
+      }
+    } finally {
+      setBatchParsing(false);
+    }
+  }, [processFiles]);
+
+  // Fallback handler for webkitdirectory
+  const handleFolderFallback = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) {
+        setBatchParsing(false);
+        return;
+      }
+      await processFiles(Array.from(files));
+      // Reset so same folder can be picked again
+      e.target.value = "";
+      setBatchParsing(false);
+    },
+    [processFiles]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      const files = e.dataTransfer.files;
+      setBatchParsing(true);
+      processFiles(Array.from(files)).finally(() => setBatchParsing(false));
+    },
+    [processFiles]
+  );
+
+  const handleDelete = async (e: React.MouseEvent, novelId: string, title: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`删除《${title}》？\n\n将同时删除：\n- 小说原文和章节\n- 所有 AI 总结和分析\n- 人物关系图谱\n- 阅读进度\n\n此操作不可恢复。`)) return;
+    await deleteNovel(novelId);
+    setSavedNovels((prev) => prev.filter((n) => n.id !== novelId));
+  };
+
+  const loading = isParsing || batchParsing;
+
+  return (
+    <div className="h-full overflow-auto">
+      <div className="max-w-5xl mx-auto p-6 space-y-8">
+        {/* Hero area */}
+        <div className="text-center py-4 md:py-8">
+          <BookOpen className="h-10 md:h-16 w-10 md:w-16 text-primary mx-auto mb-2 md:mb-4" />
+          <h1 className="text-xl md:text-3xl font-bold mb-1 md:mb-2">AI 小说精读助手</h1>
+          <p className="text-sm md:text-base text-muted-foreground max-w-md mx-auto">
+            上传小说，借助 AI 进行深度阅读、章节总结和全书分析
+          </p>
+        </div>
+
+        {/* Upload Zone */}
+        <Card
+          className={`border-2 border-dashed transition-colors cursor-pointer ${
+            dragOver ? "border-primary bg-primary/5" : "border-border"
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-3">
+            <Upload className="h-10 w-10 text-muted-foreground" />
+            <div className="text-center">
+              <p className="font-medium">
+                {dragOver ? "释放以上传" : "点击上传或拖拽小说文件到此处"}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                支持 .txt、.epub 格式，可多选文件
+              </p>
+            </div>
+            <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+              {/* Regular file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.epub"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (!files) return;
+                  setBatchParsing(true);
+                  processFiles(Array.from(files)).finally(() => setBatchParsing(false));
+                }}
+              />
+              {/* Folder picker button: opens showOpenFilePicker or falls back to webkitdirectory */}
+              <Button variant="outline" size="sm" onClick={handleFolderPick}>
+                <FolderOpen className="h-4 w-4 mr-2" />
+                从文件夹导入
+              </Button>
+              {/* Fallback: hidden webkitdirectory input (only used if showOpenFilePicker unsupported) */}
+              <input
+                ref={folderInputRef}
+                type="file"
+                /* @ts-expect-error webkitdirectory */
+                webkitdirectory=""
+                className="hidden"
+                onChange={handleFolderFallback}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Loading */}
+        {loading && (
+          <Card>
+            <CardContent className="py-4 space-y-2">
+              <p className="text-sm font-medium">
+                {batchParsing ? "正在批量导入..." : "正在解析文件..."}
+              </p>
+              <Progress value={isParsing ? progress : undefined} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Error */}
+        {error && (
+          <Card className="border-destructive">
+            <CardContent className="py-4">
+              <p className="text-sm text-destructive">{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Book Grid */}
+        {savedNovels.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <BookOpen className="h-5 w-5" />
+              我的书架 ({savedNovels.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+              {savedNovels.map((novel) => {
+                const pos = readingPositions[novel.id];
+                const readIndex = pos ? pos.chapterIndex : -1;
+                const progressPct = novel.chapterCount > 0
+                  ? Math.round(((readIndex + 1) / novel.chapterCount) * 100)
+                  : 0;
+
+                return (
+                  <Card
+                    key={novel.id}
+                    className="cursor-pointer transition-all hover:shadow-md hover:border-primary/50 group relative"
+                    onClick={async () => {
+                      const full = await loadNovel(novel.id);
+                      if (full) setCurrentNovel(full);
+                    }}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                      onClick={(e) => handleDelete(e, novel.id, novel.title)}
+                      title="删除此书"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className="w-10 h-14 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                          <FileText className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold truncate group-hover:text-primary transition-colors pr-6">
+                            {novel.title}
+                          </h3>
+                          {novel.author && (
+                            <p className="text-xs text-muted-foreground">{novel.author}</p>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            {novel.fileName}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        <Badge variant="secondary" className="text-xs">
+                          {novel.fileFormat.toUpperCase()}
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {novel.chapterCount} 章
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {formatCharCount(novel.totalChars)}
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {pos ? `已读至第 ${pos.chapterIndex + 1} 章` : "未开始阅读"}
+                          </span>
+                          <span>{progressPct}%</span>
+                        </div>
+                        <Progress value={progressPct} className="h-1.5" />
+                      </div>
+
+                      <div className="flex justify-end items-center mt-3">
+                        <Button variant="ghost" size="sm" className="group-hover:text-primary">
+                          开始阅读
+                          <ChevronRight className="h-4 w-4 ml-1" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {savedNovels.length === 0 && !loading && (
+          <div className="text-center py-8">
+            <FileText className="h-12 w-12 text-muted-foreground/20 mx-auto mb-3" />
+            <p className="text-muted-foreground">书架上还没有书，上传第一本小说吧</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
