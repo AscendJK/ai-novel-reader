@@ -36,7 +36,7 @@ if not exist "node_modules\" (
 )
 
 REM Kill old process on port 5173
-for /f "tokens=5" %%a in ('powershell -Command "Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"') do (
+for /f "tokens=5" %%a in ('powershell -Command "Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"') do (
     echo Stopping old instance PID %%a ...
     taskkill /PID %%a /F >nul 2>&1
 )

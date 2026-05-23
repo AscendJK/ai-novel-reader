@@ -28,7 +28,7 @@ cls
 echo.
 echo Listening ports (5170-5179):
 echo ----------------------------------------
-powershell -Command "Get-NetTCPConnection -LocalPort 5170,5171,5172,5173,5174,5175,5176,5177,5178,5179 -ErrorAction SilentlyContinue | Select-Object LocalPort, OwningProcess | Format-Table -AutoSize"
+powershell -Command "Get-NetTCPConnection -LocalPort 5170,5171,5172,5173,5174,5175,5176,5177,5178,5179 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalPort, OwningProcess | Format-Table -AutoSize"
 echo ----------------------------------------
 echo.
 pause
@@ -38,7 +38,7 @@ goto menu
 cls
 echo.
 echo Checking port 5173...
-powershell -Command "$p=Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue; if($p){Stop-Process -Id $p.OwningProcess -Force; echo 'Old process killed'}"
+powershell -Command "$p=Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($p){Stop-Process -Id $p.OwningProcess -Force -ErrorAction SilentlyContinue; echo 'Old process killed'}"
 echo Starting server...
 start "AI-Novel-5173" cmd /c "cd /d %~dp0 && npx vite --host 0.0.0.0 --port 5173"
 timeout /t 2 /nobreak >nul
@@ -55,7 +55,7 @@ cls
 set "p="
 set /p "p=Port number to kill: "
 if "%p%"=="" goto menu
-powershell -Command "$conn=Get-NetTCPConnection -LocalPort %p% -ErrorAction SilentlyContinue; if($conn){Stop-Process -Id $conn.OwningProcess -Force; echo 'Port %p% killed'}else{echo 'Port %p% not listening'}"
+powershell -Command "$conn=Get-NetTCPConnection -LocalPort %p% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($conn){Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue; echo 'Port %p% killed'}else{echo 'Port %p% not listening'}"
 echo.
 pause
 goto menu
@@ -63,7 +63,7 @@ goto menu
 :kill_all
 cls
 echo Killing all ports 5170-5179...
-powershell -Command "5170..5179 | ForEach-Object { $c=Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue; if($c){Stop-Process -Id $c.OwningProcess -Force; echo ('Killed port '+$_+' PID '+$c.OwningProcess)} }"
+powershell -Command "5170..5179 | ForEach-Object { $c=Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; echo ('Killed port '+$_+' PID '+$c.OwningProcess)} }"
 echo Done
 pause
 goto menu
