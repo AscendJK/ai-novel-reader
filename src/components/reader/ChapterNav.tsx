@@ -61,10 +61,10 @@ export function ChapterNav() {
           </div>
         </ScrollArea>
       </div>
-      {/* Toggle — aligns with ChapterContent top bar */}
+      {/* Toggle — desktop only, aligns with ChapterContent top bar */}
       <button
         onClick={() => setCollapsed(true)}
-        className={`${TOGGLE_H} ${TOGGLE_W} bg-card border border-l-0 rounded-r-md flex items-center justify-center hover:bg-accent transition-colors group shrink-0`}
+        className={`${TOGGLE_H} ${TOGGLE_W} hidden md:flex items-center justify-center bg-card border border-l-0 rounded-r-md hover:bg-accent transition-colors group shrink-0`}
         title="收起目录"
       >
         <PanelLeftClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />

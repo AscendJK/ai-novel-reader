@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChapterNav } from "./ChapterNav";
 import { ChapterContent } from "./ChapterContent";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
-import { PanelRightOpen, PanelRightClose, List, Sparkles, X, FileText, BookOpen, MessageSquare, StickyNote } from "lucide-react";
+import { PanelRightOpen, PanelRightClose, List, FileText, BookOpen, MessageSquare, StickyNote, X } from "lucide-react";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useNovelStore } from "@/stores/novel-store";
 
@@ -20,16 +20,15 @@ export function ReadingPanel() {
       )
     : false;
 
-  const showAi = summaryOpen || mobileAiOpen;
+  const openMobileTab = (tab: string) => {
+    setMobileAiTab(tab);
+    setMobileAiOpen(true);
+  };
 
   return (
     <div className="flex h-full relative">
-      {/* Desktop: permanent sidebar. Mobile: hidden */}
-      <div className="hidden md:block shrink-0">
-        <ChapterNav />
-      </div>
+      <ChapterNav />
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         <ChapterContent
           summaryOpen={summaryOpen}
@@ -44,48 +43,42 @@ export function ReadingPanel() {
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <List className="h-4 w-4" />目录
         </button>
-        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("chapter"); }}
+        <button onClick={() => openMobileTab("chapter")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <FileText className="h-4 w-4" />本章
         </button>
-        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("book"); }}
+        <button onClick={() => openMobileTab("book")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <BookOpen className="h-4 w-4" />全书
         </button>
-        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("qa"); }}
-          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary relative">
+        <button onClick={() => openMobileTab("qa")}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <MessageSquare className="h-4 w-4" />问答
         </button>
-        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("notes"); }}
+        <button onClick={() => openMobileTab("notes")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <StickyNote className="h-4 w-4" />笔记
         </button>
       </div>
 
-      {/* Desktop: right panel toggle + panel */}
+      {/* Desktop: right panel */}
       <div className="hidden md:flex">
         {!summaryOpen && (
-          <button
-            onClick={() => setSummaryOpen(true)}
-            className="h-[85px] w-8 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0 relative"
-            title="打开AI分析面板"
-          >
+          <button onClick={() => setSummaryOpen(true)}
+            className="h-[85px] w-8 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0 relative">
             <PanelRightOpen className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            {hasCurrentSummary && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-            )}
+            {hasCurrentSummary && <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />}
           </button>
         )}
-        <div style={{ display: summaryOpen ? undefined : "none" }} className="flex">
-          <button
-            onClick={() => setSummaryOpen(false)}
-            className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0"
-            title="关闭AI分析面板"
-          >
-            <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-          </button>
-          <SummaryPanel />
-        </div>
+        {summaryOpen && (
+          <div className="flex">
+            <button onClick={() => setSummaryOpen(false)}
+              className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0">
+              <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            </button>
+            <SummaryPanel />
+          </div>
+        )}
       </div>
 
       {/* Mobile: chapter nav drawer (left) */}
@@ -95,9 +88,7 @@ export function ReadingPanel() {
           <div className="md:hidden fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl animate-in slide-in-from-left">
             <div className="flex items-center justify-between p-3 border-b">
               <span className="font-semibold text-sm">目录</span>
-              <button onClick={() => setMobileNavOpen(false)} className="p-1 rounded hover:bg-accent">
-                <X className="h-4 w-4" />
-              </button>
+              <button onClick={() => setMobileNavOpen(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
             </div>
             <div className="h-[calc(100vh-48px)]">
               <ChapterNav />
@@ -106,20 +97,17 @@ export function ReadingPanel() {
         </>
       )}
 
-      {/* Mobile: AI panel (bottom sheet) */}
+      {/* Mobile: AI panel (fullscreen) — shares the same SummaryPanel as desktop */}
       {mobileAiOpen && (
-        <>
-          <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setMobileAiOpen(false)} />
-          <div className="md:hidden fixed inset-x-0 bottom-0 bg-card z-50 rounded-t-xl shadow-xl animate-in slide-in-from-bottom max-h-[85vh] overflow-auto">
-            <div className="flex items-center justify-between p-3 border-b sticky top-0 bg-card">
-              <span className="font-semibold text-sm">AI 分析</span>
-              <button onClick={() => setMobileAiOpen(false)} className="p-1 rounded hover:bg-accent">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+        <div className="md:hidden fixed inset-0 z-50 bg-card flex flex-col">
+          <div className="flex items-center justify-between p-3 border-b shrink-0">
+            <span className="font-semibold text-sm">AI 分析</span>
+            <button onClick={() => setMobileAiOpen(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="flex-1 min-h-0">
             <SummaryPanel defaultTab={mobileAiTab} />
           </div>
-        </>
+        </div>
       )}
     </div>
   );
