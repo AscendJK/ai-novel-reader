@@ -87,64 +87,63 @@ export function AppLayout() {
   const handleLogin = async (username: string, isJoin: boolean) => {
     setLoginError(null);
 
-    // Clear any stale local data from a previous session before logging in
+    // Clear stale local data from any previous session
     try {
       const { db } = await import("@/db/database");
       await db.delete();
-    } catch { /* may already be empty */ }
-    // Keep sync session keys, clear the rest
+      await db.open(); // reopen so subsequent DB calls work
+    } catch { /* ok if already empty */ }
     const syncUser = localStorage.getItem("sync-username");
     const syncCid = localStorage.getItem("sync-clientId");
     localStorage.clear();
     if (syncUser) localStorage.setItem("sync-username", syncUser);
     if (syncCid) localStorage.setItem("sync-clientId", syncCid);
 
+    // Login
     const mode = isJoin ? "join" : "create";
     const result = await syncClient.login(username, mode);
     if (result.error) {
       setLoginError(result.error);
       return;
     }
-    if (result.success) {
-      if (!result.isNew && result.activeCount > 0) {
-        // Pull existing data from server
-        try {
-          const resp = await fetch("/api/sync/push", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              username,
-              clientId: syncClient.cid,
-              changes: {},
-            }),
-          });
-          if (resp.ok) {
-            const r = await resp.json();
-            if (r.data) {
-              await applyServerData(r.data);
-              const novels = await loadAllNovels();
-              novels.forEach((n) => addNovel(n));
-            }
-          }
-        } catch { /* will sync on next timer tick */ }
-      }
-      // Start sync
-      if (!syncStarted.current) {
-        syncStarted.current = true;
-        syncClient.start({
-          gatherChanges,
-          applyData: async (data: SyncData) => {
-            await applyServerData(data);
-            const novels = await loadAllNovels();
-            novels.forEach((n) => addNovel(n));
-          },
-          isAiRunning: () => (window as any).__aiRunning === true,
-        });
-      }
-      setSyncReady(true);
-    } else {
+    if (!result.success) {
       setLoginError("连接服务器失败，请确保服务已启动");
+      return;
     }
+
+    // Always push any local data first, then pull merged data from server
+    try {
+      await syncClient.syncOnce();
+      // Reload novels from IndexedDB into store (syncOnce wrote them)
+      const novels = await loadAllNovels();
+      novels.forEach((n) => addNovel(n));
+      // Reload summaries if needed
+      const { currentNovel: cn } = useNovelStore.getState();
+      if (cn) {
+        const dbSummaries = await loadSummaries(cn.id);
+        if (dbSummaries.length > 0) setSummaries(dbSummaries);
+      }
+    } catch { /* will catch up on next timer tick */ }
+
+    // Start periodic sync
+    if (!syncStarted.current) {
+      syncStarted.current = true;
+      syncClient.start({
+        gatherChanges,
+        applyData: async (data: SyncData) => {
+          await applyServerData(data);
+          const novels = await loadAllNovels();
+          novels.forEach((n) => addNovel(n));
+          const { currentNovel: cn2 } = useNovelStore.getState();
+          if (cn2) {
+            const s = await loadSummaries(cn2.id);
+            if (s.length > 0) setSummaries(s);
+          }
+        },
+        isAiRunning: () => (window as any).__aiRunning === true,
+      });
+    }
+    setSyncReady(true);
   };
 
   const handleBackToLibrary = () => {

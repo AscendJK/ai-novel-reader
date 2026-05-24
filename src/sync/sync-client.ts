@@ -115,14 +115,13 @@ export class SyncClient {
     } catch { /* server unreachable */ }
   }
 
-  private async doSync() {
-    if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return;
-    // Skip if no other active connections
-    if (this.activeCount < 2) return;
-    // Skip if AI is running
-    if (this.isAiRunning()) return;
-
+  /** Full sync round: push local changes, pull merged data from server */
+  async syncOnce(): Promise<boolean> {
+    if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return false;
     try {
+      // Refresh heartbeat first to get accurate activeCount
+      await this.doHeartbeat();
+
       const changes = await this.gatherChanges();
       const resp = await fetch("/api/sync/push", {
         method: "POST",
@@ -134,8 +133,18 @@ export class SyncClient {
         if (r.merged && r.data) {
           await this.applyData(r.data);
         }
+        return true;
       }
-    } catch { /* retry next round */ }
+    } catch { /* server unreachable */ }
+    return false;
+  }
+
+  private async doSync() {
+    if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return;
+    // Skip if no other connections (but always let heartbeat update first)
+    if (this.activeCount < 2) return;
+    if (this.isAiRunning()) return;
+    await this.syncOnce();
   }
 }
 
