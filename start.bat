@@ -8,13 +8,7 @@ REM Check if npm exists
 where npm >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js is not installed.
-    echo.
-    echo Please install Node.js first:
-    echo   https://nodejs.org
-    echo.
-    echo Download the LTS version, install it,
-    echo then restart this script.
-    echo.
+    echo Please install Node.js first: https://nodejs.org
     pause
     exit /b 1
 )
@@ -22,23 +16,18 @@ if %errorlevel% neq 0 (
 REM Install dependencies if needed
 if not exist "node_modules\" (
     echo First run: installing dependencies...
-    echo.
     call npm install
     if %errorlevel% neq 0 (
-        echo.
         echo [ERROR] Failed to install dependencies.
-        echo Check your network connection and try again.
         pause
         exit /b 1
     )
-    echo Dependencies installed.
     echo.
 )
 
-REM Choose mode
 echo Select launch mode:
-echo   [1] Dev mode  (fast reload, may refresh on mobile sleep)
-echo   [2] Prod mode (stable, no auto-refresh, recommended for mobile)
+echo   [1] Dev mode  (fast reload, sync server + Vite)
+echo   [2] Prod mode (stable, single port, recommended for mobile/LAN)
 echo   [0] Exit
 echo.
 set /p "mode=Enter choice: "
@@ -50,12 +39,17 @@ echo Invalid choice, defaulting to dev mode...
 goto dev
 
 :dev
-REM Kill old process on port 5173
-for /f "tokens=5" %%a in ('powershell -Command "Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"') do (
-    echo Stopping old instance PID %%a ...
-    taskkill /PID %%a /F >nul 2>&1
+REM Kill old processes on ports 5173 and 3001
+for %%p in (5173 3001) do (
+    for /f "tokens=5" %%a in ('powershell -Command "Get-NetTCPConnection -LocalPort %%p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"') do (
+        echo Stopping old instance on port %%p PID %%a ...
+        taskkill /PID %%a /F >nul 2>&1
+    )
 )
-echo Starting dev server...
+echo Starting sync server (port 3001)...
+powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && node server/index.js' -WindowStyle Hidden"
+timeout /t 2 /nobreak >nul
+echo Starting Vite dev server (port 5173)...
 powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && npx vite --host 0.0.0.0 --port 5173' -WindowStyle Hidden"
 timeout /t 3 /nobreak >nul
 echo ==============================
@@ -75,15 +69,14 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-echo Starting production preview...
-powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && npx vite preview --host 0.0.0.0 --port 5173' -WindowStyle Hidden"
+echo Starting production server (port 5173)...
+powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && node server/index.js --full' -WindowStyle Hidden"
 timeout /t 2 /nobreak >nul
 echo ==============================
 echo   PROD http://localhost:5173
 echo ==============================
-
 :end
 echo.
-echo Stop server: run stop.bat or port-mgr.bat
+echo Stop server: run stop.bat
 echo.
 pause

@@ -42,3 +42,6 @@ public/models/custom/Xenova/
 
 # Temp files
 *.tmp
+
+# Sync server user data
+server/data/

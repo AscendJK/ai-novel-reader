@@ -40,6 +40,11 @@ export default defineConfig({
     },
   },
   server: {
+    host: "0.0.0.0",
+    port: 5173,
+    proxy: {
+      "/api": "http://localhost:3001",
+    },
     hmr: {
       // Don't full-reload on reconnect after mobile sleep
       overlay: false,

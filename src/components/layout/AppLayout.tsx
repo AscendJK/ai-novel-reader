@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Header } from "./Header";
 import { BookSelect } from "./BookSelect";
 import { ReadingPanel } from "@/components/reader/ReadingPanel";
 import { ApiSettings } from "@/components/settings/ApiSettings";
+import { UsernameLogin } from "@/components/login/UsernameLogin";
 import { setupLocalModelLoader } from "@/rag/model-loader";
 
 // Configure Transformers.js to load models from local public/models/
@@ -12,12 +13,18 @@ import { useNovelStore } from "@/stores/novel-store";
 import { loadAllNovels, loadSummaries } from "@/db/repositories";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useAPIStore } from "@/stores/api-store";
+import { syncClient } from "@/sync/sync-client";
+import { gatherChanges, applyServerData } from "@/sync/sync-bridge";
+import type { SyncData } from "@/sync/types";
 
 export function AppLayout() {
   const { theme } = useUIStore();
   const { currentNovel, setCurrentNovel, addNovel } = useNovelStore();
   const { setSummaries } = useSummaryStore();
   const [showSettings, setShowSettings] = useState(false);
+  const [syncReady, setSyncReady] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const syncStarted = useRef(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -39,6 +46,89 @@ export function AppLayout() {
     }
   }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Sync integration ──
+  useEffect(() => {
+    if (syncClient.isLoggedIn && !syncStarted.current) {
+      syncStarted.current = true;
+      syncClient.start({
+        gatherChanges,
+        applyData: async (data: SyncData) => {
+          await applyServerData(data);
+          // Reload novels into store after sync pull
+          const novels = await loadAllNovels();
+          novels.forEach((n) => addNovel(n));
+          // Reload summaries if currently viewing a novel
+          const { currentNovel: cn } = useNovelStore.getState();
+          if (cn) {
+            const dbSummaries = await loadSummaries(cn.id);
+            if (dbSummaries.length > 0) setSummaries(dbSummaries);
+          }
+        },
+        isAiRunning: () => {
+          // Check if any AI task is running (accessed via a simple flag)
+          return (window as any).__aiRunning === true;
+        },
+      });
+      setSyncReady(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Register visibility change → refresh data from server
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && syncClient.isLoggedIn) {
+        syncClient.pushNow();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  const handleLogin = async (username: string, _isJoin: boolean) => {
+    setLoginError(null);
+    const result = await syncClient.login(username);
+    if (result.success) {
+      if (!result.isNew && result.activeCount > 0) {
+        // Pull existing data from server
+        try {
+          const resp = await fetch("/api/sync/push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username,
+              clientId: syncClient.cid,
+              changes: {},
+            }),
+          });
+          if (resp.ok) {
+            const r = await resp.json();
+            if (r.data) {
+              await applyServerData(r.data);
+              const novels = await loadAllNovels();
+              novels.forEach((n) => addNovel(n));
+            }
+          }
+        } catch { /* will sync on next timer tick */ }
+      }
+      // Start sync
+      if (!syncStarted.current) {
+        syncStarted.current = true;
+        syncClient.start({
+          gatherChanges,
+          applyData: async (data: SyncData) => {
+            await applyServerData(data);
+            const novels = await loadAllNovels();
+            novels.forEach((n) => addNovel(n));
+          },
+          isAiRunning: () => (window as any).__aiRunning === true,
+        });
+      }
+      setSyncReady(true);
+    } else {
+      setLoginError("连接服务器失败，请确保服务已启动");
+    }
+  };
+
   const handleBackToLibrary = () => {
     setShowSettings(false);
     setCurrentNovel(null);
@@ -46,6 +136,11 @@ export function AppLayout() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
+      {/* Login modal — shown until user logs in */}
+      {!syncClient.isLoggedIn && (
+        <UsernameLogin onLogin={handleLogin} error={loginError} />
+      )}
+
       <Header
         inBook={!!currentNovel}
         bookTitle={currentNovel?.title}
