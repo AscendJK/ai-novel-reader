@@ -111,9 +111,8 @@ export function ReadingPanel() {
         </>
       )}
 
-      {/* Mobile: AI panel (fullscreen) — shares the same SummaryPanel as desktop */}
-      {mobileAiOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-card flex flex-col">
+      {/* Mobile: AI panel (fullscreen) — kept mounted for running tasks */}
+      <div className="md:hidden fixed inset-0 z-50 bg-card flex flex-col" style={{ display: mobileAiOpen ? undefined : "none" }}>
           <div className="flex items-center justify-between p-3 border-b shrink-0">
             <span className="font-semibold text-sm">AI 分析</span>
             <button onClick={() => setMobileAiOpen(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
@@ -122,7 +121,7 @@ export function ReadingPanel() {
             <SummaryPanel defaultTab={mobileAiTab} />
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
