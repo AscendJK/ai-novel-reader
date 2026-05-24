@@ -135,9 +135,9 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden flex flex-col"
-        onClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) onToggleImmersive(); }}>
-        <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1" onClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) onToggleImmersive(); }}>
+          <ScrollArea className="h-full">
           <div className="p-6 max-w-3xl mx-auto pb-20">
             {summaries.length > 0 && (
               <div className="mb-4 flex flex-wrap gap-2">
@@ -170,9 +170,10 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
             </div>
           </div>
         </ScrollArea>
+        </div>
 
         {/* Bottom navigation bar */}
-        <div className="border-t bg-card px-4 py-2.5 flex items-center justify-between shrink-0 md:pb-2.5 pb-16">
+        <div className="border-t bg-card px-4 py-2.5 flex items-center justify-between shrink-0 md:pb-2.5 pb-16" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="outline"
             size="sm"
