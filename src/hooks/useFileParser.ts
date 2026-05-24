@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { parseTxt } from "@/parsers/txt";
 import { parseEpub } from "@/parsers/epub";
 import { createNovel } from "@/parsers/utils";
@@ -8,12 +8,14 @@ import type { Novel } from "@/parsers/types";
 
 export function useFileParser() {
   const [isParsing, setIsParsing] = useState(false);
+  const parseCountRef = useRef(0);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const { setCurrentNovel, addNovel } = useNovelStore();
 
   const parseFile = useCallback(async (file: File): Promise<Novel | null> => {
     setIsParsing(true);
+    parseCountRef.current++;
     setProgress(0);
     setError(null);
 
@@ -52,7 +54,8 @@ export function useFileParser() {
       setError(msg);
       return null;
     } finally {
-      setIsParsing(false);
+      parseCountRef.current--;
+      if (parseCountRef.current <= 0) setIsParsing(false);
     }
   }, [setCurrentNovel, addNovel]);
 

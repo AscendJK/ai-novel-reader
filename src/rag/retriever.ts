@@ -45,7 +45,7 @@ export class Retriever {
       }
     }
 
-    this.averageDocLength = totalLength / docCount;
+    this.averageDocLength = docCount > 0 ? totalLength / docCount : 1;
 
     // Compute IDF
     for (const [t, df] of this.idf) {

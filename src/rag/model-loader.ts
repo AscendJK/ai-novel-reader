@@ -227,5 +227,5 @@ export function setupLocalModelLoader(): void {
       env.localModelPath = BUILTIN;
       env.allowRemoteModels = false;
     })
-    .catch(() => {});
+    .catch((e) => { console.error("Failed to configure Transformers.js local model path:", e); });
 }

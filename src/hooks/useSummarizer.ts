@@ -151,10 +151,13 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return;
     startTask("批量总结所有章节");
     const chapters = currentNovel.chapters;
+    const signal = createSignal();
     setProgress({ current: 0, total: chapters.length });
     try {
       for (let i = 0; i < chapters.length; i++) {
-        const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapters[i].id], signal: createSignal() });
+        if (signal.aborted) break;
+        const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapters[i].id], signal });
+        if (signal.aborted) break;
         if (result.success) await saveChapterSummary(chapters[i].id, result);
         setProgress({ current: i + 1, total: chapters.length });
       }

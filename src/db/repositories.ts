@@ -22,6 +22,8 @@ export async function saveNovel(novel: Novel): Promise<void> {
         index: ch.index,
         title: ch.title,
         content: ch.content,
+        startOffset: ch.startOffset,
+        endOffset: ch.endOffset,
       }));
 
       await db.chapters.where("novelId").equals(novel.id).delete();
@@ -46,7 +48,8 @@ export async function loadNovel(novelId: string): Promise<Novel | null> {
       createdAt: record.createdAt, updatedAt: record.updatedAt,
       chapters: chapterRecords.map((ch) => ({
         id: ch.id, novelId: ch.novelId, index: ch.index,
-        title: ch.title, content: ch.content, startOffset: 0, endOffset: ch.content.length,
+        title: ch.title, content: ch.content,
+        startOffset: ch.startOffset, endOffset: ch.endOffset,
       })),
     };
   } catch (e) {
@@ -101,10 +104,11 @@ export async function loadAllNovels(): Promise<Novel[]> {
 
 export async function deleteNovel(novelId: string): Promise<void> {
   try {
-    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.novels, async () => {
+    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.settings, db.novels, async () => {
       await db.chapters.where("novelId").equals(novelId).delete();
       await db.summaries.where("novelId").equals(novelId).delete();
-          await db.settings.delete("character-graph-" + novelId).catch(() => {});
+      await db.notes.where("novelId").equals(novelId).delete();
+      await db.settings.delete("character-graph-" + novelId).catch(() => {});
       await db.novels.delete(novelId);
     });
 
@@ -114,6 +118,14 @@ export async function deleteNovel(novelId: string): Promise<void> {
         const positions = JSON.parse(stored);
         delete positions[novelId];
         localStorage.setItem("novel-reader-positions-v2", JSON.stringify(positions));
+      }
+    } catch { /* ignore */ }
+    try {
+      const opened = localStorage.getItem("novel-reader-last-opened");
+      if (opened) {
+        const map = JSON.parse(opened);
+        delete map[novelId];
+        localStorage.setItem("novel-reader-last-opened", JSON.stringify(map));
       }
     } catch { /* ignore */ }
   } catch (e) {
@@ -189,7 +201,8 @@ export async function deleteNote(noteId: string): Promise<void> {
   catch (e) { console.error("deleteNote failed:", e); }
 }
 
-export async function deleteNotesByType(novelId: string, chapterId: string): Promise<void> {
+/** Delete all notes for a given novel+chapter combination */
+export async function deleteNotesByChapter(novelId: string, chapterId: string): Promise<void> {
   try { await db.notes.where({ novelId, chapterId }).delete(); }
-  catch (e) { console.error("deleteNotesByType failed:", e); }
+  catch (e) { console.error("deleteNotesByChapter failed:", e); }
 }

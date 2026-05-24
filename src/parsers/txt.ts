@@ -44,9 +44,12 @@ function detectEncoding(bytes: Uint8Array): string {
         gbkScore++;
       }
     }
-    // GBK high bytes (0x81-0xFE)
-    else if (b >= 0x81) {
-      gbkScore++;
+    // GBK high bytes (0x81-0xFE): lead byte must be 0x81-0xFE, trail byte 0x40-0xFE
+    else if (b >= 0x81 && b <= 0xFE) {
+      if (i + 1 < len) {
+        const trail = bytes[i + 1];
+        if (trail >= 0x40 && trail <= 0xFE) { gbkScore++; i++; }
+      }
     }
   }
 
@@ -75,7 +78,7 @@ export async function parseTxt(file: File, options?: ParserOptions): Promise<Par
   const firstLines = normalized.slice(0, 500).split("\n").map((l) => l.trim()).filter(Boolean);
   for (const line of firstLines) {
     if (line.startsWith("书名") || line.startsWith("标题") || line.startsWith("《")) {
-      title = line.replace(/^(书名|标题)[：:]\s*/, "").replace(/^《|》$/g, "");
+      title = line.replace(/^(书名|标题)[：:]\s*/, "").replace(/^《/, "").replace(/》$/, "");
     }
     if (line.startsWith("作者")) {
       author = line.replace(/^作者[：:]\s*/, "");

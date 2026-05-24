@@ -22,7 +22,7 @@ export function detectChapters(text: string): DetectedChapter[] {
     const line = rawLine.trim();
     const lineStart = charOffset;
 
-    if (!line || line.length > 80) {
+    if (!line || line.length > 120) {
       charOffset += rawLine.length + 1;
       continue;
     }
@@ -40,7 +40,7 @@ export function detectChapters(text: string): DetectedChapter[] {
       const plainMatch = PLAIN_NUMBER_PATTERN.exec(line);
       if (plainMatch) {
         const num = parseInt(plainMatch[1], 10);
-        if (num >= 1 && num <= 10000 && plainMatch[2].length >= 2) {
+        if (num >= 1 && num <= 100000 && plainMatch[2].length >= 2) {
           chapters.push({ title: line, startIndex: lineStart });
         }
       }

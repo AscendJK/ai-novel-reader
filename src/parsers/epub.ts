@@ -29,14 +29,14 @@ export async function parseEpub(file: File): Promise<ParseResult> {
 
   const opfXml = await opfFile.async("string");
 
-  // Extract title
+  // Extract title (supports dc:, dcterms:, dc11: prefixes and default namespace)
   let title = file.name.replace(/\.[^.]+$/, "");
-  const titleMatch = /<dc:title[^>]*>([^<]+)<\/dc:title>/.exec(opfXml);
+  const titleMatch = /<(?:dc:|dcterms:|dc11:)?title[^>]*>([^<]+)<\/(?:dc:|dcterms:|dc11:)?title>/.exec(opfXml);
   if (titleMatch) title = titleMatch[1].trim();
 
-  // Extract author
+  // Extract author (supports dc:, dcterms:, dc11: prefixes and default namespace)
   let author: string | undefined;
-  const authorMatch = /<dc:creator[^>]*>([^<]+)<\/dc:creator>/.exec(opfXml);
+  const authorMatch = /<(?:dc:|dcterms:|dc11:)?creator[^>]*>([^<]+)<\/(?:dc:|dcterms:|dc11:)?creator>/.exec(opfXml);
   if (authorMatch) author = authorMatch[1].trim();
 
   // Extract spine itemrefs in order
@@ -49,11 +49,11 @@ export async function parseEpub(file: File): Promise<ParseResult> {
     }
   }
 
-  // Map IDs to hrefs
-  const manifestItems = new Map<string, string>();
-  const itemMatches = opfXml.matchAll(/<item[^>]*id="([^"]+)"[^>]*href="([^"]+)"[^>]*>/g);
+  // Map IDs to hrefs and media types
+  const manifestItems = new Map<string, { href: string; mediaType: string }>();
+  const itemMatches = opfXml.matchAll(/<item[^>]*id="([^"]+)"[^>]*href="([^"]+)"[^>]*media-type="([^"]+)"[^>]*>/g);
   for (const m of itemMatches) {
-    manifestItems.set(m[1], m[2]);
+    manifestItems.set(m[1], { href: m[2], mediaType: m[3] });
   }
 
   // Extract text from all spine items
@@ -61,10 +61,13 @@ export async function parseEpub(file: File): Promise<ParseResult> {
   const chapterTexts: string[] = [];
 
   for (const idref of idrefs) {
-    const href = manifestItems.get(idref);
-    if (!href) continue;
+    const item = manifestItems.get(idref);
+    if (!item) continue;
+    // Only process text-based content (skip images, fonts, etc.)
+    const mt = item.mediaType;
+    if (!mt.includes("html") && !mt.includes("xml") && !mt.includes("xhtml") && !mt.includes("text")) continue;
 
-    const fullPath = opfDir + href;
+    const fullPath = opfDir + item.href;
     const contentFile = zip.file(fullPath);
     if (!contentFile) continue;
 
@@ -81,6 +84,13 @@ export async function parseEpub(file: File): Promise<ParseResult> {
       .replace(/&gt;/g, ">")
       .replace(/&amp;/g, "&")
       .replace(/&quot;/g, '"')
+      .replace(/&mdash;/g, "—")
+      .replace(/&ndash;/g, "–")
+      .replace(/&hellip;/g, "…")
+      .replace(/&lsquo;/g, "'")
+      .replace(/&rsquo;/g, "'")
+      .replace(/&ldquo;/g, '"')
+      .replace(/&rdquo;/g, '"')
       .replace(/&#?\w+;/g, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
@@ -91,7 +101,8 @@ export async function parseEpub(file: File): Promise<ParseResult> {
     }
   }
 
-  // Detect chapters in the combined text
+  // Normalize line endings before chapter detection
+  fullText = fullText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const detected = detectChapters(fullText);
   const chapters = splitByChapters(fullText, detected);
 

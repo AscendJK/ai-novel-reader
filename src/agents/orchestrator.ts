@@ -77,6 +77,7 @@ export class Orchestrator {
     }
 
     this.running = false;
+    this.tasks = [];
     return this.tasks;
   }
 

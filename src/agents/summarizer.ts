@@ -61,8 +61,9 @@ export const summarizerAgent: Agent = {
       }
     }
 
+    const hasAnySuccess = results.some((r) => !r.content.startsWith("总结生成失败:"));
     return {
-      success: true,
+      success: hasAnySuccess || results.length === 0,
       data: { summaries: results, totalTokens },
       tokensUsed: totalTokens,
     };

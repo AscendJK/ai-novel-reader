@@ -69,12 +69,6 @@ export function AppLayout() {
             <BookSelect />
           </div>
         )}
-        {/* Book select */}
-        {!currentNovel && !showSettings && (
-          <div className="h-full">
-            <BookSelect />
-          </div>
-        )}
       </main>
     </div>
   );

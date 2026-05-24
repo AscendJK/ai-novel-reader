@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
@@ -163,14 +163,16 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     if (!customQuestion.trim()) return;
     const q = customQuestion.trim(); setCustomQuestion("");
     const um = { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "user" as const, content: q };
-    setQaMessages((p) => [...p, um]);
-    const hist = qaMessages.map((m) => ({ role: m.role, content: m.content }));
-    setQaLoading(true); setQaError(null);
-    try {
-      const r = await askCustomQuestion(q, hist);
-      if (r) setQaMessages((p) => [...p, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
-    } catch (e) { setQaError(e instanceof Error ? e.message : "failed"); }
-    finally { setQaLoading(false); }
+    setQaMessages((p) => {
+      const next = [...p, um];
+      const hist = next.map((m) => ({ role: m.role, content: m.content }));
+      setQaLoading(true); setQaError(null);
+      askCustomQuestion(q, hist).then((r) => {
+        if (r) setQaMessages((p2) => [...p2, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
+      }).catch((e) => { setQaError(e instanceof Error ? e.message : "failed"); })
+        .finally(() => { setQaLoading(false); });
+      return next;
+    });
   };
 
   const handleRange = async () => {
@@ -510,7 +512,7 @@ function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph, noteCount, onNot
     const { db } = await import("@/db/database");
     const targets = summaries.filter((s) => s.type === type);
     for (const s of targets) await db.summaries.delete(s.id);
-    setSummaries(summaries.filter((s) => s.type !== type));
+    setSummaries((prev) => prev.filter((s) => s.type !== type));
   };
   const delGraph = async () => {
     if (!window.confirm("确认删除人物关系图谱？")) return;
@@ -548,7 +550,7 @@ function Row({ label, onDelete }: { label: string; onDelete: () => void }) {
   );
 }
 
-const summaryMd = {
+const summaryMd = useMemo(() => ({
   h1: ({ children }: { children: ReactNode }) => <h2 className="text-sm font-bold border-b pb-0.5 mb-1.5 mt-3 first:mt-0">{children}</h2>,
   h2: ({ children }: { children: ReactNode }) => <h3 className="text-xs font-semibold mt-2 mb-1 flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />{children}</h3>,
   h3: ({ children }: { children: ReactNode }) => <h4 className="text-xs font-medium mt-1.5 mb-0.5">{children}</h4>,
@@ -566,12 +568,12 @@ const summaryMd = {
   tr: ({ children }: { children: ReactNode }) => <tr className="border-b border-border last:border-0">{children}</tr>,
   th: ({ children }: { children: ReactNode }) => <th className="text-left px-1.5 py-0.5 font-semibold">{children}</th>,
   td: ({ children }: { children: ReactNode }) => <td className="px-1.5 py-0.5">{children}</td>,
-};
+}), []);
 
-const chatMd = {
+const chatMd = useMemo(() => ({
   p: ({ children }: { children: ReactNode }) => <p className="mb-0.5 last:mb-0">{children}</p>,
   ul: ({ children }: { children: ReactNode }) => <ul className="list-disc pl-3">{children}</ul>,
   ol: ({ children }: { children: ReactNode }) => <ol className="list-decimal pl-3">{children}</ol>,
   strong: ({ children }: { children: ReactNode }) => <strong className="font-semibold">{children}</strong>,
   code: ({ children }: { children: ReactNode }) => <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">{children}</code>,
-};
+}), []);

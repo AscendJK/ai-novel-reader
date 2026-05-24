@@ -15,8 +15,8 @@ interface APIState {
 }
 
 function persist(providers: ProviderConfig[], activeId: string | null) {
-  db.settings.put({ key: "api-providers", value: providers });
-  db.settings.put({ key: "api-active-provider", value: activeId });
+  db.settings.put({ key: "api-providers", value: providers }).catch(() => {});
+  db.settings.put({ key: "api-active-provider", value: activeId }).catch(() => {});
 }
 
 export const useAPIStore = create<APIState>((set, get) => ({
@@ -31,7 +31,7 @@ export const useAPIStore = create<APIState>((set, get) => ({
         db.settings.get("api-active-provider"),
       ]);
       const providers = (providersRecord?.value as ProviderConfig[]) || [];
-      const activeId = (activeRecord?.value as string | null) || null;
+      const activeId = (activeRecord?.value as string | null) ?? null;
       set({ providers, activeProviderId: activeId, loaded: true });
     } catch {
       set({ loaded: true });
@@ -42,8 +42,10 @@ export const useAPIStore = create<APIState>((set, get) => ({
     set((s) => {
       const filtered = s.providers.filter((p) => p.type !== config.type);
       const providers = [...filtered, config];
-      persist(providers, config.type);
-      return { providers, activeProviderId: config.type };
+      // Only auto-switch if this is the first provider added
+      const activeId = s.providers.length === 0 ? config.type : s.activeProviderId;
+      persist(providers, activeId);
+      return { providers, activeProviderId: activeId };
     }),
 
   removeProvider: (type) =>
@@ -63,6 +65,7 @@ export const useAPIStore = create<APIState>((set, get) => ({
 
   setActiveProvider: (type) => {
     const { providers } = get();
+    if (type && !providers.some((p) => p.type === type)) return;
     persist(providers, type);
     set({ activeProviderId: type });
   },

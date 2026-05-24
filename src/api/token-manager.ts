@@ -4,7 +4,7 @@ export function estimateTokens(text: string): number {
   let otherChars = 0;
 
   for (const char of text) {
-    if (/[一-鿿㐀-䶿]/.test(char)) {
+    if (/[一-鿿㐀-䶿\u{20000}-\u{2a6df}]/.test(char)) {
       chineseChars++;
     } else if (/\s/.test(char)) {
       otherChars += 0.25;
@@ -64,5 +64,9 @@ export function truncateToFit(text: string, model: string, reservedOutput: numbe
     }
   }
 
-  return text.slice(0, left) + "\n\n[文本因长度限制被截断...]";
+  let result = text.slice(0, left);
+  if (estimateTokens(result) > maxInputEstimate && left > 0) {
+    result = text.slice(0, left - 1);
+  }
+  return result + "\n\n[文本因长度限制被截断...]";
 }

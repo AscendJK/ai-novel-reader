@@ -19,13 +19,15 @@ export function RAGSettings() {
   // Restore previously scanned models from store on mount
   useEffect(() => {
     if (savedCustomModels.length > 0 && customModels.length === 0) {
-      // Trigger a scan to refresh status (names may have changed)
+      let cancelled = false;
       scanCustomModels().then((fresh) => {
+        if (cancelled) return;
         if (fresh.length > 0) {
           setCustomModels(fresh);
           setSavedCustomModels(fresh.map((m) => ({ key: m.modelKey, name: m.name, size: m.size })));
         }
       });
+      return () => { cancelled = true; };
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [showHelp, setShowHelp] = useState(false);
@@ -34,11 +36,15 @@ export function RAGSettings() {
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [bgeStatus, setBgeStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
   const loadedRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-    getBuiltinBGEStatus().then(setBgeStatus);
+    let cancelled = false;
+    getBuiltinBGEStatus().then((s) => { if (!cancelled) setBgeStatus(s); });
+    return () => { cancelled = true; };
   }, []);
 
 
@@ -46,11 +52,13 @@ export function RAGSettings() {
     setScanning(true);
     setScanMessage(null);
     const models = await scanCustomModels();
+    if (!mountedRef.current) return;
     setCustomModels(models);
     if (models.length > 0) {
       setSavedCustomModels(models.map((m) => ({ key: m.modelKey, name: m.name, size: m.size })));
     }
     const s = await getBuiltinBGEStatus();
+    if (!mountedRef.current) return;
     setBgeStatus(s);
     setScanning(false);
     setScanMessage(models.length > 0 ? `发现 ${models.length} 个自定义模型` : "未发现自定义模型");

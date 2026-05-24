@@ -40,7 +40,8 @@ export function createAnthropicProvider(config: ProviderConfig): AIProvider {
           },
           body: JSON.stringify(body),
         });
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
         throw new APIError(
           "网络请求失败：无法连接到 Anthropic API 服务器。",
           "network"
@@ -52,7 +53,10 @@ export function createAnthropicProvider(config: ProviderConfig): AIProvider {
       }
 
       const data = await response.json();
-      const content = data.content?.[0]?.text || "";
+      if (!data || typeof data !== "object") {
+        throw new APIError("API 返回了无法识别的响应格式，请检查 API 地址和密钥。", "unknown");
+      }
+      const content = typeof data.content?.[0]?.text === "string" ? data.content[0].text : "";
 
       return {
         content,

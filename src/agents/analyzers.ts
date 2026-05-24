@@ -119,8 +119,8 @@ ${chapterList}
         if (jsonMatch) {
           try {
             graphData = JSON.parse(jsonMatch[0]);
-          } catch {
-            // JSON parse failed, keep graphData null
+          } catch (e) {
+            console.error("Character analysis graph JSON parse failed:", e);
           }
         }
       }

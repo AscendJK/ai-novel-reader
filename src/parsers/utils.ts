@@ -5,7 +5,7 @@ export { type Novel, type Chapter, type ParseResult, type ParserOptions } from "
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+    try { return crypto.randomUUID(); } catch { /* fall through */ }
   }
   return v4();
 }

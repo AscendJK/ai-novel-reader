@@ -2,7 +2,7 @@ import type { AIProvider, ChatCompletionRequest, ChatCompletionResponse, Provide
 import { APIError, handleFetchError } from "../error-handler";
 
 export function createOpenAICompatProvider(config: ProviderConfig): AIProvider {
-  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const baseUrl = config.baseUrl.replace(/\/+$/, "") || "https://api.openai.com/v1";
 
   return {
     type: "openai-compat",
@@ -17,13 +17,14 @@ export function createOpenAICompatProvider(config: ProviderConfig): AIProvider {
             Authorization: `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            model: config.model || req.model,
+            model: config.model || req.model || "gpt-4o",
             messages: req.messages,
             max_tokens: req.max_tokens ?? config.maxTokens ?? 2048,
             temperature: req.temperature ?? 0.7,
           }),
         });
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
         throw new APIError(
           "网络请求失败：无法连接到 API 服务器。请检查 API 地址和网络连接。",
           "network"
@@ -35,8 +36,11 @@ export function createOpenAICompatProvider(config: ProviderConfig): AIProvider {
       }
 
       const data = await response.json();
+      if (!data || typeof data !== "object") {
+        throw new APIError("API 返回了无法识别的响应格式，请检查 API 地址和密钥。", "unknown");
+      }
       return {
-        content: data.choices?.[0]?.message?.content || "",
+        content: typeof data.choices?.[0]?.message?.content === "string" ? data.choices[0].message.content : "",
         tokensUsed: {
           input: data.usage?.prompt_tokens || 0,
           output: data.usage?.completion_tokens || 0,

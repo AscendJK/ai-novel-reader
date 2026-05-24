@@ -17,6 +17,8 @@ export interface ChapterRecord {
   index: number;
   title: string;
   content: string;
+  startOffset: number;
+  endOffset: number;
 }
 
 export interface SummaryRecord {

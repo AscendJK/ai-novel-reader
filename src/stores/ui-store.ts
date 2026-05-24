@@ -11,7 +11,10 @@ function getInitialTheme(): "light" | "dark" {
 function getInitialFontSize(): number {
   try {
     const stored = localStorage.getItem("novel-reader-font-size");
-    if (stored) return parseInt(stored, 10);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
   } catch { /* ignore */ }
   return 18;
 }
@@ -19,7 +22,10 @@ function getInitialFontSize(): number {
 function getInitialFontWeight(): number {
   try {
     const stored = localStorage.getItem("novel-reader-font-weight");
-    if (stored) return parseInt(stored, 10);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
   } catch { /* ignore */ }
   return 400;
 }
@@ -40,24 +46,24 @@ export const useUIStore = create<UIState>((set) => ({
   fontWeight: getInitialFontWeight(),
 
   setTheme: (theme) => {
-    localStorage.setItem("novel-reader-theme", theme);
+    try { localStorage.setItem("novel-reader-theme", theme); } catch { /* ignore */ }
     set({ theme });
   },
 
   toggleTheme: () =>
     set((s) => {
       const next = s.theme === "light" ? "dark" : "light";
-      localStorage.setItem("novel-reader-theme", next);
+      try { localStorage.setItem("novel-reader-theme", next); } catch { /* ignore */ }
       return { theme: next };
     }),
 
   setFontSize: (size) => {
-    localStorage.setItem("novel-reader-font-size", String(size));
+    try { localStorage.setItem("novel-reader-font-size", String(size)); } catch { /* ignore */ }
     set({ fontSize: size });
   },
 
   setFontWeight: (weight) => {
-    localStorage.setItem("novel-reader-font-weight", String(weight));
+    try { localStorage.setItem("novel-reader-font-weight", String(weight)); } catch { /* ignore */ }
     set({ fontWeight: weight });
   },
 }));

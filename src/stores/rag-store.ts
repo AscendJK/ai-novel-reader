@@ -44,12 +44,16 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   savedCustomModels: loadCustomModels(),
 
   setEngine: (engine) => {
-    localStorage.setItem("novel-reader-rag-engine", engine);
+    try { localStorage.setItem("novel-reader-rag-engine", engine); } catch { /* ignore */ }
+    try { localStorage.removeItem("novel-reader-rag-custom-key"); } catch { /* ignore */ }
     set({ engine, customModelKey: null });
   },
 
   setCustomModel: (key, name, size) => {
-    localStorage.setItem("novel-reader-rag-custom-key", key);
+    try {
+      if (key === null) localStorage.removeItem("novel-reader-rag-custom-key");
+      else localStorage.setItem("novel-reader-rag-custom-key", key);
+    } catch { /* ignore */ }
     const models = get().savedCustomModels;
     if (name && !models.some((m) => m.key === key)) {
       const updated = [...models, { key, name, size: size || "?" }];
@@ -66,7 +70,7 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   },
 
   clearCustomModel: () => {
-    localStorage.removeItem("novel-reader-rag-custom-key");
+    try { localStorage.removeItem("novel-reader-rag-custom-key"); } catch { /* ignore */ }
     set({ customModelKey: null });
   },
 }));

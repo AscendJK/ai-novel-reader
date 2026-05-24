@@ -23,7 +23,8 @@ export function createOpenAIProvider(config: ProviderConfig): AIProvider {
             temperature: req.temperature ?? 0.7,
           }),
         });
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
         throw new APIError(
           "网络请求失败：无法连接到 API 服务器。请检查网络连接或 API 地址是否正确。",
           "network"
@@ -35,8 +36,11 @@ export function createOpenAIProvider(config: ProviderConfig): AIProvider {
       }
 
       const data = await response.json();
+      if (!data || typeof data !== "object") {
+        throw new APIError("API 返回了无法识别的响应格式，请检查 API 地址和密钥。", "unknown");
+      }
       return {
-        content: data.choices?.[0]?.message?.content || "",
+        content: typeof data.choices?.[0]?.message?.content === "string" ? data.choices[0].message.content : "",
         tokensUsed: {
           input: data.usage?.prompt_tokens || 0,
           output: data.usage?.completion_tokens || 0,

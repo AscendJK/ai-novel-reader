@@ -27,6 +27,7 @@ export function buildIndex(
     const content = chapter.content;
     const chunkSize = 500;
     const overlap = 100;
+    if (overlap >= chunkSize) break; // guard against infinite loop
     let start = 0;
     while (start < content.length) {
       const end = Math.min(start + chunkSize, content.length);

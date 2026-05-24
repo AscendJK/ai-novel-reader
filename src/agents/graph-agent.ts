@@ -68,8 +68,8 @@ ${samples}
 
       // Parse JSON from response - strip markdown code fences first
       let raw = response.content.trim();
-      // Remove ```json ... ``` or ``` ... ``` wrappers
-      raw = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+      // Remove ```json ... ``` or ``` ... ``` wrappers (handle trailing whitespace/newlines)
+      raw = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```[\s\S]*$/i, "");
 
       let graphData: { nodes: { id: string; group: string; description: string }[]; edges: { source: string; target: string; label: string }[] } | null = null;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
