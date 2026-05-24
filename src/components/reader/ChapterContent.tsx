@@ -77,42 +77,33 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary }: Cha
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* Top bar */}
-      <div className="p-4 border-b flex items-center justify-between shrink-0">
+      <div className="p-3 md:p-4 border-b flex items-center justify-between shrink-0">
         <div className="min-w-0">
-          <h2 className="text-xl font-semibold truncate">{chapter.title}</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h2 className="text-base md:text-xl font-semibold truncate">{chapter.title}</h2>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5 md:mt-1">
             {chapter.content.length.toLocaleString()} 字
-            <span className="mx-2 text-border">|</span>
+            <span className="mx-1 md:mx-2 text-border">|</span>
             {currentIndex + 1} / {chapters.length}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
           {!summaryOpen && (
-            <Button
-              variant={hasSummary ? "secondary" : "ghost"}
-              size="sm"
-              onClick={onToggleSummary}
-              className="text-xs"
-            >
-              <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${hasSummary ? "text-primary" : ""}`} />
-              {hasSummary ? "已分析" : "AI 分析"}
+            <Button variant={hasSummary ? "secondary" : "ghost"} size="sm" onClick={onToggleSummary}
+              className="text-xs h-7">
+              <Sparkles className={`h-3.5 w-3.5 mr-0 md:mr-1.5 ${hasSummary ? "text-primary" : ""}`} />
+              <span className="hidden md:inline">{hasSummary ? "已分析" : "AI 分析"}</span>
             </Button>
           )}
 
-          {/* Font weight toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={cycleFontWeight}
-            title={`字体粗细: ${currentWeightLabel}`}
-          >
+          {/* Font weight toggle — desktop only */}
+          <Button variant="ghost" size="icon" className="h-7 w-7 hidden md:inline-flex"
+            onClick={cycleFontWeight} title={`字体粗细: ${currentWeightLabel}`}>
             <Bold className="h-3.5 w-3.5" style={{ opacity: fontWeight / 600 }} />
           </Button>
 
-          {/* Font size controls */}
-          <div className="flex items-center gap-0.5 border-l pl-0.5">
+          {/* Font size controls — desktop only */}
+          <div className="hidden md:flex items-center gap-0.5 border-l pl-0.5">
             <Button
               variant="ghost"
               size="icon"

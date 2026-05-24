@@ -45,6 +45,10 @@ export function ReadingPanel() {
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <List className="h-4 w-4" />目录
         </button>
+        <button onClick={() => openMobileTab("qa")}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <MessageSquare className="h-4 w-4" />问答
+        </button>
         <button onClick={() => openMobileTab("chapter")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <FileText className="h-4 w-4" />本章
@@ -52,10 +56,6 @@ export function ReadingPanel() {
         <button onClick={() => openMobileTab("book")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <BookOpen className="h-4 w-4" />全书
-        </button>
-        <button onClick={() => openMobileTab("qa")}
-          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
-          <MessageSquare className="h-4 w-4" />问答
         </button>
         <button onClick={() => openMobileTab("notes")}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
