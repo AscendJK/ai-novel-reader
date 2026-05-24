@@ -87,12 +87,13 @@
   }
 }
 
-/* Softer prose text in dark mode — gray instead of harsh white */
+/* Dark mode reading — pure black bg, warm gray text */
 .dark .prose {
-  --tw-prose-body: #9ca3af;
-  --tw-prose-headings: #d1d5db;
-  --tw-prose-bold: #d1d5db;
-  --tw-prose-links: #93c5fd;
+  --tw-prose-body: #B8B8B8;
+  --tw-prose-headings: #cccccc;
+  --tw-prose-bold: #cccccc;
+  --tw-prose-links: #8eb9e0;
+  background: #000000;
 }
 
 /* Immersive reading on mobile */
