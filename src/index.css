@@ -87,12 +87,13 @@
   }
 }
 
-/* Dark mode reading — warm gray text */
-.dark .prose {
-  --tw-prose-body: #B8B8B8;
-  --tw-prose-headings: #cccccc;
-  --tw-prose-bold: #cccccc;
-  --tw-prose-links: #8eb9e0;
+/* Dark mode reading — warm gray text (higher specificity to beat prose-invert) */
+.dark .prose.prose-neutral.dark\:prose-invert,
+.dark .prose.prose-neutral {
+  --tw-prose-body: #B8B8B8 !important;
+  --tw-prose-headings: #cccccc !important;
+  --tw-prose-bold: #cccccc !important;
+  --tw-prose-links: #8eb9e0 !important;
 }
 
 /* Immersive reading on mobile */
