@@ -121,7 +121,6 @@ export function ReadingPanel() {
             <SummaryPanel defaultTab={mobileAiTab} />
           </div>
         </div>
-      </div>
     </div>
   );
 }
