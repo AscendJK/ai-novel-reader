@@ -88,12 +88,17 @@ export function AppLayout() {
   const handleLogin = async (username: string, isJoin: boolean) => {
     setLoginError(null);
 
-    // Clear stale local data from any previous session
+    // Clear stale local data from any previous user (truncate tables, not delete DB)
     try {
       const { db } = await import("@/db/database");
-      await db.delete();
-      await db.open(); // reopen so subsequent DB calls work
-    } catch { /* ok if already empty */ }
+      await db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
+        await db.novels.clear();
+        await db.chapters.clear();
+        await db.summaries.clear();
+        await db.notes.clear();
+        await db.settings.clear();
+      });
+    } catch (e) { console.error("clear tables failed:", e); }
     const syncUser = localStorage.getItem("sync-username");
     const syncCid = localStorage.getItem("sync-clientId");
     localStorage.clear();
@@ -117,10 +122,11 @@ export function AppLayout() {
 
     // Push any local data + pull merged data from server
     try {
-      await syncClient.syncOnce();
+      const ok = await syncClient.syncOnce();
+      console.log("[sync] initial syncOnce:", ok ? "ok" : "failed");
       const novels = await loadAllNovels();
       novels.forEach((n) => addNovel(n));
-    } catch { /* will catch up on next timer tick */ }
+    } catch (e) { console.error("[sync] syncOnce error:", e); }
 
     // Start periodic sync
     if (!syncStarted.current) {

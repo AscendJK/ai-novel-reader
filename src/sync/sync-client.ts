@@ -29,17 +29,21 @@ export class SyncClient {
   /** Register or join a username. Returns {success, isNew, activeCount, error?}. */
   async login(username: string, mode: "create" | "join" = "create"): Promise<{ success: boolean; isNew: boolean; activeCount: number; error?: string }> {
     try {
+      console.log("[sync] login:", username, mode);
       const resp = await fetch("/api/sync/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, mode }),
       });
+      console.log("[sync] register response:", resp.status);
       if (resp.status === 404) {
         const err = await resp.json().catch(() => ({}));
+        console.log("[sync] register 404:", err);
         return { success: false, isNew: false, activeCount: 0, error: (err as any).error || "用户名不存在" };
       }
       if (!resp.ok) return { success: false, isNew: false, activeCount: 0 };
       const result: RegisterResult = await resp.json();
+      console.log("[sync] registered:", result.isNew ? "new" : "existing", "active:", result.activeCount);
 
       this.username = username;
       this.clientId = result.clientId;
@@ -48,7 +52,8 @@ export class SyncClient {
       localStorage.setItem("sync-clientId", result.clientId);
 
       return { success: true, isNew: result.isNew, activeCount: result.activeCount };
-    } catch {
+    } catch (e) {
+      console.error("[sync] login error:", e);
       return { success: false, isNew: false, activeCount: 0 };
     }
   }
@@ -117,12 +122,15 @@ export class SyncClient {
 
   /** Full sync round: push local changes, pull merged data from server */
   async syncOnce(): Promise<boolean> {
-    if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return false;
+    if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) {
+      console.warn("[sync] syncOnce skipped — not ready");
+      return false;
+    }
     try {
-      // Refresh heartbeat first to get accurate activeCount
       await this.doHeartbeat();
 
       const changes = await this.gatherChanges();
+      console.log("[sync] pushing:", { novels: changes.novels?.length, chapters: changes.chapters?.length, summaries: changes.summaries?.length });
       const resp = await fetch("/api/sync/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,12 +138,15 @@ export class SyncClient {
       });
       if (resp.ok) {
         const r: PushResult = await resp.json();
+        console.log("[sync] pull result:", r.merged, { novels: r.data?.novels?.length, chapters: r.data?.chapters?.length });
         if (r.merged && r.data) {
           await this.applyData(r.data);
         }
         return true;
+      } else {
+        console.warn("[sync] push failed:", resp.status);
       }
-    } catch { /* server unreachable */ }
+    } catch (e) { console.error("[sync] syncOnce error:", e); }
     return false;
   }
 
