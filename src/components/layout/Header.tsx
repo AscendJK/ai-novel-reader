@@ -1,6 +1,7 @@
-import { ArrowLeft, Book, Settings, Moon, Sun } from "lucide-react";
+import { ArrowLeft, Book, Settings, Moon, Sun, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
+import { syncClient } from "@/sync/sync-client";
 
 interface HeaderProps {
   inBook: boolean;
@@ -11,6 +12,15 @@ interface HeaderProps {
 
 export function Header({ inBook, bookTitle, onBack, onSettings }: HeaderProps) {
   const { theme, toggleTheme } = useUIStore();
+  const username = syncClient.user;
+
+  const handleLogout = () => {
+    if (!window.confirm("确定退出登录？\n\n退出后将清除本地数据并返回登录界面。")) return;
+    syncClient.logout();
+    // Clear all local data
+    localStorage.clear();
+    import("@/db/database").then(({ db }) => db.delete().then(() => window.location.reload()));
+  };
 
   return (
     <header className="border-b bg-card px-4 py-2.5 flex items-center justify-between shrink-0">
@@ -34,6 +44,18 @@ export function Header({ inBook, bookTitle, onBack, onSettings }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1">
+        {/* Username + logout */}
+        {username && (
+          <div className="flex items-center gap-1 mr-1">
+            <span className="text-xs text-muted-foreground flex items-center gap-1 bg-muted px-2 py-1 rounded">
+              <User className="h-3 w-3" />
+              {username}
+            </span>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleLogout} title="退出登录">
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
         <Button variant="ghost" size="icon" onClick={onSettings} title="设置">
           <Settings className="h-4 w-4" />
         </Button>

@@ -86,6 +86,19 @@ export function AppLayout() {
 
   const handleLogin = async (username: string, isJoin: boolean) => {
     setLoginError(null);
+
+    // Clear any stale local data from a previous session before logging in
+    try {
+      const { db } = await import("@/db/database");
+      await db.delete();
+    } catch { /* may already be empty */ }
+    // Keep sync session keys, clear the rest
+    const syncUser = localStorage.getItem("sync-username");
+    const syncCid = localStorage.getItem("sync-clientId");
+    localStorage.clear();
+    if (syncUser) localStorage.setItem("sync-username", syncUser);
+    if (syncCid) localStorage.setItem("sync-clientId", syncCid);
+
     const mode = isJoin ? "join" : "create";
     const result = await syncClient.login(username, mode);
     if (result.error) {
