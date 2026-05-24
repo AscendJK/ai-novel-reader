@@ -6,7 +6,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Bold, Type } from "lucide-react";
+import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Type } from "lucide-react";
 
 interface ChapterContentProps {
   summaryOpen: boolean;

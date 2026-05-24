@@ -12,7 +12,7 @@ import type { NovelMeta } from "@/parsers/types";
 
 export function BookSelect() {
   const { parseFile, isParsing, progress } = useFileParser();
-  const { setCurrentNovel, addNovel, readingPositions } = useNovelStore();
+  const { setCurrentNovel, readingPositions } = useNovelStore();
   const [savedNovels, setSavedNovels] = useState<NovelMeta[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +63,7 @@ export function BookSelect() {
     try {
       // Primary: showOpenFilePicker - shows individual files with proper type filtering
       if ("showOpenFilePicker" in window) {
-        const fileHandles = await window.showOpenFilePicker({
+        const fileHandles = await (window as any).showOpenFilePicker({
           types: [
             {
               description: "小说文件",

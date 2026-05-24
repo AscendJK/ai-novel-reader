@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+// @ts-ignore - d3-force types not installed
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import type { GraphData } from "@/hooks/useSummarizer";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ interface SimNode { id: string; group: string; description: string; x: number; y
 interface SimEdge { source: SimNode; target: SimNode; label: string }
 
 export function CharacterGraph({ graphData, onRegenerate }: Props) {
-  const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [simData, setSimData] = useState<{ nodes: SimNode[]; edges: SimEdge[] } | null>(null);
@@ -36,10 +36,6 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
 
   useEffect(() => {
     if (!graphData.nodes.length) return;
-    const nodeCount = graphData.nodes.length;
-
-    // Scale area generously to prevent overlap
-    const areaSize = Math.max(600, nodeCount * 160);
 
     const nodes: SimNode[] = graphData.nodes.map((n) => ({
       ...n, x: (Math.random() - 0.5) * 300, y: (Math.random() - 0.5) * 300,
@@ -108,62 +104,6 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   };
 
   const handleMouseUp = () => setDragging(false);
-
-  const svgContent = (
-    <svg
-      ref={svgRef}
-      viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}
-      className="w-full h-full"
-      style={{ minWidth: expanded ? viewSize : undefined, minHeight: expanded ? viewSize : undefined }}
-    >
-      {/* Edge lines */}
-      {simData.edges.map((e, i) => {
-        if (!e.source || !e.target) return null;
-        const mx = (e.source.x + e.target.x) / 2;
-        const my = (e.source.y + e.target.y) / 2;
-        return (
-          <g key={`edge-${i}`}>
-            <line x1={e.source.x} y1={e.source.y} x2={e.target.x} y2={e.target.y}
-              stroke="currentColor" strokeOpacity={0.15} strokeWidth={1} />
-            <text x={mx} y={my} textAnchor="middle" dominantBaseline="middle"
-              className="fill-muted-foreground" fontSize={fontSize - 2} dy={7}>
-              {e.label}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Nodes */}
-      {simData.nodes.map((n) => (
-        <g key={n.id}>
-          <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
-            stroke="var(--background)" strokeWidth={2} />
-          <text x={n.x} y={n.y + nodeRadius + 3} textAnchor="middle"
-            className="fill-foreground font-medium" fontSize={fontSize}>
-            {n.id}
-          </text>
-          {expanded && n.description && (
-            <text x={n.x} y={n.y + nodeRadius + 16} textAnchor="middle"
-              className="fill-muted-foreground" fontSize={fontSize - 2}>
-              {n.description.length > 20 ? n.description.slice(0, 20) + "..." : n.description}
-            </text>
-          )}
-        </g>
-      ))}
-
-      {/* Legend (expanded only) */}
-      {expanded && (
-        <g transform={`translate(${viewSize / 2 - 150}, ${-viewSize / 2 + 10})`}>
-          {Object.entries(GROUP_COLORS).slice(0, -1).map(([group, color], i) => (
-            <g key={group} transform={`translate(0, ${i * 18})`}>
-              <circle cx={0} cy={0} r={4} fill={color} />
-              <text x={10} y={3} className="fill-muted-foreground" fontSize={10}>{group}</text>
-            </g>
-          ))}
-        </g>
-      )}
-    </svg>
-  );
 
   return (
     <>

@@ -41,9 +41,6 @@ export function RAGSettings() {
     getBuiltinBGEStatus().then(setBgeStatus);
   }, []);
 
-  const refresh = () => {
-    getBuiltinBGEStatus().then(setBgeStatus);
-  };
 
   const handleScan = async () => {
     setScanning(true);
@@ -156,18 +153,18 @@ export function RAGSettings() {
                         <Badge variant="secondary" className="text-xs">{m.source === "builtin" ? "内置" : "自定义"}</Badge>
                         {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
                         {m.source === "builtin" && m.key === "bge-small-zh" && (
-                          <Star className="h-3 w-3 text-amber-500" title="推荐" />
+                          <Star className="h-3 w-3 text-amber-500" aria-label="推荐" />
                         )}
                       </div>
                       <div className="flex items-center gap-1.5">
                         {m.renameWarning ? (
-                            <AlertTriangle className="h-4 w-4 text-amber-500" title="文件存在，名称不匹配" />
+                            <AlertTriangle className="h-4 w-4 text-amber-500" aria-label="文件存在，名称不匹配" />
                         ) : isBuiltinInstalled ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500" title="模型可用" />
+                            <CheckCircle2 className="h-4 w-4 text-green-500" aria-label="模型可用" />
                         ) : m.source === "custom" ? (
-                            <Zap className="h-4 w-4 text-blue-500" title="已检测到" />
+                            <Zap className="h-4 w-4 text-blue-500" aria-label="已检测到" />
                         ) : (
-                            <PackageOpen className="h-4 w-4 text-muted-foreground/40" title="未安装" />
+                            <PackageOpen className="h-4 w-4 text-muted-foreground/40" aria-label="未安装" />
                         )}
                       </div>
                     </div>

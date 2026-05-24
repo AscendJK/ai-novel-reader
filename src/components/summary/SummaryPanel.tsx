@@ -257,7 +257,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
                   {qaMessages.map((m) => (
                     <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
                       <div className={`max-w-[90%] rounded-lg px-2 py-1 text-xs ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        <ReactMarkdown components={chatMd}>{m.content}</ReactMarkdown>
+                        <ReactMarkdown components={chatMd as any}>{m.content}</ReactMarkdown>
                       </div>
                       {m.role === "assistant" && (
                         <div className="flex gap-1 mt-0.5">
@@ -492,7 +492,7 @@ function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp,
       </CardHeader>
       <CardContent className="p-2 pt-0">
         <div className="text-xs leading-relaxed space-y-2">
-          <ReactMarkdown components={summaryMd}>{content}</ReactMarkdown>
+          <ReactMarkdown components={summaryMd as any}>{content}</ReactMarkdown>
         </div>
       </CardContent>
     </Card>

@@ -1,12 +1,19 @@
 export class APIError extends Error {
+  code: "auth" | "network" | "context_length" | "rate_limit" | "quota_exceeded" | "server" | "unknown";
+  statusCode?: number;
+  originalBody?: string;
+
   constructor(
     message: string,
-    public code: "auth" | "network" | "context_length" | "rate_limit" | "quota_exceeded" | "server" | "unknown",
-    public statusCode?: number,
-    public originalBody?: string
+    code: "auth" | "network" | "context_length" | "rate_limit" | "quota_exceeded" | "server" | "unknown",
+    statusCode?: number,
+    originalBody?: string
   ) {
     super(message);
     this.name = "APIError";
+    this.code = code;
+    this.statusCode = statusCode;
+    this.originalBody = originalBody;
   }
 }
 
@@ -14,8 +21,8 @@ function classifyError(status: number, body: string): { code: APIError["code"]; 
   let parsed: Record<string, unknown> = {};
   try { parsed = JSON.parse(body); } catch { /* ignore */ }
 
-  const apiMessage = typeof parsed?.error === "string" ? parsed.error
-    : typeof parsed?.error?.message === "string" ? parsed.error.message
+  const apiMessage = typeof parsed?.error === "string" ? parsed.error as string
+    : typeof (parsed?.error as Record<string,unknown>)?.message === "string" ? (parsed?.error as Record<string,unknown>).message as string
     : "";
 
   // 401 / 403 — auth failure (wrong key, expired key, insufficient permissions)

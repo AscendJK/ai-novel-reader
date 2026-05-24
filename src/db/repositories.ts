@@ -42,8 +42,8 @@ export async function loadNovel(novelId: string): Promise<Novel | null> {
     return {
       id: record.id, title: record.title, author: record.author,
       fileName: record.fileName, fileFormat: record.fileFormat,
-      totalChars: record.totalChars, createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
+      totalChars: record.totalChars, chapterCount: chapterRecords.length,
+      createdAt: record.createdAt, updatedAt: record.updatedAt,
       chapters: chapterRecords.map((ch) => ({
         id: ch.id, novelId: ch.novelId, index: ch.index,
         title: ch.title, content: ch.content, startOffset: 0, endOffset: ch.content.length,
@@ -84,8 +84,8 @@ export async function loadAllNovels(): Promise<Novel[]> {
       novels.push({
         id: record.id, title: record.title, author: record.author,
         fileName: record.fileName, fileFormat: record.fileFormat,
-        totalChars: record.totalChars, createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
+        totalChars: record.totalChars, chapterCount: chapterRecords.length,
+        createdAt: record.createdAt, updatedAt: record.updatedAt,
         chapters: chapterRecords.map((ch) => ({
           id: ch.id, novelId: ch.novelId, index: ch.index,
           title: ch.title, content: ch.content, startOffset: 0, endOffset: ch.content.length,
@@ -101,11 +101,10 @@ export async function loadAllNovels(): Promise<Novel[]> {
 
 export async function deleteNovel(novelId: string): Promise<void> {
   try {
-    await db.transaction("rw", db.chapters, db.summaries, db.settings, db.novels, db.notes, async () => {
+    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.novels, async () => {
       await db.chapters.where("novelId").equals(novelId).delete();
       await db.summaries.where("novelId").equals(novelId).delete();
-	      await db.notes.where("novelId").equals(novelId).delete();
-      await db.settings.delete("character-graph-" + novelId).catch(() => {});
+          await db.settings.delete("character-graph-" + novelId).catch(() => {});
       await db.novels.delete(novelId);
     });
 

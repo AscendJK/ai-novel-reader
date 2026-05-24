@@ -12,10 +12,6 @@ import type { ProviderType } from "@/api/types";
 export function ProviderSelect() {
   const { providers, activeProviderId, setActiveProvider } = useAPIStore();
 
-  const availableTypes = PROVIDER_PRESETS.filter((preset) =>
-    providers.some((p) => p.type === preset.type)
-  );
-
   return (
     <Select
       value={activeProviderId || undefined}

@@ -6,7 +6,6 @@ import { summarizerAgent, globalSummarizerAgent } from "@/agents/summarizer";
 import { characterAnalysisAgent, timelineAgent } from "@/agents/analyzers";
 import { characterGraphAgent } from "@/agents/graph-agent";
 import { getProvider } from "@/api/registry";
-import { loadNovel } from "@/db/repositories";
 import { saveSummary } from "@/db/repositories";
 import { APIError } from "@/api/error-handler";
 import { buildIndex, retrieveRelevant } from "@/rag/index";
