@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
@@ -550,7 +550,7 @@ function Row({ label, onDelete }: { label: string; onDelete: () => void }) {
   );
 }
 
-const summaryMd = useMemo(() => ({
+const summaryMd = {
   h1: ({ children }: { children: ReactNode }) => <h2 className="text-sm font-bold border-b pb-0.5 mb-1.5 mt-3 first:mt-0">{children}</h2>,
   h2: ({ children }: { children: ReactNode }) => <h3 className="text-xs font-semibold mt-2 mb-1 flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-primary shrink-0" />{children}</h3>,
   h3: ({ children }: { children: ReactNode }) => <h4 className="text-xs font-medium mt-1.5 mb-0.5">{children}</h4>,
@@ -568,12 +568,12 @@ const summaryMd = useMemo(() => ({
   tr: ({ children }: { children: ReactNode }) => <tr className="border-b border-border last:border-0">{children}</tr>,
   th: ({ children }: { children: ReactNode }) => <th className="text-left px-1.5 py-0.5 font-semibold">{children}</th>,
   td: ({ children }: { children: ReactNode }) => <td className="px-1.5 py-0.5">{children}</td>,
-}), []);
+};
 
-const chatMd = useMemo(() => ({
+const chatMd = {
   p: ({ children }: { children: ReactNode }) => <p className="mb-0.5 last:mb-0">{children}</p>,
   ul: ({ children }: { children: ReactNode }) => <ul className="list-disc pl-3">{children}</ul>,
   ol: ({ children }: { children: ReactNode }) => <ol className="list-decimal pl-3">{children}</ol>,
   strong: ({ children }: { children: ReactNode }) => <strong className="font-semibold">{children}</strong>,
   code: ({ children }: { children: ReactNode }) => <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">{children}</code>,
-}), []);
+};
