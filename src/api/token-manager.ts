@@ -4,7 +4,7 @@ export function estimateTokens(text: string): number {
   let otherChars = 0;
 
   for (const char of text) {
-    if (/[一-鿿㐀-䶿\u{20000}-\u{2a6df}]/.test(char)) {
+    if (/[一-鿿㐀-䶿\u{20000}-\u{2a6df}]/u.test(char)) {
       chineseChars++;
     } else if (/\s/.test(char)) {
       otherChars += 0.25;
