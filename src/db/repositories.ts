@@ -101,9 +101,10 @@ export async function loadAllNovels(): Promise<Novel[]> {
 
 export async function deleteNovel(novelId: string): Promise<void> {
   try {
-    await db.transaction("rw", db.chapters, db.summaries, db.settings, db.novels, async () => {
+    await db.transaction("rw", db.chapters, db.summaries, db.settings, db.novels, db.notes, async () => {
       await db.chapters.where("novelId").equals(novelId).delete();
       await db.summaries.where("novelId").equals(novelId).delete();
+	      await db.notes.where("novelId").equals(novelId).delete();
       await db.settings.delete("character-graph-" + novelId).catch(() => {});
       await db.novels.delete(novelId);
     });
@@ -159,4 +160,37 @@ export async function loadSetting<T>(key: string): Promise<T | null> {
     console.error("loadSetting failed:", e);
     return null;
   }
+}
+
+// ── notes ───────────────────────────────────────────────────────────
+
+export interface NoteItem {
+  id: string;
+  novelId: string;
+  chapterId: string;
+  chapterTitle: string;
+  content: string;
+  source: "user" | "ai";
+  sourceLabel: string;
+  createdAt: number;
+}
+
+export async function saveNote(note: NoteItem): Promise<void> {
+  try { await db.notes.put({ ...note }); }
+  catch (e) { console.error("saveNote failed:", e); }
+}
+
+export async function loadNotes(novelId: string): Promise<NoteItem[]> {
+  try { return db.notes.where("novelId").equals(novelId).reverse().sortBy("createdAt"); }
+  catch (e) { console.error("loadNotes failed:", e); return []; }
+}
+
+export async function deleteNote(noteId: string): Promise<void> {
+  try { await db.notes.delete(noteId); }
+  catch (e) { console.error("deleteNote failed:", e); }
+}
+
+export async function deleteNotesByType(novelId: string, chapterId: string): Promise<void> {
+  try { await db.notes.where({ novelId, chapterId }).delete(); }
+  catch (e) { console.error("deleteNotesByType failed:", e); }
 }

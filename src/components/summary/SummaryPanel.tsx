@@ -3,8 +3,10 @@ import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
 import type { GraphData } from "@/hooks/useSummarizer";
-import { loadSetting, saveSetting } from "@/db/repositories";
+import { loadSetting, saveSetting, loadNotes, saveNote, deleteNote } from "@/db/repositories";
+import type { NoteItem } from "@/db/repositories";
 
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +18,7 @@ import {
   Loader2, ChevronRight, ChevronDown,
   Sparkles, Users, Clock, RefreshCw, MessageSquare,
   BookOpen, Trash2, Maximize2, FileText, PlusCircle,
+  Bookmark, StickyNote,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { CharacterGraph } from "./CharacterGraph";
@@ -33,6 +36,14 @@ export function SummaryPanel() {
   const [rangeResults, setRangeResults] = useState<{ id: string; title: string; content: string; tokensUsed: number; createdAt: number }[]>([]);
   const [qaLoading, setQaLoading] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
+
+  // Notes state
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [noteContent, setNoteContent] = useState("");
+  const [noteTab, setNoteTab] = useState<"chapter" | "book">("chapter");
+  const [savingNote, setSavingNote] = useState(false);
+  const [expandedChapter, setExpandedChapter] = useState<string | null>(null);
+  const [expandedBook, setExpandedBook] = useState<string | null>(null);
 
   // Graph data
   const [characterGraphData, setCharacterGraphData] = useState<GraphData | null>(null);
@@ -52,16 +63,85 @@ export function SummaryPanel() {
 
   const loading = isRunning || isGenerating || qaLoading;
 
-  // Load graph on novel switch, clear QA
+  const handleSaveNote = async () => {
+    if (!noteContent.trim() || !currentNovel) return;
+    setSavingNote(true);
+    const chapterId = noteTab === "chapter" && selectedChapterId ? selectedChapterId : "__book__";
+    const chapterTitle = noteTab === "chapter"
+      ? currentNovel.chapters.find((c) => c.id === selectedChapterId)?.title || "当前章节"
+      : "全书笔记";
+    const note: NoteItem = {
+      id: crypto.randomUUID(),
+      novelId: currentNovel.id,
+      chapterId,
+      chapterTitle,
+      content: noteContent.trim(),
+      source: "user",
+      sourceLabel: noteTab === "chapter" ? "用户笔记" : "全书笔记",
+      createdAt: Date.now(),
+    };
+    await saveNote(note);
+    setNotes((prev) => [note, ...prev]);
+    setNoteContent("");
+    setSavingNote(false);
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    await deleteNote(noteId);
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+  };
+
+  const handleMoveToBook = async (note: NoteItem) => {
+    if (!currentNovel) return;
+    const updated: NoteItem = { ...note, chapterId: "__book__", chapterTitle: "全书笔记", sourceLabel: "从章节移入" };
+    await deleteNote(note.id);
+    await saveNote(updated);
+    setNotes((prev) => prev.map((n) => n.id === note.id ? updated : n));
+  };
+
+  const handleBookmarkAI = async (title: string, content: string, chapterId: string, scope?: "chapter" | "book") => {
+    if (!currentNovel) return;
+    // If scope is explicitly provided, use it to decide chapterId
+    const isBook = scope
+      ? scope === "book"
+      : (chapterId === "__global__" || chapterId === "__timeline__" || chapterId === "__characters__" || chapterId === "__book__");
+    const finalChapterId = isBook ? "__book__" : (chapterId || "__book__");
+    const chTitle = isBook ? "全书笔记" : currentNovel.chapters.find((c) => c.id === chapterId)?.title || title;
+    const note: NoteItem = {
+      id: crypto.randomUUID(),
+      novelId: currentNovel.id,
+      chapterId: finalChapterId,
+      chapterTitle: chTitle,
+      content,
+      source: "ai",
+      sourceLabel: title,
+      createdAt: Date.now(),
+    };
+    await saveNote(note);
+    setNotes((prev) => [note, ...prev]);
+  };
+
+  const filteredNotes = notes.filter((n) =>
+    noteTab === "chapter"
+      ? n.chapterId === selectedChapterId
+      : n.chapterId === "__book__"
+  );
+
+  // Load graph + notes on novel switch, clear QA
   useEffect(() => {
     setQaMessages([]); setRangeResults([]); setCustomQuestion(""); setRangeFrom(""); setRangeTo("");
+    setNoteContent("");
     let cancelled = false;
     if (currentNovel) {
       loadSetting<GraphData>(`character-graph-${currentNovel.id}`).then((gd) => {
         if (!cancelled) setCharacterGraphData(gd);
       });
+      loadNotes(currentNovel.id).then((n) => {
+        if (!cancelled) setNotes(n);
+      });
     } else {
       setCharacterGraphData(null);
+      setNotes([]);
     }
     return () => { cancelled = true; };
   }, [currentNovel?.id]);
@@ -136,34 +216,15 @@ export function SummaryPanel() {
             <TabsTrigger value="qa" className="text-xs h-7 flex-1">问答</TabsTrigger>
             <TabsTrigger value="chapter" className="text-xs h-7 flex-1">本章分析</TabsTrigger>
             <TabsTrigger value="book" className="text-xs h-7 flex-1">全书分析</TabsTrigger>
+            <TabsTrigger value="notes" className="text-xs h-7 flex-1">笔记</TabsTrigger>
           </TabsList>
         </div>
 
-        <div className="flex-1 min-h-0 relative">
+        <ScrollArea className="flex-1">
           {/* ====== 问答 Tab ====== */}
-          <TabsContent value="qa" className="flex flex-col m-0 absolute inset-0">
-            {/* Scrollable chat + range results */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-2.5 pt-2 space-y-1.5">
-              {qaMessages.length > 0 && (
-                <div className="space-y-1.5">
-                  {qaMessages.map((m) => (
-                    <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[90%] rounded-lg px-2 py-1 text-xs ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        <ReactMarkdown components={chatMd}>{m.content}</ReactMarkdown>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {qaLoading && <Loader2 className="h-3 w-3 animate-spin mx-auto" />}
-              {rangeResults.map((r) => (
-                <MiniCard key={r.id} title={r.title} content={r.content} tokens={r.tokensUsed} date={r.createdAt} isTemp
-                  onRemove={() => setRangeResults((p) => p.filter((x) => x.id !== r.id))} />
-              ))}
-            </div>
-
-            {/* Fixed bottom: range summary + input */}
-            <div className="shrink-0 px-2.5 pb-2 space-y-1.5 border-t pt-2">
+          <TabsContent value="qa" className="m-0">
+            {/* QA input at top — always visible first */}
+            <div className="px-2.5 pt-2 pb-2 space-y-1.5 border-b">
               <Card className="shadow-none"><CardContent className="p-2 space-y-1.5">
                 <p className="text-xs font-medium">范围总结</p>
                 <div className="flex items-center gap-1">
@@ -189,10 +250,41 @@ export function SummaryPanel() {
                 )}
               </div>
             </div>
+            {/* Chat + range results below */}
+            <div className="px-2.5 pt-2 pb-2 space-y-1.5">
+              {qaMessages.length > 0 && (
+                <div className="space-y-1.5">
+                  {qaMessages.map((m) => (
+                    <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
+                      <div className={`max-w-[90%] rounded-lg px-2 py-1 text-xs ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        <ReactMarkdown components={chatMd}>{m.content}</ReactMarkdown>
+                      </div>
+                      {m.role === "assistant" && (
+                        <div className="flex gap-1 mt-0.5">
+                          <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
+                            onClick={() => handleBookmarkAI("AI 回答", m.content, selectedChapterId || "", "chapter")}>
+                            <Bookmark className="h-2.5 w-2.5 mr-0.5" />收藏到本章
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
+                            onClick={() => handleBookmarkAI("AI 回答", m.content, "__book__", "book")}>
+                            <Bookmark className="h-2.5 w-2.5 mr-0.5" />收藏到全书
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {qaLoading && <Loader2 className="h-3 w-3 animate-spin mx-auto" />}
+              {rangeResults.map((r) => (
+                <MiniCard key={r.id} title={r.title} content={r.content} tokens={r.tokensUsed} date={r.createdAt} isTemp
+                  onRemove={() => setRangeResults((p) => p.filter((x) => x.id !== r.id))} />
+              ))}
+            </div>
           </TabsContent>
 
           {/* ====== 本章分析 Tab ====== */}
-          <TabsContent value="chapter" className="px-2.5 pt-2 space-y-2 m-0 overflow-y-auto absolute inset-0">
+          <TabsContent value="chapter" className="px-2.5 pt-2 pb-2 space-y-2 m-0">
             <div className="flex gap-1">
                 <Button size="sm" className="flex-1 text-xs h-7" onClick={() => selectedChapterId && summarizeChapter(selectedChapterId)} disabled={loading || !selectedChapterId}>
                   {loading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}总结本章
@@ -210,7 +302,8 @@ export function SummaryPanel() {
               {chapterSummary ? (
                 <MiniCard title={chapterSummary.chapterTitle} content={chapterSummary.content}
                   tokens={chapterSummary.tokensUsed} date={chapterSummary.createdAt}
-                  onRegenerate={() => selectedChapterId && regenerateChapter(selectedChapterId)} loading={loading} />
+                  onRegenerate={() => selectedChapterId && regenerateChapter(selectedChapterId)} loading={loading}
+                  onBookmark={() => handleBookmarkAI(chapterSummary.chapterTitle, chapterSummary.content, chapterSummary.chapterId)} />
               ) : (
                 <p className="text-xs text-muted-foreground text-center py-4">暂无总结，点击上方按钮生成</p>
               )}
@@ -218,7 +311,7 @@ export function SummaryPanel() {
           </TabsContent>
 
           {/* ====== 全书分析 Tab ====== */}
-          <TabsContent value="book" className="px-2.5 pt-2 space-y-1 m-0 overflow-y-auto absolute inset-0">
+          <TabsContent value="book" className="px-2.5 pt-2 pb-2 space-y-1 m-0">
               <SubItem label="剧情时间线" icon={<Clock className="h-3 w-3" />}
                 isOpen={bookSub === "timeline"} onClick={() => setBookSub(bookSub === "timeline" ? null : "timeline")}
                 summaries={tlSummaries} onGenerate={generateTimeline} onRegenerate={regenerateTimeline}
@@ -235,7 +328,67 @@ export function SummaryPanel() {
                 summaries={globalSummaries} onGenerate={generateGlobalSummary} onRegenerate={regenerateGlobal}
                 loading={loading} emptyLabel="生成全书总览" />
           </TabsContent>
-        </div>
+
+          {/* ====== 笔记 Tab ====== */}
+          <TabsContent value="notes" className="pt-2 m-0">
+            <div className="px-2.5 pb-1 flex gap-1 border-b">
+              <Button variant={noteTab === "chapter" ? "secondary" : "ghost"} size="sm" className="text-xs h-6"
+                onClick={() => setNoteTab("chapter")}>本章笔记</Button>
+              <Button variant={noteTab === "book" ? "secondary" : "ghost"} size="sm" className="text-xs h-6"
+                onClick={() => setNoteTab("book")}>全书笔记</Button>
+            </div>
+            <div className="px-2.5 pt-2 pb-2 space-y-2">
+              <div className="space-y-1.5">
+                <Textarea className="text-xs min-h-[50px]" placeholder="写笔记..."
+                  value={noteContent} onChange={(e) => setNoteContent(e.target.value)} />
+                <Button size="sm" className="h-6 text-xs w-full" onClick={handleSaveNote}
+                  disabled={savingNote || !noteContent.trim()}>
+                  <StickyNote className="h-3 w-3 mr-1" />保存笔记
+                </Button>
+              </div>
+              {filteredNotes.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  暂无{noteTab === "chapter" ? "本章" : "全书"}笔记
+                </p>
+              )}
+              {filteredNotes.map((n) => {
+                const isExpanded = noteTab === "chapter" ? expandedChapter === n.id : expandedBook === n.id;
+                const setExpanded = noteTab === "chapter" ? setExpandedChapter : setExpandedBook;
+                return (
+                <Card key={n.id} className="shadow-none cursor-pointer overflow-hidden min-w-0"
+                  onClick={() => setExpanded(isExpanded ? null : n.id)}>
+                  <CardHeader className="p-2 pb-0.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 min-w-0">
+                        {isExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                        <Badge variant={n.source === "ai" ? "secondary" : "outline"} className="text-xs shrink-0">
+                          {n.source === "ai" ? "AI" : "笔记"}
+                        </Badge>
+                        <CardTitle className="text-xs truncate">{n.sourceLabel}</CardTitle>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {noteTab === "chapter" && (
+                          <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
+                            onClick={() => handleMoveToBook(n)} title="移入全书笔记">
+                            移入全书
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive shrink-0"
+                          onClick={() => handleDeleteNote(n.id)}>
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{new Date(n.createdAt).toLocaleString("zh-CN")}</p>
+                  </CardHeader>
+                  <CardContent className="p-2 pt-0">
+                    <div className={`text-xs leading-relaxed text-foreground/80 ${isExpanded ? "whitespace-pre-wrap break-all" : "line-clamp-2 break-all"}`}>{n.content}</div>
+                  </CardContent>
+                </Card>
+              )})}
+            </div>
+          </TabsContent>
+        </ScrollArea>
         </Tabs>
 
       {/* Data Mgmt — pinned to bottom */}
@@ -249,7 +402,12 @@ export function SummaryPanel() {
         {dataOpen && (
           <div className="mt-1.5 max-h-32 overflow-auto">
             <DataMgr novelId={currentNovel.id} summaries={summaries} hasGraph={!!characterGraphData}
-              onDeleteGraph={() => saveGraph(null)} />
+              onDeleteGraph={() => saveGraph(null)}
+              onNotesChanged={() => { if (currentNovel) loadNotes(currentNovel.id).then(setNotes); }}
+              noteCount={{
+                chapter: notes.filter((n) => n.chapterId !== "__book__").length,
+                book: notes.filter((n) => n.chapterId === "__book__").length
+              }} />
           </div>
         )}
       </div>
@@ -310,9 +468,10 @@ function SubItem({ label, icon, isOpen, onClick, summaries, onGenerate, onRegene
   );
 }
 
-function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp, onRemove }: {
+function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp, onRemove, onBookmark }: {
   title: string; content: string; tokens: number; date: number;
   onRegenerate?: () => void; loading?: boolean; isTemp?: boolean; onRemove?: () => void;
+  onBookmark?: () => void;
 }) {
   return (
     <Card className={`shadow-none ${isTemp ? "border-dashed border-amber-300 dark:border-amber-700" : ""}`}>
@@ -324,6 +483,7 @@ function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp,
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
             <Badge variant="outline" className="text-xs font-normal">~{tokens}</Badge>
+            {onBookmark && <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onBookmark} title="收藏到笔记"><Bookmark className="h-2.5 w-2.5" /></Button>}
             {onRegenerate && <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onRegenerate} disabled={loading}><RefreshCw className="h-2.5 w-2.5" /></Button>}
             {onRemove && <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onRemove}>x</Button>}
           </div>
@@ -339,25 +499,42 @@ function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp,
   );
 }
 
-function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph }: {
-  novelId: string; summaries: { id: string; type: string }[]; hasGraph: boolean; onDeleteGraph: () => void;
+function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph, noteCount, onNotesChanged }: {
+  novelId: string; summaries: { id: string; type: string }[]; hasGraph: boolean;
+  onDeleteGraph: () => void; noteCount: { chapter: number; book: number };
+  onNotesChanged: () => void;
 }) {
   const { setSummaries } = useSummaryStore();
-  const del = async (type: string) => {
+  const del = async (type: string, label: string) => {
+    if (!window.confirm(`确认删除所有 ${label}？此操作不可恢复。`)) return;
     const { db } = await import("@/db/database");
     const targets = summaries.filter((s) => s.type === type);
     for (const s of targets) await db.summaries.delete(s.id);
     setSummaries(summaries.filter((s) => s.type !== type));
   };
-  const delGraph = async () => { await saveSetting("character-graph-" + novelId, null); onDeleteGraph(); };
+  const delGraph = async () => {
+    if (!window.confirm("确认删除人物关系图谱？")) return;
+    await saveSetting("character-graph-" + novelId, null);
+    onDeleteGraph();
+  };
+  const delNotesByFilter = async (isBook: boolean, label: string) => {
+    if (!window.confirm(`确认删除所有 ${label}？此操作不可恢复。`)) return;
+    const { db } = await import("@/db/database");
+    const all = await db.notes.where("novelId").equals(novelId).toArray();
+    const targets = all.filter((n) => isBook ? n.chapterId === "__book__" : n.chapterId !== "__book__");
+    for (const n of targets) await db.notes.delete(n.id);
+    onNotesChanged();
+  };
   const count = (t: string) => summaries.filter((s) => s.type === t).length;
   return (
     <div className="mt-1 space-y-0.5 text-xs">
-      {count("chapter") > 0 && <Row label={`章节总结 (${count("chapter")})`} onDelete={() => del("chapter")} />}
-      {count("global") > 0 && <Row label="全书总览" onDelete={() => del("global")} />}
-      {count("timeline") > 0 && <Row label="剧情时间线" onDelete={() => del("timeline")} />}
-      {count("characters") > 0 && <Row label="人物关系分析" onDelete={() => del("characters")} />}
+      {count("chapter") > 0 && <Row label={`章节总结 (${count("chapter")})`} onDelete={() => del("chapter", "章节总结")} />}
+      {count("global") > 0 && <Row label="全书总览" onDelete={() => del("global", "全书总览")} />}
+      {count("timeline") > 0 && <Row label="剧情时间线" onDelete={() => del("timeline", "剧情时间线")} />}
+      {count("characters") > 0 && <Row label="人物关系分析" onDelete={() => del("characters", "人物关系分析")} />}
       {hasGraph && <Row label="人物关系图谱" onDelete={delGraph} />}
+      {noteCount.chapter > 0 && <Row label={`章节笔记 (${noteCount.chapter})`} onDelete={() => delNotesByFilter(false, "章节笔记")} />}
+      {noteCount.book > 0 && <Row label={`全书笔记 (${noteCount.book})`} onDelete={() => delNotesByFilter(true, "全书笔记")} />}
     </div>
   );
 }

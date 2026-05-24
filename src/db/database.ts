@@ -35,19 +35,32 @@ export interface SettingsRecord {
   value: unknown;
 }
 
+export interface NoteRecord {
+  id: string;
+  novelId: string;
+  chapterId: string;
+  chapterTitle: string;
+  content: string;
+  source: "user" | "ai";
+  sourceLabel: string;
+  createdAt: number;
+}
+
 class NovelDB extends Dexie {
   novels!: Table<NovelRecord, string>;
   chapters!: Table<ChapterRecord, string>;
   summaries!: Table<SummaryRecord, string>;
   settings!: Table<SettingsRecord, string>;
+  notes!: Table<NoteRecord, string>;
 
   constructor() {
     super("ai-novel-reader");
-    this.version(1).stores({
+    this.version(2).stores({
       novels: "id, createdAt",
       chapters: "id, novelId, index",
       summaries: "id, novelId, chapterId, type",
       settings: "key",
+      notes: "id, novelId, chapterId, source, createdAt",
     });
   }
 }
