@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChapterNav } from "./ChapterNav";
 import { ChapterContent } from "./ChapterContent";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
@@ -11,6 +11,16 @@ export function ReadingPanel() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileAiOpen, setMobileAiOpen] = useState(false);
   const [mobileAiTab, setMobileAiTab] = useState("chapter");
+  const [immersive, setImmersive] = useState(false);
+
+  // On mobile, hide header when immersive
+  useEffect(() => {
+    const h = document.querySelector("header");
+    if (!h || window.innerWidth >= 768) return;
+    h.style.display = immersive ? "none" : "";
+    return () => { h.style.display = ""; };
+  }, [immersive]);
+
   const { currentNovel, selectedChapterId } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
 
@@ -36,10 +46,13 @@ export function ReadingPanel() {
           summaryOpen={summaryOpen}
           onToggleSummary={() => setSummaryOpen(!summaryOpen)}
           hasSummary={hasCurrentSummary}
+          immersive={immersive}
+          onToggleImmersive={() => setImmersive(!immersive)}
         />
       </div>
 
-      {/* Mobile: bottom bar */}
+      {/* Mobile: bottom bar — hidden in immersive mode */}
+      {!immersive && (
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-12 border-t bg-card flex items-center justify-around z-30 px-2">
         <button onClick={() => setMobileNavOpen(true)}
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
@@ -62,6 +75,7 @@ export function ReadingPanel() {
           <StickyNote className="h-4 w-4" />笔记
         </button>
       </div>
+      )}
 
       {/* Desktop: right panel */}
       <div className="hidden md:flex">

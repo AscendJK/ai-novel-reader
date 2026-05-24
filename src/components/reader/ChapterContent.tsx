@@ -12,6 +12,8 @@ interface ChapterContentProps {
   summaryOpen: boolean;
   onToggleSummary: () => void;
   hasSummary: boolean;
+  immersive: boolean;
+  onToggleImmersive: () => void;
 }
 
 const FONT_WEIGHTS = [
@@ -21,7 +23,7 @@ const FONT_WEIGHTS = [
   { value: 600, label: "粗" },
 ];
 
-export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary }: ChapterContentProps) {
+export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immersive, onToggleImmersive }: ChapterContentProps) {
   const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
   const { fontSize, setFontSize, fontWeight, setFontWeight } = useUIStore();
@@ -133,7 +135,8 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary }: Cha
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col"
+        onClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) onToggleImmersive(); }}>
         <ScrollArea className="flex-1">
           <div className="p-6 max-w-3xl mx-auto pb-20">
             {summaries.length > 0 && (
