@@ -34,8 +34,8 @@ npm-debug.log*
 *.db
 *.sqlite
 
-# Local model files (user places them manually)
-public/models/Xenova/
+# User-added model files (not in Git)
+public/models/custom/
 
 # Temp files
 *.tmp

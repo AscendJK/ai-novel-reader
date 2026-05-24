@@ -8,7 +8,7 @@ function loadPref(): EngineId {
       return stored;
     }
   } catch { /* ignore */ }
-  return "tfidf";
+  return "bge-small-zh";
 }
 
 interface RAGState {

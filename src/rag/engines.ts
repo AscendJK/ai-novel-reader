@@ -13,8 +13,8 @@ export interface EngineInfo {
 export const ENGINES: Record<EngineId, EngineInfo> = {
   tfidf: {
     id: "tfidf",
-    name: "TF-IDF（默认）",
-    description: "纯本地字符级检索，零下载，即时可用",
+    name: "TF-IDF（内置）",
+    description: "纯本地字符级检索，零依赖，即时可用",
     size: "0 MB",
     modelKey: "",
     strengths: [
