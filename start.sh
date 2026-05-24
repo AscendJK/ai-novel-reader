@@ -54,7 +54,7 @@ case "$mode" in
       fi
     done
     echo "Starting sync server (port 3001)..."
-    nohup node server/index.js > /dev/null 2>&1 &
+    nohup node server/index.js > server/server.log 2>&1 &
     sleep 1
     echo "Starting Vite dev server (port 5173)..."
     nohup npx vite --host 0.0.0.0 --port 5173 > /dev/null 2>&1 &

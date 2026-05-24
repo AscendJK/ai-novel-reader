@@ -43,6 +43,33 @@ export function useFileParser() {
 
       setProgress(90);
       await saveNovel(novel);
+      // Also upload to server
+      fetch("/api/novels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          novel: {
+            id: novel.id, title: novel.title, author: novel.author,
+            fileName: novel.fileName, fileFormat: novel.fileFormat,
+            totalChars: novel.totalChars, chapterCount: novel.chapterCount,
+            createdAt: novel.createdAt,
+          },
+          chapters: novel.chapters.map((c) => ({
+            id: c.id, novelId: c.novelId, index: c.index,
+            title: c.title, content: c.content,
+            startOffset: c.startOffset, endOffset: c.endOffset,
+          })),
+        }),
+      }).then((r) => r?.ok ? r.json() : null).then((data: any) => {
+        // Auto-join for uploader
+        const username = localStorage.getItem("sync-username");
+        if (username && data?.novelId) {
+          fetch(`/api/novels/${data.novelId}/join`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username }),
+          }).catch(() => {});
+        }
+      }).catch(() => { /* server may be offline */ });
       setProgress(100);
 
       addNovel(novel);

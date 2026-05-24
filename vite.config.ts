@@ -39,18 +39,20 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1000, // Transformers.js ~800KB is expected
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,
     proxy: {
       "/api": "http://localhost:3001",
+      "/admin": "http://localhost:3001",
     },
     hmr: {
-      // Don't full-reload on reconnect after mobile sleep
       overlay: false,
     },
     watch: {
-      // Less aggressive file watching
       usePolling: false,
     },
   },

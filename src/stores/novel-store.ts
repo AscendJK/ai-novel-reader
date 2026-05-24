@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Novel } from "@/parsers/types";
+import { syncClient } from "@/sync/sync-client";
 
 interface ReadPosition { chapterId: string; chapterIndex: number }
 
@@ -45,6 +46,16 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       const chapter = pos
         ? novel.chapters.find((c) => c.id === pos.chapterId)
         : null;
+      const selectedId = chapter?.id ?? novel.chapters[0]?.id ?? null;
+      const selectedIdx = chapter
+        ? novel.chapters.findIndex((c) => c.id === chapter.id)
+        : 0;
+      // Save position (even for first chapter) so bookshelf shows progress
+      const positions = {
+        ...get().readingPositions,
+        [novel.id]: { chapterId: selectedId, chapterIndex: selectedIdx >= 0 ? selectedIdx : 0 },
+      };
+      savePositions(positions);
       // Track last opened time for sorting
       try {
         const opened = JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
@@ -53,7 +64,8 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       } catch { /* ignore */ }
       set({
         currentNovel: novel,
-        selectedChapterId: chapter?.id ?? novel.chapters[0]?.id ?? null,
+        selectedChapterId: selectedId,
+        readingPositions: positions,
       });
     } else {
       set({ currentNovel: null, selectedChapterId: null });
@@ -70,6 +82,7 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       };
       savePositions(positions);
       set({ selectedChapterId: chapterId, readingPositions: positions });
+      syncClient.pushNow(); // immediate sync progress to server
     } else {
       set({ selectedChapterId: chapterId });
     }

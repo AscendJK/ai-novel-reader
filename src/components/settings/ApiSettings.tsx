@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ProviderSelect } from "./ProviderSelect";
 import type { ProviderType, ProviderConfig } from "@/api/types";
 import { Key, Trash2, ArrowLeft, AlertTriangle } from "lucide-react";
+import { db } from "@/db/database";
 import { RAGSettings } from "./RAGSettings";
 
 const MODEL_OPTIONS: Record<ProviderType, string[]> = {
@@ -244,7 +245,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
             onClick={() => {
               if (!window.confirm("确认清除所有本地数据？\n\n将删除：\n• 所有上传的小说\n• 所有 AI 分析结果\n• 所有笔记\n• API 配置\n• 阅读进度\n• 同步会话\n\n此操作不可恢复！")) return;
               // Clear IndexedDB
-              import("@/db/database").then(({ db }) => db.delete().then(() => window.location.reload()));
+              db.delete().then(() => window.location.reload());
               // Clear localStorage
               localStorage.clear();
             }}

@@ -3,6 +3,7 @@ import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2 } f
 import { useFileParser } from "@/hooks/useFileParser";
 import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
 import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
+import { db } from "@/db/database";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,8 +13,10 @@ import type { NovelMeta } from "@/parsers/types";
 
 export function BookSelect() {
   const { parseFile, isParsing, progress } = useFileParser();
-  const { setCurrentNovel, readingPositions } = useNovelStore();
+  const { setCurrentNovel, readingPositions, addNovel } = useNovelStore();
   const [savedNovels, setSavedNovels] = useState<NovelMeta[]>([]);
+  const [serverNovels, setServerNovels] = useState<NovelMeta[]>([]);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -27,6 +30,56 @@ export function BookSelect() {
       setSavedNovels(novels);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch server novel library with join status
+  useEffect(() => {
+    const username = localStorage.getItem("sync-username");
+    const url = username ? `/api/novels?username=${encodeURIComponent(username)}` : "/api/novels";
+    fetch(url).then((r) => r.json()).then((list: any[]) => {
+      setServerNovels(list.map((n: any) => ({
+        id: n.id, title: n.title, author: n.author,
+        fileName: n.fileName, fileFormat: n.fileFormat,
+        totalChars: n.totalChars, chapterCount: n.chapterCount,
+        createdAt: n.createdAt, updatedAt: n.updatedAt,
+        joined: n.joined, // from server
+      } as any)));
+    }).catch(() => {});
+  }, []);
+
+  // Join a server novel (download chapters + register on server)
+  const handleJoinNovel = async (novel: any) => {
+    setJoiningId(novel.id);
+    const username = localStorage.getItem("sync-username");
+    try {
+      const chResp = await fetch(`/api/novels/${novel.id}/chapters`);
+      const chapters = await chResp.json();
+      await db.transaction("rw", db.novels, db.chapters, async () => {
+        await db.novels.put({
+          id: novel.id, title: novel.title, author: novel.author,
+          fileName: novel.fileName, fileFormat: novel.fileFormat,
+          totalChars: novel.totalChars, chapterCount: chapters.length,
+          createdAt: novel.createdAt, updatedAt: Date.now(),
+        });
+        for (const ch of chapters) {
+          await db.chapters.put({
+            id: ch.id, novelId: novel.id, index: ch.index,
+            title: ch.title, content: ch.content,
+            startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? (ch.content?.length ?? 0),
+          });
+        }
+      });
+      addNovel({ ...novel, chapters, chapterCount: chapters.length });
+      if (username) {
+        fetch(`/api/novels/${novel.id}/join`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        }).catch(() => {});
+      }
+      setSavedNovels((prev) => [{ ...novel, chapterCount: chapters.length }, ...prev]);
+      setServerNovels((prev) => prev.map((n) => n.id === novel.id ? { ...n, joined: true } : n));
+    } catch (e) { console.error("join failed:", e); }
+    finally { setJoiningId(null); }
+  };
 
   const processFiles = useCallback(
     async (files: File[]) => {
@@ -131,9 +184,17 @@ export function BookSelect() {
 
   const handleDelete = async (e: React.MouseEvent, novelId: string, title: string) => {
     e.stopPropagation();
-    if (!window.confirm(`删除《${title}》？\n\n将同时删除：\n- 小说原文和章节\n- 所有 AI 总结和分析\n- 人物关系图谱\n- 阅读进度\n\n此操作不可恢复。`)) return;
+    if (!window.confirm(`从书架移除《${title}》？\n\n将删除你关于此书的所有数据：\n- AI 总结和分析\n- 人物关系图谱\n- 笔记\n- 阅读进度\n\n小说本身仍保留在服务器书库中。`)) return;
+    const username = localStorage.getItem("sync-username");
+    if (username) {
+      fetch(`/api/novels/${novelId}/leave`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      }).catch(() => {});
+    }
     await deleteNovel(novelId);
     setSavedNovels((prev) => prev.filter((n) => n.id !== novelId));
+    setServerNovels((prev) => prev.map((n) => n.id === novelId ? { ...n, joined: false } : n));
   };
 
   const loading = isParsing || batchParsing;
@@ -238,8 +299,8 @@ export function BookSelect() {
               {savedNovels.map((novel) => {
                 const pos = readingPositions[novel.id];
                 const readIndex = pos ? pos.chapterIndex : -1;
-                const progressPct = novel.chapterCount > 0
-                  ? Math.round(((readIndex + 1) / novel.chapterCount) * 100)
+                const progressPct = novel.chapterCount > 0 && readIndex >= 0
+                  ? (((readIndex + 1) / novel.chapterCount) * 100)
                   : 0;
 
                 return (
@@ -297,7 +358,7 @@ export function BookSelect() {
                             <Clock className="h-3 w-3" />
                             {pos ? `已读至第 ${pos.chapterIndex + 1} 章` : "未开始阅读"}
                           </span>
-                          <span>{progressPct}%</span>
+                          <span>{typeof progressPct === "number" ? progressPct.toFixed(2) : progressPct}%</span>
                         </div>
                         <Progress value={progressPct} className="h-1.5" />
                       </div>
@@ -312,6 +373,52 @@ export function BookSelect() {
                   </Card>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Server novel library — show all server novels with join status */}
+        {serverNovels.length > 0 && (
+          <div className="space-y-4 mt-8">
+            <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
+              <FolderOpen className="h-5 w-5" />
+              书库
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+              {serverNovels.map((novel: any) => (
+                <Card key={novel.id} className="transition-all hover:shadow-md">
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="w-10 h-14 rounded bg-muted flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold truncate">{novel.title}</h3>
+                        {novel.author && <p className="text-xs text-muted-foreground">{novel.author}</p>}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      <Badge variant="secondary" className="text-xs">{novel.fileFormat.toUpperCase()}</Badge>
+                      <Badge variant="secondary" className="text-xs">{novel.chapterCount} 章</Badge>
+                      <Badge variant="secondary" className="text-xs">{formatCharCount(novel.totalChars)}</Badge>
+                    </div>
+                    <div className="flex justify-end">
+                      {novel.joined ? (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">已添加</Badge>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleJoinNovel(novel)}
+                          disabled={joiningId === novel.id}
+                        >
+                          {joiningId === novel.id ? "加载中..." : "加入书架"}
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         )}

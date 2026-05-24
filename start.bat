@@ -47,7 +47,7 @@ for %%p in (5173 3001) do (
     )
 )
 echo Starting sync server (port 3001)...
-powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && node server/index.js' -WindowStyle Hidden"
+powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && node server/index.js > server\server.log 2>&1' -WindowStyle Hidden"
 timeout /t 2 /nobreak >nul
 echo Starting Vite dev server (port 5173)...
 powershell -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0 && npx vite --host 0.0.0.0 --port 5173' -WindowStyle Hidden"

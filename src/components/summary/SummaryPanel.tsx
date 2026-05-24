@@ -3,6 +3,7 @@ import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
 import type { GraphData } from "@/hooks/useSummarizer";
+import { db } from "@/db/database";
 import { loadSetting, saveSetting, loadNotes, saveNote, deleteNote } from "@/db/repositories";
 import type { NoteItem } from "@/db/repositories";
 
@@ -231,14 +232,14 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
                 <p className="text-xs font-medium">范围总结</p>
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-muted-foreground">第</span>
-                  <Input className="h-6 text-xs w-10 text-center" placeholder="1" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} />
+                  <Input id="range-from" name="range-from" className="h-6 text-xs w-10 text-center" placeholder="1" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} />
                   <span className="text-xs text-muted-foreground">-</span>
-                  <Input className="h-6 text-xs w-10 text-center" placeholder={String(currentNovel.chapters.length)} value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} />
+                  <Input id="range-to" name="range-to" className="h-6 text-xs w-10 text-center" placeholder={String(currentNovel.chapters.length)} value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} />
                   <span className="text-xs text-muted-foreground">章</span>
                   <Button size="sm" className="h-6 text-xs" onClick={handleRange} disabled={loading}>生成</Button>
                 </div>
               </CardContent></Card>
-              <Textarea className="text-xs min-h-[40px]" placeholder="输入问题，支持追问..."
+              <Textarea id="qa-input" name="qa-input" className="text-xs min-h-[40px]" placeholder="输入问题，支持追问..."
                 value={customQuestion} onChange={(e) => setCustomQuestion(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAsk(); } }} />
               <div className="flex gap-1">
@@ -341,7 +342,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
             </div>
             <div className="px-2.5 pt-2 pb-2 space-y-2">
               <div className="space-y-1.5">
-                <Textarea className="text-xs min-h-[50px]" placeholder="写笔记..."
+                <Textarea id="note-input" name="note-input" className="text-xs min-h-[50px]" placeholder="写笔记..."
                   value={noteContent} onChange={(e) => setNoteContent(e.target.value)} />
                 <Button size="sm" className="h-6 text-xs w-full" onClick={handleSaveNote}
                   disabled={savingNote || !noteContent.trim()}>
@@ -509,7 +510,6 @@ function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph, noteCount, onNot
   const { setSummaries } = useSummaryStore();
   const del = async (type: string, label: string) => {
     if (!window.confirm(`确认删除所有 ${label}？此操作不可恢复。`)) return;
-    const { db } = await import("@/db/database");
     const targets = summaries.filter((s) => s.type === type);
     for (const s of targets) await db.summaries.delete(s.id);
     setSummaries((prev) => prev.filter((s) => s.type !== type));
@@ -521,7 +521,6 @@ function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph, noteCount, onNot
   };
   const delNotesByFilter = async (isBook: boolean, label: string) => {
     if (!window.confirm(`确认删除所有 ${label}？此操作不可恢复。`)) return;
-    const { db } = await import("@/db/database");
     const all = await db.notes.where("novelId").equals(novelId).toArray();
     const targets = all.filter((n) => isBook ? n.chapterId === "__book__" : n.chapterId !== "__book__");
     for (const n of targets) await db.notes.delete(n.id);

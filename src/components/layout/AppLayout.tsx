@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Header } from "./Header";
 import { BookSelect } from "./BookSelect";
 import { ReadingPanel } from "@/components/reader/ReadingPanel";
@@ -13,6 +13,7 @@ import { useNovelStore } from "@/stores/novel-store";
 import { loadAllNovels, loadSummaries } from "@/db/repositories";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useAPIStore } from "@/stores/api-store";
+import { db } from "@/db/database";
 import { syncClient } from "@/sync/sync-client";
 import { gatherChanges, applyServerData } from "@/sync/sync-bridge";
 import type { SyncData } from "@/sync/types";
@@ -26,6 +27,14 @@ export function AppLayout() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSyncing, setLoginSyncing] = useState(false);
   const syncStarted = useRef(false);
+
+  const handleKicked = useCallback(() => {
+    alert("该账号已在另一设备登录，当前会话已下线。");
+    // Clear local data and reload so login screen appears
+    localStorage.removeItem("sync-username");
+    localStorage.removeItem("sync-clientId");
+    db.delete().then(() => window.location.reload());
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -55,8 +64,12 @@ export function AppLayout() {
         gatherChanges,
         applyData: async (data: SyncData) => {
           await applyServerData(data);
-          const novels = await loadAllNovels();
-          novels.forEach((n) => addNovel(n));
+          if (data.progress?.readingPositions) {
+            useNovelStore.setState((s) => ({
+              readingPositions: { ...s.readingPositions, ...data.progress!.readingPositions },
+            }));
+          }
+          // Reload summaries if viewing a novel
           const { currentNovel: cn } = useNovelStore.getState();
           if (cn) {
             const s = await loadSummaries(cn.id);
@@ -64,6 +77,7 @@ export function AppLayout() {
           }
         },
         isAiRunning: () => (window as any).__aiRunning === true,
+        onKicked: handleKicked,
       });
       setSyncReady(true);
     }
@@ -85,7 +99,6 @@ export function AppLayout() {
 
     // Clear stale local data from any previous user (truncate tables, not delete DB)
     try {
-      const { db } = await import("@/db/database");
       await db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
         await db.novels.clear();
         await db.chapters.clear();
@@ -119,8 +132,11 @@ export function AppLayout() {
         gatherChanges,
         applyData: async (data: SyncData) => {
           await applyServerData(data);
-          const novels = await loadAllNovels();
-          novels.forEach((n) => addNovel(n));
+          if (data.progress?.readingPositions) {
+            useNovelStore.setState((s) => ({
+              readingPositions: { ...s.readingPositions, ...data.progress!.readingPositions },
+            }));
+          }
           const { currentNovel: cn2 } = useNovelStore.getState();
           if (cn2) {
             const s = await loadSummaries(cn2.id);
@@ -128,6 +144,7 @@ export function AppLayout() {
           }
         },
         isAiRunning: () => (window as any).__aiRunning === true,
+        onKicked: handleKicked,
       });
     }
 
@@ -138,8 +155,6 @@ export function AppLayout() {
     try {
       const ok = await syncClient.syncOnce();
       console.log("[sync] initial syncOnce:", ok ? "ok" : "failed");
-      const novels = await loadAllNovels();
-      novels.forEach((n) => addNovel(n));
     } catch (e) { console.error("[sync] syncOnce error:", e); }
 
     setSyncReady(true);
@@ -175,9 +190,9 @@ export function AppLayout() {
             <ApiSettings onBack={() => setShowSettings(false)} />
           </div>
         )}
-        {/* Book select */}
+        {/* Book select — key forces remount when sync completes */}
         {!currentNovel && !showSettings && (
-          <div className="h-full overflow-auto">
+          <div className="h-full overflow-auto" key={String(syncReady)}>
             <BookSelect />
           </div>
         )}

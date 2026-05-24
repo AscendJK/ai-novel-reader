@@ -1,6 +1,7 @@
 import { ArrowLeft, Book, Settings, Moon, Sun, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
+import { db } from "@/db/database";
 import { syncClient } from "@/sync/sync-client";
 
 interface HeaderProps {
@@ -19,7 +20,7 @@ export function Header({ inBook, bookTitle, onBack, onSettings }: HeaderProps) {
     syncClient.logout();
     // Clear all local data
     localStorage.clear();
-    import("@/db/database").then(({ db }) => db.delete().then(() => window.location.reload()));
+    db.delete().then(() => window.location.reload());
   };
 
   return (

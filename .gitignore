@@ -43,5 +43,9 @@ public/models/custom/Xenova/
 # Temp files
 *.tmp
 
-# Sync server user data
+# Sync server — runtime data (SQLite DB, admin token, user files)
 server/data/
+server/server.log
+
+# Admin token (contains secret)
+server/data/.admin_token

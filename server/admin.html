@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 — AI 小说精读助手</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f0f11;color:#c9c9c9;min-height:100vh}
+  .header{background:#1a1a1f;border-bottom:1px solid #2a2a30;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+  .header h1{font-size:16px;font-weight:600;color:#e0e0e0}
+  .tabs{display:flex;gap:4px;background:#1a1a1f;padding:8px 20px;border-bottom:1px solid #2a2a30}
+  .tab{padding:6px 16px;border-radius:6px;border:none;cursor:pointer;background:transparent;color:#888;font-size:13px}
+  .tab.active{background:#2a2a35;color:#e0e0e0;font-weight:500}
+  .content{max-width:1100px;margin:0 auto;padding:20px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:8px 12px;font-size:12px;color:#777;border-bottom:1px solid #2a2a30;font-weight:500}
+  td{padding:10px 12px;font-size:13px;border-bottom:1px solid #1f1f24}
+  tr:hover{background:rgba(255,255,255,0.02)}
+  button.danger{padding:4px 12px;border-radius:4px;border:1px solid #5a2020;background:#3a1515;color:#e55;cursor:pointer;font-size:12px}
+  button.danger:hover{background:#4a2020}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .stat{background:#1a1a1f;border:1px solid #2a2a30;border-radius:8px;padding:16px}
+  .stat .v{font-size:24px;font-weight:700;color:#e0e0e0}
+  .stat .l{font-size:12px;color:#777;margin-top:4px}
+  .toast{position:fixed;bottom:20px;right:20px;padding:10px 20px;border-radius:6px;font-size:13px;z-index:99;opacity:0;transition:opacity .3s}
+  .toast.show{opacity:1}
+  .toast.ok{background:#1a3a1a;border:1px solid #2a5a2a;color:#8c8}
+  .toast.err{background:#3a1a1a;border:1px solid #5a2a2a;color:#e88}
+  .badge{padding:2px 8px;border-radius:4px;font-size:11px;background:#1a2a3a;color:#89b}
+  @media (max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📚 AI 小说精读助手 — 管理后台</h1>
+  <span id="tokenHint" style="font-size:11px;color:#555"></span>
+</div>
+<div class="tabs">
+  <button class="tab active" data-tab="overview">概览</button>
+  <button class="tab" data-tab="users">用户</button>
+  <button class="tab" data-tab="novels">小说</button>
+</div>
+<div class="content" id="content"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "/api/admin";
+const token = new URLSearchParams(location.search).get("token") || "";
+document.getElementById("tokenHint").textContent = token ? "Token: "+token.slice(0,8)+"..." : "无 token";
+
+function toast(msg, ok) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = "toast " + (ok ? "ok" : "err") + " show";
+  setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+async function get(path) {
+  const r = await fetch(API + path + (path.includes("?") ? "&" : "?") + "token=" + token);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function del(path) {
+  const r = await fetch(API + path + (path.includes("?") ? "&" : "?") + "token=" + token, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Overview ──
+async function loadOverview() {
+  const s = await get("/stats");
+  document.getElementById("content").innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="v">${s.userCount}</div><div class="l">用户数</div></div>
+      <div class="stat"><div class="v">${s.novelCount}</div><div class="l">小说数</div></div>
+      <div class="stat"><div class="v">${s.summaryCount}</div><div class="l">AI 总结数</div></div>
+      <div class="stat"><div class="v">${s.dbSizeMB} MB</div><div class="l">数据库大小</div></div>
+    </div>
+    <p style="color:#555;font-size:12px">数据库路径: server/data/novels.db</p>
+  `;
+}
+
+// ── Users ──
+async function loadUsers() {
+  const users = await get("/users");
+  document.getElementById("content").innerHTML = `
+    <table><thead><tr><th>用户名</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead>
+    <tbody>${users.map(u => `
+      <tr>
+        <td>${h(u.username)}</td>
+        <td>${fmt(u.created_at)}</td>
+        <td>${u.novel_count}</td>
+        <td>${u.summary_count}</td>
+        <td>${u.note_count}</td>
+        <td><button class="danger" onclick="delUser('${h(u.username)}')">删除</button></td>
+      </tr>`).join("")}</tbody></table>
+  `;
+}
+
+async function delUser(name) {
+  if (!confirm(`确认删除用户 "${name}" 及其所有数据？此操作不可恢复。`)) return;
+  try { await del("/users/" + encodeURIComponent(name)); toast("已删除", true); loadUsers(); }
+  catch(e) { toast(e.message, false); }
+}
+
+// ── Novels ──
+async function loadNovels() {
+  const novels = await get("/novels");
+  document.getElementById("content").innerHTML = `
+    <table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入人数</th><th>上传时间</th><th>操作</th></tr></thead>
+    <tbody>${novels.map(n => `
+      <tr>
+        <td>${h(n.title)}</td>
+        <td>${h(n.author||"-")}</td>
+        <td><span class="badge">${(n.fileFormat||"?").toUpperCase()}</span></td>
+        <td>${n.chapterCount}</td>
+        <td>${fmtSize(n.totalChars)}</td>
+        <td>${n.joinCount||0}</td>
+        <td>${fmt(n.createdAt)}</td>
+        <td><button class="danger" onclick="delNovel('${n.id}')">删除</button></td>
+      </tr>`).join("")}</tbody></table>
+  `;
+}
+
+async function delNovel(id) {
+  if (!confirm("确认彻底删除该小说及其所有相关数据？此操作不可恢复。")) return;
+  try { await del("/novels/" + id); toast("已删除", true); loadNovels(); }
+  catch(e) { toast(e.message, false); }
+}
+
+// ── Helpers ──
+function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function fmt(ts) { return ts ? new Date(ts).toLocaleDateString("zh-CN") : "-"; }
+function fmtSize(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e4)+"万" : String(n); }
+
+// ── Tab switching ──
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    const tab = t.dataset.tab;
+    if (tab === "overview") loadOverview();
+    else if (tab === "users") loadUsers();
+    else if (tab === "novels") loadNovels();
+  });
+});
+
+// ── Init ──
+loadOverview();
+</script>
+</body>
+</html>

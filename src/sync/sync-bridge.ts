@@ -1,26 +1,24 @@
 import type { SyncData } from "./types";
 import { db } from "@/db/database";
 
-/** Gather all persisted data for sync push */
+/** Gather user data for sync push (no novels/chapters — those are server-side) */
 export async function gatherChanges(): Promise<Partial<SyncData>> {
-  const novels = await db.novels.toArray();
-  const chapters = await db.chapters.toArray();
   const summaries = await db.summaries.toArray();
   const notes = await db.notes.toArray();
 
-  // Gather settings related to API and graph
+  // Gather settings (API, graph, RAG)
   const settings: Record<string, unknown> = {};
   try {
-    const apiProviders = await db.settings.get("api-providers");
-    if (apiProviders) settings["api-providers"] = apiProviders.value;
-    const apiActive = await db.settings.get("api-active-provider");
-    if (apiActive) settings["api-active-provider"] = apiActive.value;
-    const graphKeys = (await db.settings.toArray())
-      .filter((s) => s.key.startsWith("character-graph-"));
-    for (const g of graphKeys) settings[g.key] = g.value;
+    const allSettings = await db.settings.toArray();
+    for (const s of allSettings) {
+      if (s.key.startsWith("character-graph-") ||
+          s.key === "api-providers" || s.key === "api-active-provider") {
+        settings[s.key] = s.value;
+      }
+    }
   } catch { /* ignore */ }
 
-  // Gather reading progress
+  // Reading progress
   let readingPositions = {};
   let lastOpened = {};
   try {
@@ -29,8 +27,6 @@ export async function gatherChanges(): Promise<Partial<SyncData>> {
   } catch { /* ignore */ }
 
   return {
-    novels,
-    chapters,
     summaries,
     notes,
     settings,
@@ -38,31 +34,9 @@ export async function gatherChanges(): Promise<Partial<SyncData>> {
   };
 }
 
-/** Apply server data to local storage (after pull) */
+/** Apply server data to local storage (after sync pull) */
 export async function applyServerData(data: SyncData): Promise<void> {
-  // Merge into IndexedDB — use put (upsert) with timestamp comparison
-  if (data.novels?.length) {
-    await db.transaction("rw", db.novels, async () => {
-      for (const n of data.novels as Array<{ id: string; updatedAt?: number }>) {
-        const existing = await db.novels.get(n.id);
-        if (!existing || (n.updatedAt || 0) >= (existing.updatedAt || 0)) {
-          await db.novels.put(n as any);
-        }
-      }
-    });
-  }
-
-  if (data.chapters?.length) {
-    await db.transaction("rw", db.chapters, async () => {
-      for (const c of data.chapters as Array<{ id: string; updatedAt?: number }>) {
-        const existing = await db.chapters.get(c.id);
-        if (!existing || (c.updatedAt || 0) >= (existing.updatedAt || 0)) {
-          await db.chapters.put(c as any);
-        }
-      }
-    });
-  }
-
+  // Summaries
   if (data.summaries?.length) {
     await db.transaction("rw", db.summaries, async () => {
       for (const s of data.summaries as Array<{ id: string; createdAt?: number }>) {
@@ -74,6 +48,7 @@ export async function applyServerData(data: SyncData): Promise<void> {
     });
   }
 
+  // Notes
   if (data.notes?.length) {
     await db.transaction("rw", db.notes, async () => {
       for (const n of data.notes as Array<{ id: string; createdAt?: number }>) {
@@ -85,6 +60,7 @@ export async function applyServerData(data: SyncData): Promise<void> {
     });
   }
 
+  // Settings
   if (data.settings) {
     for (const [key, value] of Object.entries(data.settings)) {
       if (value !== null && value !== undefined) {
@@ -96,13 +72,16 @@ export async function applyServerData(data: SyncData): Promise<void> {
   // Progress
   if (data.progress) {
     try {
-      const existingPositions = JSON.parse(localStorage.getItem("novel-reader-positions-v2") || "{}");
-      const mergedPositions = { ...existingPositions, ...data.progress.readingPositions };
-      localStorage.setItem("novel-reader-positions-v2", JSON.stringify(mergedPositions));
-
-      const existingOpened = JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
-      const mergedOpened = { ...existingOpened, ...data.progress.lastOpened };
-      localStorage.setItem("novel-reader-last-opened", JSON.stringify(mergedOpened));
+      if (data.progress.readingPositions) {
+        const existing = JSON.parse(localStorage.getItem("novel-reader-positions-v2") || "{}");
+        localStorage.setItem("novel-reader-positions-v2",
+          JSON.stringify({ ...existing, ...data.progress.readingPositions }));
+      }
+      if (data.progress.lastOpened) {
+        const existing = JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
+        localStorage.setItem("novel-reader-last-opened",
+          JSON.stringify({ ...existing, ...data.progress.lastOpened }));
+      }
     } catch { /* ignore */ }
   }
 }

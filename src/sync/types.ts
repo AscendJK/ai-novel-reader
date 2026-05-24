@@ -1,6 +1,4 @@
 export interface SyncData {
-  novels: unknown[];
-  chapters: unknown[];
   summaries: unknown[];
   notes: unknown[];
   settings: Record<string, unknown>;
