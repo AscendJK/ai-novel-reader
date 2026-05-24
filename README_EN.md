@@ -72,7 +72,17 @@ npm run dev
 
 Open `http://localhost:5173` in your browser.
 
-Windows users can also double-click `start.bat` for a one-click launch (auto-installs dependencies on first run). Use `stop.bat` to stop the server, or `port-mgr.bat` to manage multiple ports.
+### Windows Quick Scripts
+
+| File | Purpose | Usage |
+|------|---------|-------|
+| `start.bat` | One-click launch | Double-click, choose mode 1 (dev/HMR) or mode 2 (prod/stable for mobile). Auto-installs deps on first run. |
+| `stop.bat` | Stop server | Double-click to kill the process on port 5173. |
+| `port-mgr.bat` | Port manager | Menu for listing running ports, starting server, killing specific or all ports. |
+
+`start.bat` modes:
+- **Mode 1 (Dev)**: Fast hot-reload, but mobile may refresh on wake
+- **Mode 2 (Prod, recommended for mobile)**: Build then preview, no HMR, mobile won't refresh
 
 ## Usage Guide
 
