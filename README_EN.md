@@ -72,15 +72,27 @@ npm run dev
 
 Open `http://localhost:5173` in your browser.
 
-### Windows Quick Scripts
+### Quick Scripts
+
+**Windows (.bat)** — double-click to run:
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| `start.bat` | One-click launch | Double-click, choose mode 1 (dev/HMR) or mode 2 (prod/stable for mobile). Auto-installs deps on first run. |
-| `stop.bat` | Stop server | Double-click to kill the process on port 5173. |
-| `port-mgr.bat` | Port manager | Menu for listing running ports, starting server, killing specific or all ports. |
+| `start.bat` | One-click launch | Choose mode 1 (dev/HMR) or mode 2 (prod/stable for mobile) |
+| `stop.bat` | Stop server | Kill the process on port 5173 |
+| `port-mgr.bat` | Port manager | Menu: list ports, start server, kill specific/all |
 
-`start.bat` modes:
+**Linux / macOS (.sh)** — run in terminal:
+
+| File | Purpose | Usage |
+|------|---------|-------|
+| `start.sh` | One-click launch | `./start.sh` choose mode 1 or 2 |
+| `stop.sh` | Stop server | `./stop.sh` kill port 5173 |
+| `port-mgr.sh` | Port manager | `./port-mgr.sh` interactive menu |
+
+First use: `chmod +x start.sh stop.sh port-mgr.sh`
+
+Launch modes:
 - **Mode 1 (Dev)**: Fast hot-reload, but mobile may refresh on wake
 - **Mode 2 (Prod, recommended for mobile)**: Build then preview, no HMR, mobile won't refresh
 
