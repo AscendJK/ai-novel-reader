@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2 } from "lucide-react";
 import { useFileParser } from "@/hooks/useFileParser";
-import { useNovelStore } from "@/stores/novel-store";
+import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
 import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ export function BookSelect() {
 
   useEffect(() => {
     loadAllNovelMeta().then((novels) => {
+      const lastOpened = getLastOpenedTimes();
+      novels.sort((a, b) => (lastOpened[b.id] || 0) - (lastOpened[a.id] || 0));
       setSavedNovels(novels);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

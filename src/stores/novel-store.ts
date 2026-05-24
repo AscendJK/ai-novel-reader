@@ -27,6 +27,12 @@ function savePositions(positions: Record<string, ReadPosition>) {
   try { localStorage.setItem("novel-reader-positions-v2", JSON.stringify(positions)); } catch { /* ignore */ }
 }
 
+export function getLastOpenedTimes(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
+  } catch { return {}; }
+}
+
 export const useNovelStore = create<NovelState>((set, get) => ({
   currentNovel: null,
   novels: [],
@@ -39,6 +45,12 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       const chapter = pos
         ? novel.chapters.find((c) => c.id === pos.chapterId)
         : null;
+      // Track last opened time for sorting
+      try {
+        const opened = JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
+        opened[novel.id] = Date.now();
+        localStorage.setItem("novel-reader-last-opened", JSON.stringify(opened));
+      } catch { /* ignore */ }
       set({
         currentNovel: novel,
         selectedChapterId: chapter?.id ?? novel.chapters[0]?.id ?? null,
