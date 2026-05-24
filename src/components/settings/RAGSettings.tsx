@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { useRAGStore } from "@/stores/rag-store";
 import { ENGINES, type EngineId } from "@/rag/engines";
-import { isModelCached, scanCustomModels, RECOMMENDED_MODELS } from "@/rag/model-loader";
+import { isModelCached, scanCustomModels, getBuiltinModelWarning, RECOMMENDED_MODELS } from "@/rag/model-loader";
+import type { ModelEntry } from "@/rag/model-loader";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +14,13 @@ import { CheckCircle2, Brain, Check, X, FolderOpen, Search, ExternalLink } from 
 export function RAGSettings() {
   const { engine, setEngine } = useRAGStore();
   const [installed, setInstalled] = useState<Partial<Record<EngineId, boolean>>>({});
-  const [customModels, setCustomModels] = useState<{ modelKey: string; name: string }[]>([]);
+  const [customModels, setCustomModels] = useState<ModelEntry[]>([]);
+  const [bgeWarning, setBgeWarning] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showRec, setShowRec] = useState(false);
   const [scanning, setScanning] = useState(false);
 
-  useEffect(() => { checkInstalled(); }, []);
+  useEffect(() => { checkInstalled(); checkBgeWarning(); }, []);
 
   const checkInstalled = async () => {
     const status: Partial<Record<EngineId, boolean>> = {};
@@ -26,6 +29,11 @@ export function RAGSettings() {
       if (info.modelKey) status[id] = await isModelCached(info.modelKey);
     }
     setInstalled(status);
+  };
+
+  const checkBgeWarning = async () => {
+    const w = await getBuiltinModelWarning("Xenova/bge-small-zh-v1.5");
+    setBgeWarning(w);
   };
 
   const handleScan = async () => {
@@ -82,6 +90,9 @@ export function RAGSettings() {
                     )}
                   </div>
                   {id === "bge-small-zh" && <Badge variant="secondary" className="text-xs">推荐</Badge>}
+                  {id === "bge-small-zh" && bgeWarning && (
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" title={bgeWarning} />
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mb-1.5">{info.description}</p>
                 <div className="grid grid-cols-1 gap-1">
@@ -118,18 +129,26 @@ export function RAGSettings() {
             扫描 public/models/custom/ 目录中的用户自定义模型
           </p>
           {customModels.length > 0 && (
-            <Select onValueChange={handleSelectCustom}>
-              <SelectTrigger className="h-7 text-xs">
-                <SelectValue placeholder="选择自定义模型..." />
-              </SelectTrigger>
-              <SelectContent>
-                {customModels.map((m) => (
-                  <SelectItem key={m.modelKey} value={m.modelKey} className="text-xs">
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <>
+              <Select onValueChange={handleSelectCustom}>
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue placeholder="选择自定义模型..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {customModels.map((m) => (
+                    <SelectItem key={m.modelKey} value={m.modelKey} className="text-xs">
+                      {m.name}{m.warning ? " ⚠️" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {customModels.filter((m) => m.warning).map((m) => (
+                <div key={m.modelKey} className="flex items-start gap-1.5 p-1.5 rounded bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                  <span>{m.warning}</span>
+                </div>
+              ))}
+            </>
           )}
           {customModels.length === 0 && !scanning && (
             <p className="text-xs text-muted-foreground">暂无自定义模型，点击扫描检测</p>

@@ -7,49 +7,77 @@
 const BUILTIN = "/models/builtin/";
 const CUSTOM = "/models/custom/";
 
-interface ModelEntry {
-  modelKey: string;   // e.g. "Xenova/bge-small-zh-v1.5"
-  name: string;       // display name
+const ONNX_EXPECTED = "model_quantized.onnx";
+const ONNX_VARIANTS = [ONNX_EXPECTED, "model_int8.onnx", "model_uint8.onnx", "model.onnx"];
+
+export interface ModelEntry {
+  modelKey: string;
+  name: string;
   source: "builtin" | "custom";
+  warning?: string; // set if ONNX file needs renaming
+}
+
+/**
+ * Check if a model is valid and report any filename issues.
+ */
+async function getModelStatus(
+  base: string,
+  modelKey: string
+): Promise<"ok" | "missing" | { warning: string }> {
+  // config.json and tokenizer.json required
+  for (const file of ["config.json", "tokenizer.json"]) {
+    try {
+      const resp = await fetch(base + `${modelKey}/${file}`, { method: "HEAD" });
+      if (!resp.ok) return "missing";
+    } catch {
+      return "missing";
+    }
+  }
+
+  // Check ONNX variants
+  for (const variant of ONNX_VARIANTS) {
+    try {
+      const resp = await fetch(base + `${modelKey}/onnx/${variant}`, {
+        method: "HEAD",
+      });
+      if (resp.ok) {
+        if (variant !== ONNX_EXPECTED) {
+          return {
+            warning: `ONNX 文件名 "${variant}" 不标准，建议改名为 "${ONNX_EXPECTED}" 以兼容 Transformers.js`,
+          };
+        }
+        return "ok";
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  return "missing";
 }
 
 async function checkFiles(base: string, modelKey: string): Promise<boolean> {
-  // Try model_quantized.onnx first, fall back to model.onnx
-  const paths = [
-    `${modelKey}/config.json`,
-    `${modelKey}/tokenizer.json`,
-    `${modelKey}/onnx/model_quantized.onnx`,
-  ];
-  for (const p of paths) {
-    try {
-      const resp = await fetch(base + p, { method: "HEAD" });
-      if (!resp.ok) {
-        // Try model.onnx as fallback
-        if (p.endsWith("model_quantized.onnx")) {
-          const fallback = await fetch(base + `${modelKey}/onnx/model.onnx`, { method: "HEAD" });
-          if (fallback.ok) continue;
-        }
-        return false;
-      }
-    } catch {
-      return false;
-    }
-  }
-  return true;
+  const status = await getModelStatus(base, modelKey);
+  return status === "ok" || (typeof status === "object" && "warning" in status);
 }
 
 export async function isModelCached(modelKey: string): Promise<boolean> {
-  // Check builtin first, then custom
   if (await checkFiles(BUILTIN, modelKey)) return true;
   if (await checkFiles(CUSTOM, modelKey)) return true;
   return false;
 }
 
-/** Where a model is located */
 export async function getModelBase(modelKey: string): Promise<string | null> {
   if (await checkFiles(BUILTIN, modelKey)) return BUILTIN;
   if (await checkFiles(CUSTOM, modelKey)) return CUSTOM;
   return null;
+}
+
+export async function getBuiltinModelWarning(
+  modelKey: string
+): Promise<string | null> {
+  const status = await getModelStatus(BUILTIN, modelKey);
+  return typeof status === "object" ? status.warning : null;
 }
 
 /** Scan custom/ directory for user-added models */
@@ -57,12 +85,10 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
   const results: ModelEntry[] = [];
 
   try {
-    // Fetch directory listing — relies on Vite serving directory index
     const resp = await fetch(CUSTOM, { method: "GET" });
     if (!resp.ok) return results;
     const html = await resp.text();
 
-    // Parse directory links from Apache/Vite autoindex
     const dirRegex = /href="([^"]+)\/"/g;
     const dirs: string[] = [];
     let match;
@@ -70,13 +96,8 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
       dirs.push(match[1].replace(/\/$/, ""));
     }
 
-    // Check each directory for valid model files
     for (const dir of dirs) {
-      // Vite serves models as: /models/custom/Xenova/<model>/
-      // But we already fetched /models/custom/ so dirs might just be "Xenova"
-      // or the actual model dirs depending on nesting
-      const fullDir = `${CUSTOM}${dir}`;
-      const subResp = await fetch(fullDir, { method: "GET" }).catch(() => null);
+      const subResp = await fetch(CUSTOM + dir, { method: "GET" }).catch(() => null);
       if (!subResp?.ok) continue;
       const subHtml = await subResp.text();
 
@@ -88,19 +109,24 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
 
       for (const sub of subDirs) {
         const modelKey = `${dir}/${sub}`;
-        if (await checkFiles(CUSTOM, modelKey)) {
-          results.push({ modelKey, name: sub, source: "custom" });
+        const status = await getModelStatus(CUSTOM, modelKey);
+        if (status !== "missing") {
+          results.push({
+            modelKey,
+            name: sub,
+            source: "custom",
+            warning: typeof status === "object" ? status.warning : undefined,
+          });
         }
       }
     }
   } catch {
-    // Can't scan — return empty
+    /* can't scan */
   }
 
   return results;
 }
 
-/** Recommended models user can download */
 export interface RecommendedModel {
   name: string;
   modelKey: string;
@@ -148,12 +174,13 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
 ];
 
 /**
- * Configure Transformers.js to load from our local directories.
+ * Configure Transformers.js to load from local directories.
  */
 export function setupLocalModelLoader(): void {
-  import("@xenova/transformers").then(({ env }) => {
-    // Always prefer builtin, fall back to custom
-    env.localModelPath = BUILTIN;
-    env.allowRemoteModels = false;
-  }).catch(() => {});
+  import("@xenova/transformers")
+    .then(({ env }) => {
+      env.localModelPath = BUILTIN;
+      env.allowRemoteModels = false;
+    })
+    .catch(() => {});
 }
