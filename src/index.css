@@ -87,13 +87,12 @@
   }
 }
 
-/* Dark mode reading — pure black bg, warm gray text */
+/* Dark mode reading — warm gray text */
 .dark .prose {
   --tw-prose-body: #B8B8B8;
   --tw-prose-headings: #cccccc;
   --tw-prose-bold: #cccccc;
   --tw-prose-links: #8eb9e0;
-  background: #000000;
 }
 
 /* Immersive reading on mobile */
