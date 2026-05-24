@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChapterNav } from "./ChapterNav";
 import { ChapterContent } from "./ChapterContent";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
-import { PanelRightOpen, PanelRightClose, List, Sparkles, X } from "lucide-react";
+import { PanelRightOpen, PanelRightClose, List, Sparkles, X, FileText, BookOpen, MessageSquare, StickyNote } from "lucide-react";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useNovelStore } from "@/stores/novel-store";
 
@@ -10,6 +10,7 @@ export function ReadingPanel() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileAiOpen, setMobileAiOpen] = useState(false);
+  const [mobileAiTab, setMobileAiTab] = useState("chapter");
   const { currentNovel, selectedChapterId } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
 
@@ -38,23 +39,26 @@ export function ReadingPanel() {
       </div>
 
       {/* Mobile: bottom bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-12 border-t bg-card flex items-center justify-around z-30 px-4">
-        <button
-          onClick={() => setMobileNavOpen(true)}
-          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary"
-        >
-          <List className="h-4 w-4" />
-          目录
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-12 border-t bg-card flex items-center justify-around z-30 px-2">
+        <button onClick={() => setMobileNavOpen(true)}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <List className="h-4 w-4" />目录
         </button>
-        <button
-          onClick={() => setMobileAiOpen(true)}
-          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary relative"
-        >
-          <Sparkles className="h-4 w-4" />
-          AI分析
-          {hasCurrentSummary && (
-            <span className="absolute -top-0.5 -right-1 w-2 h-2 bg-primary rounded-full" />
-          )}
+        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("chapter"); }}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <FileText className="h-4 w-4" />本章
+        </button>
+        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("book"); }}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <BookOpen className="h-4 w-4" />全书
+        </button>
+        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("qa"); }}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary relative">
+          <MessageSquare className="h-4 w-4" />问答
+        </button>
+        <button onClick={() => { setMobileAiOpen(true); setMobileAiTab("notes"); }}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <StickyNote className="h-4 w-4" />笔记
         </button>
       </div>
 
@@ -113,7 +117,7 @@ export function ReadingPanel() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <SummaryPanel />
+            <SummaryPanel defaultTab={mobileAiTab} />
           </div>
         </>
       )}

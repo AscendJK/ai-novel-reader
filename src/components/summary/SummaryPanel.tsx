@@ -23,7 +23,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import { CharacterGraph } from "./CharacterGraph";
 
-export function SummaryPanel() {
+export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }) {
   // Book sub-items: "timeline" | "characters" | "global" | null
   const [bookSub, setBookSub] = useState<string | null>(null);
   const [dataOpen, setDataOpen] = useState(false);
@@ -210,7 +210,7 @@ export function SummaryPanel() {
       )}
 
       {/* Fixed tabs — always visible */}
-      <Tabs defaultValue="chapter" className="flex flex-col flex-1 min-h-0">
+      <Tabs defaultValue={defaultTab} className="flex flex-col flex-1 min-h-0">
         <div className="shrink-0 px-2.5 pt-2 border-b">
           <TabsList className="w-full">
             <TabsTrigger value="qa" className="text-xs h-7 flex-1">问答</TabsTrigger>
