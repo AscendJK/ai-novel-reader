@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProviderSelect } from "./ProviderSelect";
 import type { ProviderType, ProviderConfig } from "@/api/types";
-import { Key, Trash2, ArrowLeft } from "lucide-react";
+import { Key, Trash2, ArrowLeft, AlertTriangle } from "lucide-react";
 import { RAGSettings } from "./RAGSettings";
 
 const MODEL_OPTIONS: Record<ProviderType, string[]> = {
@@ -224,6 +224,36 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
         <p>你的 API Key 仅存储在浏览器 IndexedDB 中，仅在调用对应 API 时使用。</p>
         <p>所有 API 调用直接从浏览器发起，不经过任何第三方服务器。</p>
       </div>
+
+      <Separator />
+
+      <Card className="border-destructive/30">
+        <CardHeader>
+          <CardTitle className="text-base text-destructive flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            清除所有本地数据
+          </CardTitle>
+          <CardDescription>
+            删除当前浏览器中存储的所有小说、分析结果、笔记、API 配置和阅读进度。此操作不可恢复。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (!window.confirm("确认清除所有本地数据？\n\n将删除：\n• 所有上传的小说\n• 所有 AI 分析结果\n• 所有笔记\n• API 配置\n• 阅读进度\n• 同步会话\n\n此操作不可恢复！")) return;
+              // Clear IndexedDB
+              import("@/db/database").then(({ db }) => db.delete().then(() => window.location.reload()));
+              // Clear localStorage
+              localStorage.clear();
+            }}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            清除全部数据并刷新
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

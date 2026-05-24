@@ -84,9 +84,14 @@ export function AppLayout() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  const handleLogin = async (username: string, _isJoin: boolean) => {
+  const handleLogin = async (username: string, isJoin: boolean) => {
     setLoginError(null);
-    const result = await syncClient.login(username);
+    const mode = isJoin ? "join" : "create";
+    const result = await syncClient.login(username, mode);
+    if (result.error) {
+      setLoginError(result.error);
+      return;
+    }
     if (result.success) {
       if (!result.isNew && result.activeCount > 0) {
         // Pull existing data from server

@@ -26,14 +26,18 @@ export class SyncClient {
   get cid() { return this.clientId; }
   get connectionCount() { return this.activeCount; }
 
-  /** Register or join a username. Returns true if successful. */
-  async login(username: string): Promise<{ success: boolean; isNew: boolean; activeCount: number }> {
+  /** Register or join a username. Returns {success, isNew, activeCount, error?}. */
+  async login(username: string, mode: "create" | "join" = "create"): Promise<{ success: boolean; isNew: boolean; activeCount: number; error?: string }> {
     try {
       const resp = await fetch("/api/sync/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, mode }),
       });
+      if (resp.status === 404) {
+        const err = await resp.json().catch(() => ({}));
+        return { success: false, isNew: false, activeCount: 0, error: (err as any).error || "用户名不存在" };
+      }
       if (!resp.ok) return { success: false, isNew: false, activeCount: 0 };
       const result: RegisterResult = await resp.json();
 

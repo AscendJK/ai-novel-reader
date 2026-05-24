@@ -15,12 +15,18 @@ app.use(express.json({ limit: "50mb" }));
 
 // POST /api/sync/register
 app.post("/api/sync/register", (req, res) => {
-  const { username } = req.body;
+  const { username, mode } = req.body;
   if (!username || typeof username !== "string") {
     return res.status(400).json({ error: "username required" });
   }
 
   const exists = userExists(username);
+
+  // "join" mode: reject if user doesn't exist
+  if (mode === "join" && !exists) {
+    return res.status(404).json({ error: "用户名不存在，请先创建" });
+  }
+
   const data = exists ? readUser(username) : createUser(username);
   const clientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const activeCount = register(username, clientId);
