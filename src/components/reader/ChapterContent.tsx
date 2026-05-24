@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useState } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
@@ -34,6 +34,15 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
   const chapter = currentIndex >= 0 ? chapters[currentIndex] : undefined;
   const prevChapter = currentIndex > 0 ? chapters[currentIndex - 1] : null;
   const nextChapter = currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top when chapter changes
+  useEffect(() => {
+    if (scrollRef.current) {
+      const viewport = scrollRef.current.querySelector("[data-radix-scroll-area-viewport]");
+      if (viewport) viewport.scrollTop = 0;
+    }
+  }, [chapter?.id]);
 
   const goToChapter = useCallback(
     (chapterId: string) => {
@@ -135,9 +144,9 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden flex flex-col"
+      <div className="flex-1 flex flex-col min-h-0"
         onClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) onToggleImmersive(); }}>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
           <div className="p-6 max-w-3xl mx-auto pb-20">
             {summaries.length > 0 && (
               <div className="mb-4 flex flex-wrap gap-2">
