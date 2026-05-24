@@ -126,6 +126,22 @@ Devices on the same WiFi network can access `http://<your-ip>:5173`. Each device
 - **d3-force** — Force-directed character graph
 - **react-markdown** — Markdown rendering
 - **JSZip** — EPUB file parsing
+- **TF-IDF / BGE Small ZH** — Local semantic retrieval engine
+- **Transformers.js** — Browser-side ONNX model inference
+
+## Local Retrieval Engine
+
+The project ships with the **BGE Small ZH v1.5** Chinese embedding model (~26 MB, Xenova INT8 quantized), enabling full-text vector search directly in the browser. When using book analysis or AI Q&A, the system retrieves the most relevant passages instead of randomly sampling chapter content.
+
+Available engines:
+
+| Engine | Size | Description |
+|--------|------|-------------|
+| TF-IDF (built-in) | 0 MB | Character-level keyword search, instant |
+| BGE Small ZH (built-in) | ~26 MB | Chinese-optimized, semantic-level matching |
+| Custom models | Any | Xenova-converted models supported |
+
+See the "Local Retrieval Engine" section in Settings for details.
 
 ## Privacy
 

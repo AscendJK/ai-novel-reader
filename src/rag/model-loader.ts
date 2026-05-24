@@ -2,120 +2,159 @@
  * Local model loader — two directories:
  *   builtin/  — included in Git, ships with the project (bge-small-zh)
  *   custom/   — user-added models, NOT in Git
+ *
+ * Model detection: lists the onnx/ directory to find ANY .onnx file.
+ * Transformers.js expects the file to be named "model_quantized.onnx".
+ * If a different ONNX file is found, the model is still considered "available"
+ * but a warning is shown telling the user to rename it.
  */
 
 const BUILTIN = "/models/builtin/";
 const CUSTOM = "/models/custom/";
-
+// Transformers.js only loads "model_quantized.onnx" or "model.onnx".
+// We detect ALL common variants so we can tell the user about rename.
 const ONNX_EXPECTED = "model_quantized.onnx";
-const ONNX_VARIANTS = [ONNX_EXPECTED, "model_int8.onnx", "model_uint8.onnx", "model.onnx"];
+const ONNX_ALL = [
+  "model_quantized.onnx", "model.onnx",
+  "model_int8.onnx", "model_uint8.onnx",
+  "model_fp16.onnx", "model_q4.onnx",
+  "model_q4f16.onnx", "model_bnb4.onnx",
+];
 
 export interface ModelEntry {
   modelKey: string;
   name: string;
   source: "builtin" | "custom";
-  warning?: string; // set if ONNX file needs renaming
+  size: string;
+  onnxFiles: string[];
+  renameWarning?: string;
+}
+
+// ── model status check ─────────────────────────────────────────────
+
+export interface ModelStatus {
+  /** Whether the model is usable (has config + tokenizer + at least one .onnx) */
+  available: boolean;
+  /** ONNX files found (only populated if config + tokenizer exist) */
+  onnxFiles: string[];
+  /** Warning if file exists but Transformers.js won't load it */
+  renameWarning?: string;
 }
 
 /**
- * Check if a model is valid and report any filename issues.
+ * Check a model directory and report its status.
+ * Probes all known ONNX variants via HEAD request.
  */
-async function getModelStatus(
-  base: string,
-  modelKey: string
-): Promise<"ok" | "missing" | { warning: string }> {
-  // config.json and tokenizer.json required
+async function getModelStatus(base: string, modelKey: string): Promise<ModelStatus> {
+  const missing: ModelStatus = { available: false, onnxFiles: [] };
+
+  const noCache = { cache: "no-cache" as RequestCache };
+
+  // 1. Check config.json and tokenizer.json exist
   for (const file of ["config.json", "tokenizer.json"]) {
     try {
-      const resp = await fetch(base + `${modelKey}/${file}`, { method: "HEAD" });
-      if (!resp.ok) return "missing";
-    } catch {
-      return "missing";
-    }
-  }
-
-  // Check ONNX variants
-  for (const variant of ONNX_VARIANTS) {
-    try {
-      const resp = await fetch(base + `${modelKey}/onnx/${variant}`, {
+      const resp = await fetch(base + modelKey + "/" + file, {
         method: "HEAD",
+        ...noCache,
       });
-      if (resp.ok) {
-        if (variant !== ONNX_EXPECTED) {
-          return {
-            warning: `ONNX 文件名 "${variant}" 不标准，建议改名为 "${ONNX_EXPECTED}" 以兼容 Transformers.js`,
-          };
-        }
-        return "ok";
-      }
+      if (!resp.ok) return missing;
+      const ct = resp.headers.get("Content-Type") || "";
+      // Reject SPA fallback (text/html)
+      if (ct.includes("text/html")) return missing;
     } catch {
-      /* try next */
+      return missing;
     }
   }
 
-  return "missing";
+  // 2. Probe ALL known ONNX variants.
+  //    Real binary files have Content-Type: application/octet-stream (or similar).
+  //    Vite's SPA fallback returns text/html — we filter those out.
+  const found: string[] = [];
+  for (const variant of ONNX_ALL) {
+    try {
+      const resp = await fetch(base + modelKey + "/onnx/" + variant, {
+        method: "HEAD",
+        ...noCache,
+      });
+      if (!resp.ok) continue;
+      const ct = resp.headers.get("Content-Type") || "";
+      // Real ONNX files are binary; SPA fallback is text/html
+      if (ct.includes("text/html")) continue;
+      // Also check Content-Length — real ONNX files are > 1MB
+      const cl = resp.headers.get("Content-Length");
+      if (cl && parseInt(cl, 10) < 100000) continue;
+      found.push(variant);
+    } catch { /* try next */ }
+  }
+
+  if (found.length === 0) return missing;
+
+  // 3. Check if expected name exists
+  const hasExpected = found.includes(ONNX_EXPECTED);
+  const renameWarning = hasExpected
+    ? undefined
+    : `Transformers.js 只加载 "${ONNX_EXPECTED}"，当前文件为 "${found[0]}"。请重命名。`;
+
+  return { available: true, onnxFiles: found, renameWarning };
 }
 
-async function checkFiles(base: string, modelKey: string): Promise<boolean> {
-  const status = await getModelStatus(base, modelKey);
-  return status === "ok" || (typeof status === "object" && "warning" in status);
-}
+// ── public API ──────────────────────────────────────────────────────
 
 export async function isModelCached(modelKey: string): Promise<boolean> {
-  if (await checkFiles(BUILTIN, modelKey)) return true;
-  if (await checkFiles(CUSTOM, modelKey)) return true;
-  return false;
+  const builtin = await getModelStatus(BUILTIN, modelKey);
+  if (builtin.available) return true;
+  const custom = await getModelStatus(CUSTOM, modelKey);
+  return custom.available;
 }
 
-export async function getModelBase(modelKey: string): Promise<string | null> {
-  if (await checkFiles(BUILTIN, modelKey)) return BUILTIN;
-  if (await checkFiles(CUSTOM, modelKey)) return CUSTOM;
-  return null;
-}
-
-export async function getBuiltinModelWarning(
-  modelKey: string
-): Promise<string | null> {
+export async function getBuiltinModelWarning(modelKey: string): Promise<string | null> {
   const status = await getModelStatus(BUILTIN, modelKey);
-  return typeof status === "object" ? status.warning : null;
+  return status.renameWarning || null;
 }
 
 /** Scan custom/ directory for user-added models */
 export async function scanCustomModels(): Promise<ModelEntry[]> {
   const results: ModelEntry[] = [];
 
+  // Vite plugin serves /models/custom/ as JSON array of sub-directory names
   try {
-    const resp = await fetch(CUSTOM, { method: "GET" });
+    const resp = await fetch(CUSTOM, { cache: "no-cache" } as RequestInit);
     if (!resp.ok) return results;
-    const html = await resp.text();
+    const ct = resp.headers.get("Content-Type") || "";
+    // Only parse JSON responses (not SPA fallback HTML)
+    if (!ct.includes("json")) return results;
+    const topDirs: string[] = await resp.json();
+    if (!Array.isArray(topDirs)) return results;
 
-    const dirRegex = /href="([^"]+)\/"/g;
-    const dirs: string[] = [];
-    let match;
-    while ((match = dirRegex.exec(html)) !== null) {
-      dirs.push(match[1].replace(/\/$/, ""));
-    }
-
-    for (const dir of dirs) {
-      const subResp = await fetch(CUSTOM + dir, { method: "GET" }).catch(() => null);
-      if (!subResp?.ok) continue;
-      const subHtml = await subResp.text();
-
-      const subDirs: string[] = [];
-      let subMatch;
-      while ((subMatch = dirRegex.exec(subHtml)) !== null) {
-        subDirs.push(subMatch[1].replace(/\/$/, ""));
-      }
+    for (const dir of topDirs) {
+      const subResp = await fetch(CUSTOM + dir + "/", { cache: "no-cache" } as RequestInit);
+      if (!subResp.ok) continue;
+      const subCt = subResp.headers.get("Content-Type") || "";
+      if (!subCt.includes("json")) continue;
+      const subDirs: string[] = await subResp.json();
+      if (!Array.isArray(subDirs)) continue;
 
       for (const sub of subDirs) {
         const modelKey = `${dir}/${sub}`;
         const status = await getModelStatus(CUSTOM, modelKey);
-        if (status !== "missing") {
+        if (status.available) {
+          // Get size of first ONNX file
+          let size = "?";
+          if (status.onnxFiles.length > 0) {
+            const firstFile = status.onnxFiles[0];
+            try {
+              const h = await fetch(CUSTOM + modelKey + "/onnx/" + firstFile, { method: "HEAD", cache: "no-cache" } as RequestInit);
+              const cl = h.headers.get("Content-Length");
+              if (cl) {
+                const mb = parseInt(cl) / (1024 * 1024);
+                size = mb >= 1 ? `~${Math.round(mb)} MB` : `~${Math.round(mb * 1024)} KB`;
+              }
+            } catch { /* can't get size */ }
+          }
           results.push({
-            modelKey,
-            name: sub,
-            source: "custom",
-            warning: typeof status === "object" ? status.warning : undefined,
+            modelKey, name: sub, source: "custom", size,
+            onnxFiles: status.onnxFiles,
+            renameWarning: status.renameWarning,
           });
         }
       }
@@ -126,6 +165,13 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
 
   return results;
 }
+
+/** Check builtin BGE status for the settings UI */
+export async function getBuiltinBGEStatus(): Promise<ModelStatus> {
+  return getModelStatus(BUILTIN, "Xenova/bge-small-zh-v1.5");
+}
+
+// ── recommended models ─────────────────────────────────────────────
 
 export interface RecommendedModel {
   name: string;
@@ -173,9 +219,8 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   },
 ];
 
-/**
- * Configure Transformers.js to load from local directories.
- */
+// ── Transformers.js config ──────────────────────────────────────────
+
 export function setupLocalModelLoader(): void {
   import("@xenova/transformers")
     .then(({ env }) => {

@@ -1,55 +1,103 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRAGStore } from "@/stores/rag-store";
 import { ENGINES, type EngineId } from "@/rag/engines";
-import { isModelCached, scanCustomModels, getBuiltinModelWarning, RECOMMENDED_MODELS } from "@/rag/model-loader";
-import type { ModelEntry } from "@/rag/model-loader";
-import { AlertTriangle } from "lucide-react";
+import { scanCustomModels, getBuiltinBGEStatus, RECOMMENDED_MODELS } from "@/rag/model-loader";
+import type { ModelEntry, ModelStatus } from "@/rag/model-loader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle2, Brain, Check, X, FolderOpen, Search, ExternalLink } from "lucide-react";
+import {
+  CheckCircle2, Brain, Check, X, FolderOpen, Search, ExternalLink,
+  AlertTriangle, Cpu, Zap, RefreshCw, PackageOpen, Star,
+} from "lucide-react";
 
 export function RAGSettings() {
-  const { engine, setEngine } = useRAGStore();
-  const [installed, setInstalled] = useState<Partial<Record<EngineId, boolean>>>({});
+  const { engine, customModelKey, setEngine, setCustomModel, clearCustomModel, savedCustomModels, setSavedCustomModels } = useRAGStore();
   const [customModels, setCustomModels] = useState<ModelEntry[]>([]);
-  const [bgeWarning, setBgeWarning] = useState<string | null>(null);
+
+  // Restore previously scanned models from store on mount
+  useEffect(() => {
+    if (savedCustomModels.length > 0 && customModels.length === 0) {
+      // Trigger a scan to refresh status (names may have changed)
+      scanCustomModels().then((fresh) => {
+        if (fresh.length > 0) {
+          setCustomModels(fresh);
+          setSavedCustomModels(fresh.map((m) => ({ key: m.modelKey, name: m.name, size: m.size })));
+        }
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [showHelp, setShowHelp] = useState(false);
   const [showRec, setShowRec] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [bgeStatus, setBgeStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
+  const loadedRef = useRef(false);
 
-  useEffect(() => { checkInstalled(); checkBgeWarning(); }, []);
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    getBuiltinBGEStatus().then(setBgeStatus);
+  }, []);
 
-  const checkInstalled = async () => {
-    const status: Partial<Record<EngineId, boolean>> = {};
-    for (const id of ["bge-small-zh", "e5-small"] as EngineId[]) {
-      const info = ENGINES[id];
-      if (info.modelKey) status[id] = await isModelCached(info.modelKey);
-    }
-    setInstalled(status);
-  };
-
-  const checkBgeWarning = async () => {
-    const w = await getBuiltinModelWarning("Xenova/bge-small-zh-v1.5");
-    setBgeWarning(w);
+  const refresh = () => {
+    getBuiltinBGEStatus().then(setBgeStatus);
   };
 
   const handleScan = async () => {
     setScanning(true);
+    setScanMessage(null);
     const models = await scanCustomModels();
     setCustomModels(models);
+    if (models.length > 0) {
+      setSavedCustomModels(models.map((m) => ({ key: m.modelKey, name: m.name, size: m.size })));
+    }
+    const s = await getBuiltinBGEStatus();
+    setBgeStatus(s);
     setScanning(false);
+    setScanMessage(models.length > 0 ? `发现 ${models.length} 个自定义模型` : "未发现自定义模型");
   };
 
-  const handleSelectCustom = (modelKey: string) => {
-    // Register as a custom engine and select it
-    const name = modelKey.split("/").pop() || modelKey;
-    useRAGStore.getState().setEngine("bge-small-zh"); // fallback
-    // Custom models are handled by Transformers.js directly
-    // The modelKey maps to /models/custom/<modelKey>
-  };
+  // Merge available models: built-in + scanned custom
+  const bgeInstalled = bgeStatus.available;
+  const bgeWarning = bgeStatus.renameWarning;
+
+  const availableModels: {
+    key: string;
+    name: string;
+    size: string;
+    source: "builtin" | "custom";
+    detail?: string;
+    onnxFiles?: string[];
+    renameWarning?: string;
+  }[] = [
+    {
+      key: "tfidf",
+      name: "TF-IDF",
+      size: "0MB",
+      source: "builtin",
+      detail: "内置字符级检索，即时可用",
+    },
+    {
+      key: "bge-small-zh",
+      name: "BGE Small ZH",
+      size: "26MB",
+      source: "builtin",
+      detail: ENGINES["bge-small-zh"].description,
+      onnxFiles: bgeStatus.onnxFiles,
+      renameWarning: bgeWarning || undefined,
+    },
+    ...customModels.map((m) => ({
+      key: m.modelKey,
+      name: m.name,
+      size: m.size,
+      source: "custom" as const,
+      detail: `用户自定义模型 / User model`,
+      onnxFiles: m.onnxFiles,
+      renameWarning: m.renameWarning,
+    })),
+  ];
 
   return (
     <Card>
@@ -59,114 +107,180 @@ export function RAGSettings() {
           本地检索引擎
         </CardTitle>
         <CardDescription>
-          选择 AI 分析时的文本检索后端。切换引擎后，重新打开小说即可生效。
+          选择文本检索后端。切换后重新打开小说生效。
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Built-in engines */}
-        {(["bge-small-zh", "e5-small", "tfidf"] as EngineId[]).map((id) => {
-          const info = ENGINES[id];
-          const isInstalled = id === "tfidf" || installed[id];
-          const isActive = engine === id;
+      <CardContent className="space-y-4">
+        {/* Available models — card grid */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5" />
+              可用引擎
+            </h4>
+            <div className="flex gap-1.5">
+              <Button variant="outline" size="sm" className="h-6 text-xs" onClick={handleScan} disabled={scanning}>
+                {scanning ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : <Search className="h-3 w-3 mr-1" />}
+                扫描
+              </Button>
+            </div>
+          </div>
 
-          return (
-            <div key={id}>
-              <div
-                className={`p-3 rounded-lg border transition-colors cursor-pointer ${
-                  isActive ? "border-primary bg-primary/5" : "hover:bg-accent"
-                } ${!isInstalled ? "opacity-60" : ""}`}
-                onClick={() => isInstalled && setEngine(id)}
-                title={!isInstalled ? "模型未安装 — 请将文件放入 public/models/builtin/ 目录" : ""}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm font-medium">{info.name}</span>
-                    <Badge variant="outline" className="text-xs">{info.size}</Badge>
-                    {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
-                    {isInstalled ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    ) : (
-                      <Badge variant="outline" className="text-xs text-destructive border-destructive/40">未安装</Badge>
+          <div className="space-y-1.5">
+            {availableModels.map((m) => {
+              const isActive =
+                (m.source === "builtin" && engine === m.key && !customModelKey) ||
+                (m.source === "custom" && customModelKey === m.key);
+              const isBuiltinInstalled = m.source === "builtin" && (m.key === "tfidf" || bgeInstalled);
+              return (
+                <div key={m.key}>
+                  <div
+                    className={`p-2.5 rounded-lg border cursor-pointer transition-colors group ${
+                      isActive
+                        ? "border-primary bg-primary/5"
+                        : "hover:border-primary/50 hover:bg-accent/50"
+                    }`}
+                    onClick={() => {
+                      if (m.source === "builtin") {
+                        clearCustomModel();
+                        setEngine(m.key as EngineId);
+                      } else {
+                        setCustomModel(m.key, m.name, m.size);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium">{m.name}</span>
+                        <Badge variant="outline" className="text-xs">{m.size}</Badge>
+                        <Badge variant="secondary" className="text-xs">{m.source === "builtin" ? "内置" : "自定义"}</Badge>
+                        {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
+                        {m.source === "builtin" && m.key === "bge-small-zh" && (
+                          <Star className="h-3 w-3 text-amber-500" title="推荐" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {m.renameWarning ? (
+                            <AlertTriangle className="h-4 w-4 text-amber-500" title="文件存在，名称不匹配" />
+                        ) : isBuiltinInstalled ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" title="模型可用" />
+                        ) : m.source === "custom" ? (
+                            <Zap className="h-4 w-4 text-blue-500" title="已检测到" />
+                        ) : (
+                            <PackageOpen className="h-4 w-4 text-muted-foreground/40" title="未安装" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Expandable detail on hover */}
+                    {m.detail && (
+                      <div className="mt-1.5 pt-1.5 border-t border-border/50 hidden group-hover:block">
+                        <p className="text-xs text-muted-foreground">{m.detail}</p>
+
+                        {/* Rename warning — show first */}
+                        {m.renameWarning && (
+                          <div className="mt-1 p-2 rounded bg-amber-50 dark:bg-amber-950/30 text-xs space-y-1">
+                            <p className="text-amber-700 dark:text-amber-400 flex items-start gap-1">
+                              <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                              {m.renameWarning}
+                            </p>
+                            <p className="text-muted-foreground">
+                              当前文件：
+                              <code className="ml-1 px-1 rounded bg-muted">{m.onnxFiles?.[0]}</code>
+                            </p>
+                            <p className="text-muted-foreground">
+                              需改名为：
+                              <code className="ml-1 px-1 rounded bg-muted font-medium text-foreground">model_quantized.onnx</code>
+                              <button
+                                className="ml-1.5 text-primary hover:underline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText("model_quantized.onnx");
+                                }}
+                              >
+                                复制
+                              </button>
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Missing model */}
+                        {m.source === "builtin" && m.key === "bge-small-zh" && !bgeInstalled && (
+                          <p className="text-xs text-destructive mt-0.5">
+                            模型文件未找到。请将文件放入 public/models/builtin/Xenova/bge-small-zh-v1.5/
+                          </p>
+                        )}
+
+                        {/* Show strengths/weaknesses when installed and no warning */}
+                        {m.source === "builtin" && m.key === "bge-small-zh" && bgeInstalled && !m.renameWarning && (
+                          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
+                            {ENGINES["bge-small-zh"].strengths.map((s, i) => (
+                              <div key={i} className="flex items-start gap-1">
+                                <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
+                                <span className="text-xs text-foreground/75">{s}</span>
+                              </div>
+                            ))}
+                            {ENGINES["bge-small-zh"].weaknesses.map((w, i) => (
+                              <div key={i} className="flex items-start gap-1">
+                                <X className="h-3 w-3 text-destructive/60 shrink-0 mt-0.5" />
+                                <span className="text-xs text-muted-foreground">{w}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {m.key === "tfidf" && (
+                          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
+                            {ENGINES.tfidf.strengths.map((s, i) => (
+                              <div key={i} className="flex items-start gap-1">
+                                <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
+                                <span className="text-xs text-foreground/75">{s}</span>
+                              </div>
+                            ))}
+                            {ENGINES.tfidf.weaknesses.map((w, i) => (
+                              <div key={i} className="flex items-start gap-1">
+                                <X className="h-3 w-3 text-destructive/60 shrink-0 mt-0.5" />
+                                <span className="text-xs text-muted-foreground">{w}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                  {id === "bge-small-zh" && <Badge variant="secondary" className="text-xs">推荐</Badge>}
-                  {id === "bge-small-zh" && bgeWarning && (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" title={bgeWarning} />
-                  )}
                 </div>
-                <p className="text-xs text-muted-foreground mb-1.5">{info.description}</p>
-                <div className="grid grid-cols-1 gap-1">
-                  {info.strengths.map((s, i) => (
-                    <div key={`s-${i}`} className="flex items-start gap-1">
-                      <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
-                      <span className="text-xs text-foreground/75">{s}</span>
-                    </div>
-                  ))}
-                  {info.weaknesses.map((w, i) => (
-                    <div key={`w-${i}`} className="flex items-start gap-1">
-                      <X className="h-3 w-3 text-destructive/60 shrink-0 mt-0.5" />
-                      <span className="text-xs text-muted-foreground">{w}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
 
-        {/* Custom model scanner */}
-        <div className="p-3 rounded-lg border space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium flex items-center gap-1.5">
-              <Search className="h-3.5 w-3.5" />
-              扫描自定义模型
-            </span>
-            <Button variant="outline" size="sm" className="h-6 text-xs" onClick={handleScan} disabled={scanning}>
-              {scanning ? "扫描中..." : "扫描"}
-            </Button>
+            {scanMessage && (
+              <p className={`text-xs py-1.5 text-center ${customModels.length === 0 ? "text-muted-foreground" : "text-green-600 dark:text-green-400"}`}>
+                {scanMessage}
+              </p>
+            )}
+            {!scanMessage && !scanning && (
+              <p className="text-xs text-muted-foreground py-2 text-center">
+                点击"扫描"检测 public/models/custom/ 中的自定义模型
+              </p>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            扫描 public/models/custom/ 目录中的用户自定义模型
-          </p>
-          {customModels.length > 0 && (
-            <>
-              <Select onValueChange={handleSelectCustom}>
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue placeholder="选择自定义模型..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {customModels.map((m) => (
-                    <SelectItem key={m.modelKey} value={m.modelKey} className="text-xs">
-                      {m.name}{m.warning ? " ⚠️" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {customModels.filter((m) => m.warning).map((m) => (
-                <div key={m.modelKey} className="flex items-start gap-1.5 p-1.5 rounded bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
-                  <span>{m.warning}</span>
-                </div>
-              ))}
-            </>
-          )}
-          {customModels.length === 0 && !scanning && (
-            <p className="text-xs text-muted-foreground">暂无自定义模型，点击扫描检测</p>
-          )}
         </div>
 
         <Separator />
 
         {/* Recommended models */}
         <div>
-          <Button variant="ghost" size="sm" className="text-xs w-full justify-between"
-            onClick={() => setShowRec(!showRec)}>
-            <span>{showRec ? "收起" : "推荐下载的模型"}</span>
+          <Button
+            variant="ghost" size="sm" className="text-xs w-full justify-between"
+            onClick={() => setShowRec(!showRec)}
+          >
+            <span className="flex items-center gap-1.5">
+              <Star className="h-3.5 w-3.5" />
+              {showRec ? "收起推荐" : "推荐下载的模型"}
+            </span>
           </Button>
           {showRec && (
             <div className="mt-2 space-y-2">
               {RECOMMENDED_MODELS.map((m) => (
-                <div key={m.modelKey} className="p-2 rounded bg-muted/30 text-xs space-y-1">
+                <div key={m.modelKey} className="p-2.5 rounded border text-xs space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{m.name}</span>
                     <Badge variant="outline" className="text-xs">{m.size}</Badge>
@@ -176,9 +290,9 @@ export function RAGSettings() {
                     href={m.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                    className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
                   >
-                    下载 <ExternalLink className="h-2.5 w-2.5" />
+                    在 Hugging Face 下载 <ExternalLink className="h-2.5 w-2.5" />
                   </a>
                 </div>
               ))}
@@ -188,69 +302,93 @@ export function RAGSettings() {
 
         <Separator />
 
-        {/* Install guide (bilingual) */}
+        {/* Install guide */}
         <div>
-          <Button variant="ghost" size="sm" className="text-xs w-full justify-between"
-            onClick={() => setShowHelp(!showHelp)}>
+          <Button
+            variant="ghost" size="sm" className="text-xs w-full justify-between"
+            onClick={() => setShowHelp(!showHelp)}
+          >
             <span className="flex items-center gap-1.5">
               <FolderOpen className="h-3.5 w-3.5" />
-              {showHelp ? "收起说明" : "如何安装模型？ / How to install models?"}
+              {showHelp ? "收起说明" : "如何安装模型？ / How to install?"}
             </span>
           </Button>
           {showHelp && (
             <div className="mt-2 p-3 rounded bg-muted/50 text-xs space-y-3">
-              {/* Chinese */}
               <div className="space-y-2">
-                <p className="font-medium">中文说明</p>
-                <ol className="list-decimal pl-4 space-y-2">
-                  <li>从 Hugging Face 下载 Xenova 量化版模型（config.json + tokenizer.json + onnx/model_quantized.onnx）</li>
-                  <li>
-                    放入对应目录：
-                    <div className="bg-muted p-1.5 rounded mt-0.5">
-                      <p className="font-medium">内置模型（已随项目分发）：</p>
-                      <code className="text-xs">public/models/builtin/Xenova/bge-small-zh-v1.5/</code>
-                      <p className="font-medium mt-1">自定义模型（用户自行添加）：</p>
-                      <code className="text-xs">public/models/custom/Xenova/你的模型名/</code>
-                    </div>
-                  </li>
-                  <li>放置后点击上方"扫描"按钮检测自定义模型</li>
-                  <li>检测到的模型会出现在下拉框中，选择即可使用</li>
+                <p className="font-medium">中文安装说明</p>
+
+                <p className="font-medium text-foreground/80">第一步：下载 3 个文件</p>
+                <p>从 Xenova 转换版页面下载（见上方推荐列表的链接）：</p>
+                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
+                  <li><code className="px-1 bg-muted rounded text-xs">config.json</code></li>
+                  <li><code className="px-1 bg-muted rounded text-xs">tokenizer.json</code></li>
+                  <li><code className="px-1 bg-muted rounded text-xs">onnx/model_quantized.onnx</code></li>
                 </ol>
-                <p className="text-muted-foreground">
-                  模型文件首次放置后即可完全离线使用。K
-                </p>
+                <p className="text-muted-foreground">注意：必须从 <strong>Xenova</strong> 页面下载（<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/模型名</code>），不是 BAAI/intfloat 原版页面。</p>
+
+                <p className="font-medium text-foreground/80 mt-2">第二步：放到正确位置</p>
+                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{`public/models/custom/Xenova/你的模型名/
+  ├── config.json
+  ├── tokenizer.json
+  └── onnx/
+      └── model_quantized.onnx`}</pre>
+                <p className="text-muted-foreground">3 个文件必须按此目录结构放置，ONNX 文件必须在 <code className="px-1 bg-muted rounded text-xs">onnx/</code> 子文件夹中。</p>
+
+                <p className="font-medium text-foreground/80 mt-2">第三步：扫描使用</p>
+                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
+                  <li>重启 dev server（<code className="px-1 bg-muted rounded text-xs">Ctrl+C</code> 后重新 <code className="px-1 bg-muted rounded text-xs">npm run dev</code>）</li>
+                  <li>打开设置页 → 点击"扫描"按钮</li>
+                  <li>发现模型后点击卡片即可选用</li>
+                  <li>文件名不标准时卡片显示 ⚠️ 及改名指引</li>
+                </ol>
               </div>
-
               <Separator />
-
-              {/* English */}
               <div className="space-y-2">
                 <p className="font-medium">English Instructions</p>
-                <ol className="list-decimal pl-4 space-y-2">
-                  <li>Download Xenova quantized model files from Hugging Face (config.json + tokenizer.json + onnx/model_quantized.onnx)</li>
-                  <li>
-                    Place files in the appropriate directory:
-                    <div className="bg-muted p-1.5 rounded mt-0.5">
-                      <p className="font-medium">Built-in models (shipped with the project):</p>
-                      <code className="text-xs">public/models/builtin/Xenova/bge-small-zh-v1.5/</code>
-                      <p className="font-medium mt-1">Custom models (added by user):</p>
-                      <code className="text-xs">public/models/custom/Xenova/your-model-name/</code>
-                    </div>
-                  </li>
-                  <li>Click the "Scan" button above to detect custom models</li>
-                  <li>Detected models appear in the dropdown — select to use</li>
+
+                <p className="font-medium text-foreground/80">Step 1: Download 3 files</p>
+                <p>From the Xenova model page on Hugging Face (see recommended list above):</p>
+                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
+                  <li><code className="px-1 bg-muted rounded text-xs">config.json</code></li>
+                  <li><code className="px-1 bg-muted rounded text-xs">tokenizer.json</code></li>
+                  <li><code className="px-1 bg-muted rounded text-xs">onnx/model_quantized.onnx</code></li>
                 </ol>
-                <p className="text-muted-foreground">
-                  Models work fully offline after first placement. Update by replacing the files.
-                </p>
+                <p className="text-muted-foreground">Note: Download from the <strong>Xenova</strong> page (<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/model-name</code>), not the original author page.</p>
+
+                <p className="font-medium text-foreground/80 mt-2">Step 2: Place files correctly</p>
+                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{`public/models/custom/Xenova/your-model/
+  ├── config.json
+  ├── tokenizer.json
+  └── onnx/
+      └── model_quantized.onnx`}</pre>
+                <p className="text-muted-foreground">All 3 files must follow this directory structure. The ONNX file must be inside the <code className="px-1 bg-muted rounded text-xs">onnx/</code> subfolder.</p>
+
+                <p className="font-medium text-foreground/80 mt-2">Step 3: Scan & Use</p>
+                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
+                  <li>Restart dev server (<code className="px-1 bg-muted rounded text-xs">Ctrl+C</code> then <code className="px-1 bg-muted rounded text-xs">npm run dev</code>)</li>
+                  <li>Open Settings → click "Scan"</li>
+                  <li>Click a detected model card to select it</li>
+                  <li>Non-standard filenames show ⚠️ with rename instructions</li>
+                </ol>
               </div>
             </div>
           )}
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          默认使用 BGE Small 中文专精。无模型时自动回退到 TF-IDF。
-        </p>
+        <Separator />
+
+        {/* Engine behavior info */}
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground/80">切换引擎后的行为</p>
+          <div className="space-y-1">
+            <p>• 引擎选择会自动保存，关闭浏览器后依然生效</p>
+            <p>• 切换引擎<strong>无需刷新页面</strong>，下次打开小说时自动使用新引擎</p>
+            <p>• 切换引擎后已有分析结果<strong>不会清除</strong>，仅影响后续新生成的分析</p>
+            <p>• 向量索引按需重建：首次使用新引擎打开小说时，会自动用新引擎重建索引</p>
+            <p>• 无可用模型时自动回退到 TF-IDF</p>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

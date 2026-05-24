@@ -1,4 +1,4 @@
-export type EngineId = "tfidf" | "bge-small-zh" | "e5-small";
+export type EngineId = "tfidf" | "bge-small-zh";
 
 export interface EngineInfo {
   id: EngineId;

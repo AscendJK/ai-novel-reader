@@ -63,25 +63,23 @@ export function ReadingPanel() {
         {!summaryOpen && (
           <button
             onClick={() => setSummaryOpen(true)}
-            className="h-20 w-7 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm self-center shrink-0"
+            className="h-[85px] w-8 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0 relative"
             title="打开AI分析面板"
           >
-            <PanelRightOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+            <PanelRightOpen className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
             {hasCurrentSummary && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full" />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
             )}
           </button>
         )}
-        <div style={{ display: summaryOpen ? undefined : "none" }}>
+        <div style={{ display: summaryOpen ? undefined : "none" }} className="flex">
           <button
             onClick={() => setSummaryOpen(false)}
-            className="h-20 w-7 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm self-center shrink-0"
+            className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0"
             title="关闭AI分析面板"
           >
-            <PanelRightClose className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+            <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
           </button>
-        </div>
-        <div style={{ display: summaryOpen ? undefined : "none" }}>
           <SummaryPanel />
         </div>
       </div>

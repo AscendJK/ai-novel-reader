@@ -4,6 +4,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ChevronRight, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
+const TOGGLE_W = "w-8";
+const TOGGLE_H = "h-[85px]"; // matches ChapterContent top bar height
+
 export function ChapterNav() {
   const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
   const [collapsed, setCollapsed] = useState(false);
@@ -12,35 +15,28 @@ export function ChapterNav() {
 
   if (collapsed) {
     return (
-      <div className="shrink-0 hidden md:flex">
+      <div className={`shrink-0 hidden md:flex ${TOGGLE_W}`}>
         <button
           onClick={() => setCollapsed(false)}
-          className="h-20 w-7 bg-card border border-l-0 rounded-r-md flex items-center justify-center hover:bg-accent transition-colors group self-center"
+          className={`${TOGGLE_H} w-full bg-card border border-l-0 rounded-r-md flex items-center justify-center hover:bg-accent transition-colors group`}
           title="展开目录"
         >
-          <PanelLeftOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+          <PanelLeftOpen className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="md:w-56 w-full md:border-r shrink-0 flex">
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-2.5 border-b flex items-center justify-between">
+    <div className="md:w-56 w-full shrink-0 flex">
+      <div className="flex-1 flex flex-col min-w-0 h-full">
+        <div className="p-4 border-b shrink-0 flex items-center min-h-[85px]">
           <div className="min-w-0">
-            <p className="font-medium text-xs truncate">{currentNovel.title}</p>
-            <p className="text-xs text-muted-foreground">共 {currentNovel.chapters.length} 章</p>
+            <p className="font-medium text-sm truncate">{currentNovel.title}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">共 {currentNovel.chapters.length} 章</p>
           </div>
-          <button
-            onClick={() => setCollapsed(true)}
-            className="shrink-0 ml-1 h-6 w-6 md:flex items-center justify-center rounded hover:bg-accent transition-colors hidden"
-            title="收起目录"
-          >
-            <PanelLeftClose className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
         </div>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="h-[calc(100vh-150px)]">
           <div className="p-1.5">
             {currentNovel.chapters.map((ch) => (
               <button
@@ -65,6 +61,14 @@ export function ChapterNav() {
           </div>
         </ScrollArea>
       </div>
+      {/* Toggle — aligns with ChapterContent top bar */}
+      <button
+        onClick={() => setCollapsed(true)}
+        className={`${TOGGLE_H} ${TOGGLE_W} bg-card border border-l-0 rounded-r-md flex items-center justify-center hover:bg-accent transition-colors group shrink-0`}
+        title="收起目录"
+      >
+        <PanelLeftClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+      </button>
     </div>
   );
 }

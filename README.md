@@ -126,6 +126,22 @@ npx vite preview --host 0.0.0.0 --port 5173
 - **d3-force** — 人物关系力导向图谱
 - **react-markdown** — Markdown 渲染
 - **JSZip** — EPUB 文件解析
+- **TF-IDF / BGE Small ZH** — 本地语义检索引擎
+- **Transformers.js** — 浏览器端 ONNX 模型推理
+
+## 本地检索引擎
+
+项目内置了 **BGE Small ZH v1.5** 中文嵌入模型（约 26MB，Xenova INT8 量化版），支持将小说全文在浏览器本地向量化检索。当你使用全书分析或 AI 问答时，系统会自动检索与问题最相关的段落发给大模型，而不是随机截取章节样本。
+
+可选的检索引擎：
+
+| 引擎 | 大小 | 说明 |
+|------|------|------|
+| TF-IDF（内置） | 0 MB | 纯字符级检索，即时可用 |
+| BGE Small ZH（内置） | ~26 MB | 中文专精，语义级匹配 |
+| 自定义模型 | 任意 | 支持 Xenova 转换版模型 |
+
+详见设置页的「本地检索引擎」面板。
 
 ## 数据隐私
 
@@ -153,3 +169,5 @@ npx vite preview --host 0.0.0.0 --port 5173
 ## 开源协议
 
 MIT License — 详见 [LICENSE](LICENSE)
+
+内置的 BGE Small ZH v1.5 模型来自北京智源人工智能研究院（BAAI），同样基于 MIT 协议开源。

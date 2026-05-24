@@ -4,7 +4,7 @@ import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
 import type { GraphData } from "@/hooks/useSummarizer";
 import { loadSetting, saveSetting } from "@/db/repositories";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,7 +40,7 @@ export function SummaryPanel() {
   const { currentNovel, selectedChapterId } = useNovelStore();
   const { getSummariesByNovel, isGenerating, generateProgress } = useSummaryStore();
   const {
-    isRunning, error,
+    isRunning, currentTask, error,
     summarizeChapter, summarizeAllChapters, regenerateChapter,
     generateGlobalSummary, regenerateGlobal,
     generateCharacterAnalysis, generateTimeline,
@@ -113,26 +113,39 @@ export function SummaryPanel() {
         </h3>
       </div>
 
+      {/* Loading indicator */}
+      {loading && (
+        <div className="mx-2.5 mt-2 p-1.5 rounded bg-primary/10 border border-primary/20 flex items-center gap-2 text-xs text-primary shrink-0">
+          <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+          <span>AI 正在执行：{currentTask || "分析任务"}...</span>
+        </div>
+      )}
+
       {/* Error banner */}
       {(error || qaError) && (
-        <div className="p-2 mx-2.5 mt-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-          <p className="whitespace-pre-wrap line-clamp-2">{error || qaError}</p>
+        <div className="mx-2.5 mt-2 p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive shrink-0">
+          <p className="whitespace-pre-wrap">{error || qaError}</p>
           <Button variant="ghost" size="sm" className="h-5 text-xs mt-0.5" onClick={() => { clearError(); setQaError(null); }}>关闭</Button>
         </div>
       )}
 
-      <ScrollArea className="flex-1 min-h-0">
-        <Tabs defaultValue="chapter" className="flex flex-col">
-          <TabsList className="mx-2.5 mt-2 shrink-0">
+      {/* Fixed tabs — always visible */}
+      <Tabs defaultValue="chapter" className="flex flex-col flex-1 min-h-0">
+        <div className="shrink-0 px-2.5 pt-2 border-b">
+          <TabsList className="w-full">
             <TabsTrigger value="qa" className="text-xs h-7 flex-1">问答</TabsTrigger>
             <TabsTrigger value="chapter" className="text-xs h-7 flex-1">本章分析</TabsTrigger>
             <TabsTrigger value="book" className="text-xs h-7 flex-1">全书分析</TabsTrigger>
           </TabsList>
+        </div>
 
+        <div className="flex-1 min-h-0 relative">
           {/* ====== 问答 Tab ====== */}
-          <TabsContent value="qa" className="px-2.5 space-y-2 m-0">
+          <TabsContent value="qa" className="flex flex-col m-0 absolute inset-0">
+            {/* Scrollable chat + range results */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-2.5 pt-2 space-y-1.5">
               {qaMessages.length > 0 && (
-                <div className="space-y-1.5 max-h-48 overflow-auto">
+                <div className="space-y-1.5">
                   {qaMessages.map((m) => (
                     <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[90%] rounded-lg px-2 py-1 text-xs ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
@@ -143,7 +156,14 @@ export function SummaryPanel() {
                 </div>
               )}
               {qaLoading && <Loader2 className="h-3 w-3 animate-spin mx-auto" />}
+              {rangeResults.map((r) => (
+                <MiniCard key={r.id} title={r.title} content={r.content} tokens={r.tokensUsed} date={r.createdAt} isTemp
+                  onRemove={() => setRangeResults((p) => p.filter((x) => x.id !== r.id))} />
+              ))}
+            </div>
 
+            {/* Fixed bottom: range summary + input */}
+            <div className="shrink-0 px-2.5 pb-2 space-y-1.5 border-t pt-2">
               <Card className="shadow-none"><CardContent className="p-2 space-y-1.5">
                 <p className="text-xs font-medium">范围总结</p>
                 <div className="flex items-center gap-1">
@@ -155,12 +175,6 @@ export function SummaryPanel() {
                   <Button size="sm" className="h-6 text-xs" onClick={handleRange} disabled={loading}>生成</Button>
                 </div>
               </CardContent></Card>
-
-              {rangeResults.map((r) => (
-                <MiniCard key={r.id} title={r.title} content={r.content} tokens={r.tokensUsed} date={r.createdAt} isTemp
-                  onRemove={() => setRangeResults((p) => p.filter((x) => x.id !== r.id))} />
-              ))}
-
               <Textarea className="text-xs min-h-[40px]" placeholder="输入问题，支持追问..."
                 value={customQuestion} onChange={(e) => setCustomQuestion(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAsk(); } }} />
@@ -174,11 +188,11 @@ export function SummaryPanel() {
                   </Button>
                 )}
               </div>
-
+            </div>
           </TabsContent>
 
           {/* ====== 本章分析 Tab ====== */}
-          <TabsContent value="chapter" className="px-2.5 space-y-2 m-0">
+          <TabsContent value="chapter" className="px-2.5 pt-2 space-y-2 m-0 overflow-y-auto absolute inset-0">
             <div className="flex gap-1">
                 <Button size="sm" className="flex-1 text-xs h-7" onClick={() => selectedChapterId && summarizeChapter(selectedChapterId)} disabled={loading || !selectedChapterId}>
                   {loading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}总结本章
@@ -204,7 +218,7 @@ export function SummaryPanel() {
           </TabsContent>
 
           {/* ====== 全书分析 Tab ====== */}
-          <TabsContent value="book" className="px-2.5 space-y-1 m-0">
+          <TabsContent value="book" className="px-2.5 pt-2 space-y-1 m-0 overflow-y-auto absolute inset-0">
               <SubItem label="剧情时间线" icon={<Clock className="h-3 w-3" />}
                 isOpen={bookSub === "timeline"} onClick={() => setBookSub(bookSub === "timeline" ? null : "timeline")}
                 summaries={tlSummaries} onGenerate={generateTimeline} onRegenerate={regenerateTimeline}
@@ -221,8 +235,8 @@ export function SummaryPanel() {
                 summaries={globalSummaries} onGenerate={generateGlobalSummary} onRegenerate={regenerateGlobal}
                 loading={loading} emptyLabel="生成全书总览" />
           </TabsContent>
+        </div>
         </Tabs>
-      </ScrollArea>
 
       {/* Data Mgmt — pinned to bottom */}
       <div className="border-t shrink-0" />
@@ -279,10 +293,17 @@ function SubItem({ label, icon, isOpen, onClick, summaries, onGenerate, onRegene
       {isOpen && (
         <div className="mt-1 space-y-1.5 pl-4">
           {graphData && onRegenerateGraph && <CharacterGraph graphData={graphData} onRegenerate={onRegenerateGraph} />}
-          {summaries.map((s) => (
-            <MiniCard key={s.id} title={s.chapterTitle} content={s.content} tokens={s.tokensUsed} date={s.createdAt}
-              onRegenerate={onRegenerate} loading={loading} />
-          ))}
+          {summaries.length > 0 ? (
+            summaries.map((s) => (
+              <MiniCard key={s.id} title={s.chapterTitle} content={s.content} tokens={s.tokensUsed} date={s.createdAt}
+                onRegenerate={onRegenerate} loading={loading} />
+            ))
+          ) : (
+            <button onClick={onGenerate} disabled={loading}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors py-0.5 flex items-center gap-1">
+              <FileText className="h-3 w-3" />生成文字分析
+            </button>
+          )}
         </div>
       )}
     </div>
