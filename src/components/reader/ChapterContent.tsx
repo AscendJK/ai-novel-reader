@@ -1,11 +1,12 @@
 import { useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useUIStore } from "@/stores/ui-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Bold } from "lucide-react";
+import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Bold, Type } from "lucide-react";
 
 interface ChapterContentProps {
   summaryOpen: boolean;
@@ -24,6 +25,7 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary }: Cha
   const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
   const { fontSize, setFontSize, fontWeight, setFontWeight } = useUIStore();
+  const [showFontPanel, setShowFontPanel] = useState(false);
 
   const chapters = currentNovel?.chapters || [];
   const currentIndex = chapters.findIndex((c) => c.id === selectedChapterId);
@@ -96,36 +98,37 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary }: Cha
             </Button>
           )}
 
-          {/* Font weight toggle — desktop only */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 hidden md:inline-flex"
-            onClick={cycleFontWeight} title={`字体粗细: ${currentWeightLabel}`}>
-            <Bold className="h-3.5 w-3.5" style={{ opacity: fontWeight / 600 }} />
-          </Button>
-
-          {/* Font size controls — desktop only */}
-          <div className="hidden md:flex items-center gap-0.5 border-l pl-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              disabled={fontSize <= 12}
-              onClick={() => setFontSize(Math.max(12, fontSize - 1))}
-            >
-              <Minus className="h-3 w-3" />
+          {/* Font panel toggle */}
+          <div className="relative">
+            <Button variant="ghost" size="icon" className="h-7 w-7"
+              onClick={() => setShowFontPanel(!showFontPanel)} title="字体设置">
+              <Type className="h-4 w-4" />
             </Button>
-            <span className="text-xs text-muted-foreground w-8 text-center tabular-nums select-none">
-              {fontSize}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              disabled={fontSize >= 24}
-              onClick={() => setFontSize(Math.min(24, fontSize + 1))}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
+            {showFontPanel && (
+              <div className="absolute right-0 top-full mt-1 p-3 rounded-lg border bg-card shadow-lg z-20 flex flex-col gap-2 min-w-[120px]"
+                onClick={(e) => e.stopPropagation()}>
+                {/* Font size */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">字号</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={fontSize <= 12}
+                      onClick={() => setFontSize(Math.max(12, fontSize - 1))}><Minus className="h-3 w-3" /></Button>
+                    <span className="text-xs w-7 text-center tabular-nums">{fontSize}</span>
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={fontSize >= 24}
+                      onClick={() => setFontSize(Math.min(24, fontSize + 1))}><Plus className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+                {/* Font weight */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">粗细</span>
+                  <Button variant="outline" size="sm" className="h-6 text-xs"
+                    onClick={cycleFontWeight}>{currentWeightLabel}</Button>
+                </div>
+              </div>
+            )}
           </div>
+          {/* Close popover on outside click */}
+          {showFontPanel && <div className="fixed inset-0 z-10" onClick={() => setShowFontPanel(false)} />}
         </div>
       </div>
 
