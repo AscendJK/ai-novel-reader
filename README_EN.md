@@ -38,6 +38,14 @@ A browser-based intelligent novel reading tool powered by large language models.
 - Start new sessions at any time
 - All Q&A is ephemeral and not saved locally
 
+### Notes
+- **Chapter Notes** — Per-chapter notes that switch automatically with chapters
+- **Book Notes** — Cross-chapter global notes
+- **AI Bookmark** — Save AI responses to notes with one click (chapter or book scope)
+- **Accordion View** — Notes collapsed to 2-line preview, tap to expand full text, one expanded at a time
+- **Move to Book** — Chapter notes can be moved to book notes
+- All notes stored in browser IndexedDB, individually deletable
+
 ### Reading Experience
 - Adjustable font size and weight
 - Dark / light mode toggle
