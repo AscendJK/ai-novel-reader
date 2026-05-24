@@ -173,7 +173,7 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
         </div>
 
         {/* Bottom navigation bar */}
-        <div className="border-t bg-card px-4 py-2.5 flex items-center justify-between shrink-0 md:pb-2.5 pb-16" onClick={(e) => e.stopPropagation()}>
+        <div className={`border-t bg-card px-4 py-2.5 flex items-center justify-between shrink-0 ${immersive ? "pb-2.5" : "md:pb-2.5 pb-16"}`} onClick={(e) => e.stopPropagation()}>
           <Button
             variant="outline"
             size="sm"

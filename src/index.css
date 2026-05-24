@@ -86,3 +86,10 @@
     background: transparent;
   }
 }
+
+/* Immersive reading on mobile */
+@media (max-width: 767px) {
+  html.immersive header {
+    display: none !important;
+  }
+}

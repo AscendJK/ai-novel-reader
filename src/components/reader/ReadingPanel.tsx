@@ -13,12 +13,10 @@ export function ReadingPanel() {
   const [mobileAiTab, setMobileAiTab] = useState("chapter");
   const [immersive, setImmersive] = useState(false);
 
-  // On mobile, hide header when immersive
+  // Toggle CSS class on <html> for immersive reading
   useEffect(() => {
-    const h = document.querySelector("header");
-    if (!h || window.innerWidth >= 768) return;
-    h.style.display = immersive ? "none" : "";
-    return () => { h.style.display = ""; };
+    document.documentElement.classList.toggle("immersive", immersive);
+    return () => document.documentElement.classList.remove("immersive");
   }, [immersive]);
 
   const { currentNovel, selectedChapterId } = useNovelStore();
