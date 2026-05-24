@@ -67,7 +67,12 @@ After logging in with the same username, these sync automatically:
 |--------|------------|
 | Reading progress, AI summaries, notes, API config | Theme, font (per-device) |
 
-Progress is pushed immediately on chapter change. Other devices update within 30 seconds.
+Sync mechanism: client and server push/pull every 30 seconds. Chapter changes and summary generation trigger an immediate push.
+
+**Notes:**
+- Only one device per username at a time — new login kicks the old one
+- Logout only clears **browser-local** data, never server data
+- Logging back in restores all data from the server
 
 ### 6. Library (LAN Sharing)
 
