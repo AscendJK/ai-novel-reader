@@ -24,6 +24,7 @@ export function AppLayout() {
   const [showSettings, setShowSettings] = useState(false);
   const [syncReady, setSyncReady] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginSyncing, setLoginSyncing] = useState(false);
   const syncStarted = useRef(false);
 
   useEffect(() => {
@@ -111,18 +112,14 @@ export function AppLayout() {
       return;
     }
 
-    // Always push any local data first, then pull merged data from server
+    // Block UI until initial sync completes
+    setLoginSyncing(true);
+
+    // Push any local data + pull merged data from server
     try {
       await syncClient.syncOnce();
-      // Reload novels from IndexedDB into store (syncOnce wrote them)
       const novels = await loadAllNovels();
       novels.forEach((n) => addNovel(n));
-      // Reload summaries if needed
-      const { currentNovel: cn } = useNovelStore.getState();
-      if (cn) {
-        const dbSummaries = await loadSummaries(cn.id);
-        if (dbSummaries.length > 0) setSummaries(dbSummaries);
-      }
     } catch { /* will catch up on next timer tick */ }
 
     // Start periodic sync
@@ -144,6 +141,7 @@ export function AppLayout() {
       });
     }
     setSyncReady(true);
+    setLoginSyncing(false);
   };
 
   const handleBackToLibrary = () => {
@@ -155,7 +153,7 @@ export function AppLayout() {
     <div className="h-screen flex flex-col bg-background text-foreground">
       {/* Login modal — shown until user logs in */}
       {!syncClient.isLoggedIn && (
-        <UsernameLogin onLogin={handleLogin} error={loginError} />
+        <UsernameLogin onLogin={handleLogin} error={loginError} syncing={loginSyncing} />
       )}
 
       <Header

@@ -4,12 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { Loader2 } from "lucide-react";
+
 interface Props {
   onLogin: (username: string, isJoin: boolean) => Promise<void>;
   error?: string | null;
+  syncing?: boolean;
 }
 
-export function UsernameLogin({ onLogin, error }: Props) {
+export function UsernameLogin({ onLogin, error, syncing }: Props) {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -19,6 +22,19 @@ export function UsernameLogin({ onLogin, error }: Props) {
     try { await onLogin(username.trim(), isJoin); }
     finally { setLoading(false); }
   };
+
+  if (syncing) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <Card className="w-full max-w-sm mx-4">
+          <CardContent className="py-8 text-center space-y-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+            <p className="text-sm font-medium">正在同步云端数据...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
