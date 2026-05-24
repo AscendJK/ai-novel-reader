@@ -27,7 +27,9 @@ export function ReadingPanel() {
 
   return (
     <div className="flex h-full relative">
-      <ChapterNav />
+      <div className="hidden md:flex shrink-0">
+        <ChapterNav />
+      </div>
 
       <div className="flex-1 flex flex-col min-w-0">
         <ChapterContent
