@@ -117,18 +117,7 @@ export function AppLayout() {
       return;
     }
 
-    // Block UI until initial sync completes
-    setLoginSyncing(true);
-
-    // Push any local data + pull merged data from server
-    try {
-      const ok = await syncClient.syncOnce();
-      console.log("[sync] initial syncOnce:", ok ? "ok" : "failed");
-      const novels = await loadAllNovels();
-      novels.forEach((n) => addNovel(n));
-    } catch (e) { console.error("[sync] syncOnce error:", e); }
-
-    // Start periodic sync
+    // Start periodic sync FIRST so gatherChanges/applyData are available for syncOnce
     if (!syncStarted.current) {
       syncStarted.current = true;
       syncClient.start({
@@ -146,6 +135,18 @@ export function AppLayout() {
         isAiRunning: () => (window as any).__aiRunning === true,
       });
     }
+
+    // Block UI until initial sync completes
+    setLoginSyncing(true);
+
+    // Push any local data + pull merged data from server
+    try {
+      const ok = await syncClient.syncOnce();
+      console.log("[sync] initial syncOnce:", ok ? "ok" : "failed");
+      const novels = await loadAllNovels();
+      novels.forEach((n) => addNovel(n));
+    } catch (e) { console.error("[sync] syncOnce error:", e); }
+
     setSyncReady(true);
     setLoginSyncing(false);
   };

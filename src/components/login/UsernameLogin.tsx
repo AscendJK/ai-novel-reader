@@ -62,7 +62,7 @@ export function UsernameLogin({ onLogin, error, syncing }: Props) {
             <Button
               variant="outline"
               className="flex-1"
-              onClick={() => handleLogin(true)}
+              onClick={() => handleLogin(false)}
               disabled={loading || !username.trim()}
             >
               <UserPlus className="h-4 w-4 mr-2" />
@@ -70,7 +70,7 @@ export function UsernameLogin({ onLogin, error, syncing }: Props) {
             </Button>
             <Button
               className="flex-1"
-              onClick={() => handleLogin(false)}
+              onClick={() => handleLogin(true)}
               disabled={loading || !username.trim()}
             >
               <LogIn className="h-4 w-4 mr-2" />
