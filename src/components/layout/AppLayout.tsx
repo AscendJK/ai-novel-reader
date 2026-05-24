@@ -57,6 +57,11 @@ export function AppLayout() {
           await applyServerData(data);
           const novels = await loadAllNovels();
           novels.forEach((n) => addNovel(n));
+          const { currentNovel: cn } = useNovelStore.getState();
+          if (cn) {
+            const s = await loadSummaries(cn.id);
+            if (s.length > 0) setSummaries(s);
+          }
         },
         isAiRunning: () => (window as any).__aiRunning === true,
       });

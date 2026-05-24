@@ -10,6 +10,7 @@ import { saveSummary } from "@/db/repositories";
 import { APIError } from "@/api/error-handler";
 import { buildIndex, retrieveRelevant } from "@/rag/index";
 import { useRAGStore } from "@/stores/rag-store";
+import { syncClient } from "@/sync/sync-client";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -107,6 +108,7 @@ export function useSummarizer() {
         addSummary(summary);
         await saveSummary(summary);
       }
+      syncClient.pushNow(); // immediate push so other devices get the update
     },
     [currentNovel, addSummary]
   );
@@ -122,6 +124,7 @@ export function useSummarizer() {
       };
       addSummary(summary);
       await saveSummary(summary);
+      syncClient.pushNow(); // immediate push
     },
     [currentNovel, addSummary]
   );
