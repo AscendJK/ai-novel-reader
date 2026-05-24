@@ -47,7 +47,7 @@ export function AppLayout() {
     }
   }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sync integration ──
+  // ── Sync integration (auto-login from stored session) ──
   useEffect(() => {
     if (syncClient.isLoggedIn && !syncStarted.current) {
       syncStarted.current = true;
@@ -55,20 +55,10 @@ export function AppLayout() {
         gatherChanges,
         applyData: async (data: SyncData) => {
           await applyServerData(data);
-          // Reload novels into store after sync pull
           const novels = await loadAllNovels();
           novels.forEach((n) => addNovel(n));
-          // Reload summaries if currently viewing a novel
-          const { currentNovel: cn } = useNovelStore.getState();
-          if (cn) {
-            const dbSummaries = await loadSummaries(cn.id);
-            if (dbSummaries.length > 0) setSummaries(dbSummaries);
-          }
         },
-        isAiRunning: () => {
-          // Check if any AI task is running (accessed via a simple flag)
-          return (window as any).__aiRunning === true;
-        },
+        isAiRunning: () => (window as any).__aiRunning === true,
       });
       setSyncReady(true);
     }
@@ -158,9 +148,9 @@ export function AppLayout() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
-      {/* Login modal — shown until user logs in */}
-      {!syncClient.isLoggedIn && (
-        <UsernameLogin onLogin={handleLogin} error={loginError} syncing={loginSyncing} />
+      {/* Login / syncing overlay — blocks UI until first sync completes */}
+      {!syncReady && (
+        <UsernameLogin onLogin={handleLogin} error={loginError} syncing={loginSyncing || syncClient.isLoggedIn} />
       )}
 
       <Header
