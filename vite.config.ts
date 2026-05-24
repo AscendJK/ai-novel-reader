@@ -39,4 +39,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    hmr: {
+      // Don't full-reload on reconnect after mobile sleep
+      overlay: false,
+    },
+    watch: {
+      // Less aggressive file watching
+      usePolling: false,
+    },
+  },
 });
