@@ -141,8 +141,6 @@ export class SyncClient {
 
   private async doSync() {
     if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return;
-    // Skip if no other connections (but always let heartbeat update first)
-    if (this.activeCount < 2) return;
     if (this.isAiRunning()) return;
     await this.syncOnce();
   }
