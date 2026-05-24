@@ -105,13 +105,7 @@ app.post("/api/novels/:id/leave", (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/novels/:id — admin: delete novel entirely
-app.delete("/api/novels/:id", (_req, res) => {
-  try {
-    db.deleteNovel(_req.params.id);
-    res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
-});
+// DELETE /api/novels/:id — removed; use /api/admin/novels/:id with token auth instead
 
 // ── Sync API ────────────────────────────────────────────────
 
@@ -188,10 +182,6 @@ const isFullServer = process.argv.includes("--full");
 const distPath = path.join(__dirname, "..", "dist");
 
 if (isFullServer && fs.existsSync(distPath)) {
-  // Admin page — must be before SPA fallback
-  app.get("/admin", (_req, res) => {
-    res.sendFile(path.join(__dirname, "admin.html"));
-  });
   app.use(express.static(distPath));
   app.use((req, res, next) => {
     if (req.method !== "GET" || req.path.startsWith("/api/") || req.path === "/admin") return next();

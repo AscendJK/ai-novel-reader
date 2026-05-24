@@ -130,7 +130,7 @@ async function delNovel(id) {
 }
 
 // ── Helpers ──
-function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/\\/g,"&#92;"); }
 function fmt(ts) { return ts ? new Date(ts).toLocaleDateString("zh-CN") : "-"; }
 function fmtSize(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e4)+"万" : String(n); }
 

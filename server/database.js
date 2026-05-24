@@ -164,12 +164,14 @@ export function getChapter(novelId, indexNum) {
 }
 
 export function deleteNovel(novelId) {
-  db.prepare("DELETE FROM user_novels WHERE novel_id = ?").run(novelId);
-  db.prepare("DELETE FROM summaries WHERE novel_id = ?").run(novelId);
-  db.prepare("DELETE FROM notes WHERE novel_id = ?").run(novelId);
-  db.prepare("DELETE FROM reading_progress WHERE novel_id = ?").run(novelId);
-  db.prepare("DELETE FROM chapters WHERE novel_id = ?").run(novelId);
-  db.prepare("DELETE FROM novels WHERE id = ?").run(novelId);
+  db.transaction(() => {
+    db.prepare("DELETE FROM user_novels WHERE novel_id = ?").run(novelId);
+    db.prepare("DELETE FROM summaries WHERE novel_id = ?").run(novelId);
+    db.prepare("DELETE FROM notes WHERE novel_id = ?").run(novelId);
+    db.prepare("DELETE FROM reading_progress WHERE novel_id = ?").run(novelId);
+    db.prepare("DELETE FROM chapters WHERE novel_id = ?").run(novelId);
+    db.prepare("DELETE FROM novels WHERE id = ?").run(novelId);
+  })();
 }
 
 // ── User-novel association ──
@@ -179,11 +181,12 @@ export function joinNovel(username, novelId) {
 }
 
 export function leaveNovel(username, novelId) {
-  db.prepare("DELETE FROM user_novels WHERE username = ? AND novel_id = ?").run(username, novelId);
-  // Also remove user's data for this novel
-  db.prepare("DELETE FROM summaries WHERE username = ? AND novel_id = ?").run(username, novelId);
-  db.prepare("DELETE FROM notes WHERE username = ? AND novel_id = ?").run(username, novelId);
-  db.prepare("DELETE FROM reading_progress WHERE username = ? AND novel_id = ?").run(username, novelId);
+  db.transaction(() => {
+    db.prepare("DELETE FROM user_novels WHERE username = ? AND novel_id = ?").run(username, novelId);
+    db.prepare("DELETE FROM summaries WHERE username = ? AND novel_id = ?").run(username, novelId);
+    db.prepare("DELETE FROM notes WHERE username = ? AND novel_id = ?").run(username, novelId);
+    db.prepare("DELETE FROM reading_progress WHERE username = ? AND novel_id = ?").run(username, novelId);
+  })();
 }
 
 export function getUserNovelIds(username) {
