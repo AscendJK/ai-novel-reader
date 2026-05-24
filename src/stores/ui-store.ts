@@ -13,7 +13,7 @@ function getInitialFontSize(): number {
     const stored = localStorage.getItem("novel-reader-font-size");
     if (stored) return parseInt(stored, 10);
   } catch { /* ignore */ }
-  return 16;
+  return 18;
 }
 
 function getInitialFontWeight(): number {
