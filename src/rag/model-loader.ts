@@ -66,11 +66,13 @@ async function getModelStatus(base: string, modelKey: string): Promise<ModelStat
     }
   }
 
-  // 2. Probe ALL known ONNX variants.
+  // 2. Probe ONLY the expected ONNX variant first.
+  //    If found, skip probing the rest to avoid console noise.
   //    Real binary files have Content-Type: application/octet-stream (or similar).
   //    Vite's SPA fallback returns text/html — we filter those out.
   const found: string[] = [];
-  for (const variant of ONNX_ALL) {
+  const variants = [ONNX_EXPECTED, ...ONNX_ALL.filter((v) => v !== ONNX_EXPECTED)];
+  for (const variant of variants) {
     try {
       const resp = await fetch(base + modelKey + "/onnx/" + variant, {
         method: "HEAD",
@@ -78,12 +80,11 @@ async function getModelStatus(base: string, modelKey: string): Promise<ModelStat
       });
       if (!resp.ok) continue;
       const ct = resp.headers.get("Content-Type") || "";
-      // Real ONNX files are binary; SPA fallback is text/html
       if (ct.includes("text/html")) continue;
-      // Also check Content-Length — real ONNX files are > 1MB
       const cl = resp.headers.get("Content-Length");
       if (cl && parseInt(cl, 10) < 100000) continue;
       found.push(variant);
+      break; // first valid ONNX file is enough — no need to probe the rest
     } catch { /* try next */ }
   }
 
