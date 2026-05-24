@@ -3,6 +3,8 @@ export interface AgentContext {
   chapterIds?: string[];
   customInstruction?: string;
   signal?: AbortSignal;
+  /** Pre-retrieved relevant text from RAG — if provided, agents skip random sampling */
+  preRetrieved?: string;
 }
 
 export interface AgentResult {

@@ -28,17 +28,19 @@ export const characterAnalysisAgent: Agent = {
       .map((c, i) => `${i + 1}. ${c.title} (${c.content.length.toLocaleString()}字)`)
       .join("\n");
 
-    const sampleIndices = [0, 1, 2];
-    if (novel.chapters.length > 6) sampleIndices.push(Math.floor(novel.chapters.length / 2));
-    if (novel.chapters.length > 3) sampleIndices.push(novel.chapters.length - 1);
+    const relevantContent = context.preRetrieved && context.preRetrieved.length > 100
+      ? context.preRetrieved
+      : (() => {
+          const indices = [0, 1, 2];
+          if (novel.chapters.length > 6) indices.push(Math.floor(novel.chapters.length / 2));
+          if (novel.chapters.length > 3) indices.push(novel.chapters.length - 1);
+          return [...new Set(indices)]
+            .filter((i) => i < novel.chapters.length)
+            .map((i) => `【${novel.chapters[i].title}】\n${novel.chapters[i].content.slice(0, 2000)}`)
+            .join("\n\n---\n\n");
+        })();
 
-    const samples = [...new Set(sampleIndices)]
-      .filter((i) => i < novel.chapters.length)
-      .map((i) => {
-        const ch = novel.chapters[i];
-        return `【${ch.title}】\n${ch.content.slice(0, 2000)}`;
-      })
-      .join("\n\n---\n\n");
+    const promptLabel = context.preRetrieved ? "语义检索相关段落" : "内容样本";
 
     const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，分析主要人物及其关系网络。
 
@@ -49,8 +51,8 @@ export const characterAnalysisAgent: Agent = {
 **章节目录：**
 ${chapterList}
 
-**内容样本：**
-${samples}
+**${promptLabel}：**
+${relevantContent}
 
 请输出以下两部分内容，用 \`---GRAPH_JSON---\` 分隔：
 
@@ -154,19 +156,21 @@ export const timelineAgent: Agent = {
       .map((c, i) => `${i + 1}. ${c.title} (${c.content.length.toLocaleString()}字)`)
       .join("\n");
 
-    const sampleIndices = [0, 1];
-    if (novel.chapters.length > 5) sampleIndices.push(Math.floor(novel.chapters.length / 3));
-    if (novel.chapters.length > 6) sampleIndices.push(Math.floor(novel.chapters.length / 2));
-    if (novel.chapters.length > 7) sampleIndices.push(Math.floor((novel.chapters.length * 2) / 3));
-    if (novel.chapters.length > 3) sampleIndices.push(novel.chapters.length - 1);
+    const relevantContent = context.preRetrieved && context.preRetrieved.length > 100
+      ? context.preRetrieved
+      : (() => {
+          const indices = [0, 1];
+          if (novel.chapters.length > 5) indices.push(Math.floor(novel.chapters.length / 3));
+          if (novel.chapters.length > 6) indices.push(Math.floor(novel.chapters.length / 2));
+          if (novel.chapters.length > 7) indices.push(Math.floor((novel.chapters.length * 2) / 3));
+          if (novel.chapters.length > 3) indices.push(novel.chapters.length - 1);
+          return [...new Set(indices)]
+            .filter((i) => i < novel.chapters.length)
+            .map((i) => `【${novel.chapters[i].title}】${novel.chapters[i].content.slice(0, 1500)}`)
+            .join("\n\n---\n\n");
+        })();
 
-    const samples = [...new Set(sampleIndices)]
-      .filter((i) => i < novel.chapters.length)
-      .map((i) => {
-        const ch = novel.chapters[i];
-        return `【${ch.title}】${ch.content.slice(0, 1500)}`;
-      })
-      .join("\n\n---\n\n");
+    const promptLabel = context.preRetrieved ? "语义检索相关段落" : "关键章节样本";
 
     const prompt = `你是一位专业的小说剧情分析师。请根据以下小说信息，提取关键剧情时间线。
 
@@ -177,8 +181,8 @@ export const timelineAgent: Agent = {
 **章节目录：**
 ${chapterList}
 
-**关键章节样本：**
-${samples}
+**${promptLabel}：**
+${relevantContent}
 
 **分析要求：**
 1. **剧情主线时间线**（按时间顺序列出 15-25 个关键事件，每个事件标注章节编号、类型、因果关系）

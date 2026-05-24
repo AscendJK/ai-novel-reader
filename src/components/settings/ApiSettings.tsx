@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ProviderSelect } from "./ProviderSelect";
 import type { ProviderType, ProviderConfig } from "@/api/types";
 import { Key, Trash2, ArrowLeft } from "lucide-react";
+import { RAGSettings } from "./RAGSettings";
 
 const MODEL_OPTIONS: Record<ProviderType, string[]> = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
@@ -212,6 +213,10 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
           );
         })}
       </div>
+
+      <Separator />
+
+      <RAGSettings />
 
       <Separator />
 

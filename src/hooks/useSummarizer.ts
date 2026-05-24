@@ -9,6 +9,8 @@ import { getProvider } from "@/api/registry";
 import { loadNovel } from "@/db/repositories";
 import { saveSummary } from "@/db/repositories";
 import { APIError } from "@/api/error-handler";
+import { buildIndex, retrieveRelevant } from "@/rag/index";
+import { useRAGStore } from "@/stores/rag-store";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -41,6 +43,21 @@ export function useSummarizer() {
 
   const abortAll = useCallback(() => {
     abortRef.current?.abort();
+
+  // Pre-retrieve relevant text using local RAG
+  const getRelevantText = useCallback(
+    (query: string): string => {
+      if (!currentNovel) return "";
+      const engine = useRAGStore.getState().engine;
+      try {
+        buildIndex(currentNovel.id, currentNovel.chapters, engine);
+        return retrieveRelevant(currentNovel.id, query, 15);
+      } catch {
+        return "";
+      }
+    },
+    [currentNovel]
+  );
     abortRef.current = null;
   }, []);
 
@@ -136,7 +153,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return;
     setIsRunning(true); setError(null);
     try {
-      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("小说主线剧情 主题分析 故事梗概 关键情节") });
       if (result.success) await saveGlobalSummary(result, "global", "全书总结", "__global__");
       else setError(result.error || "全局总结生成失败");
     } catch (err) { handleError(err); }
@@ -147,7 +164,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return;
     setIsRunning(true); setError(null);
     try {
-      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("小说主线剧情 主题分析 故事梗概 关键情节") });
       if (result.success) await saveGlobalSummary(result, "global", "全书总结", "__global__");
       else setError(result.error || "重新生成失败");
     } catch (err) { handleError(err); }
@@ -159,7 +176,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return null;
     setIsRunning(true); setError(null);
     try {
-      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("人物角色 关系网络 性格特征 情感发展") });
       if (result.success) {
         await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
         const data = result.data as { content: string; graphData?: GraphData };
@@ -176,7 +193,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return null;
     setIsRunning(true); setError(null);
     try {
-      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("人物角色 关系网络 性格特征 情感发展") });
       if (result.success) {
         await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
         const data = result.data as { content: string; graphData?: GraphData };
@@ -229,7 +246,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return;
     setIsRunning(true); setError(null);
     try {
-      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("剧情事件 转折点 伏笔 时间线 高潮 结局 矛盾冲突") });
       if (result.success) await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__");
       else setError(result.error || "时间线生成失败");
     } catch (err) { handleError(err); }
@@ -240,7 +257,7 @@ export function useSummarizer() {
     if (!currentNovel || !checkProvider()) return;
     setIsRunning(true); setError(null);
     try {
-      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal() });
+      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: getRelevantText("剧情事件 转折点 伏笔 时间线 高潮 结局 矛盾冲突") });
       if (result.success) await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__");
       else setError(result.error || "重新生成失败");
     } catch (err) { handleError(err); }
@@ -305,12 +322,9 @@ ${combinedText}`;
 
       // Build system context (only sent once)
       const chapterList = currentNovel.chapters.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
-      const firstCh = currentNovel.chapters[0];
-      const lastCh = currentNovel.chapters[currentNovel.chapters.length - 1];
-      const samples = [
-        firstCh && `【${firstCh.title}】\n${firstCh.content.slice(0, 1500)}`,
-        lastCh && `【${lastCh.title}】\n${lastCh.content.slice(0, 1500)}`,
-      ].filter(Boolean).join("\n\n---\n\n");
+
+      // Use RAG to find relevant text for this question
+      const relevantText = getRelevantText(question);
 
       const systemPrompt = `你是一位专业的小说分析助手。请根据以下小说信息回答用户问题。请用中文回答。
 
@@ -318,8 +332,8 @@ ${combinedText}`;
 **章节目录：**
 ${chapterList}
 
-**内容参考：**
-${samples}
+**语义检索相关段落：**
+${relevantText || "（无额外参考信息，请基于章节目录回答）"}
 
 记住：你可以基于提供的文本信息和章节目录进行回答。如果信息不足以回答，请诚实说明并基于已有信息给出推断。`;
 

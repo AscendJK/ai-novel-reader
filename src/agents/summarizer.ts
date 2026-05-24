@@ -87,32 +87,22 @@ export const globalSummarizerAgent: Agent = {
       .map((c, i) => `${i + 1}. ${c.title} (${c.content.length.toLocaleString()} 字)`)
       .join("\n");
 
-    // Take samples: first 1500 chars of first 2 chapters + last chapter
-    const sampleChapters: string[] = [];
-    if (novel.chapters.length > 0) {
-      sampleChapters.push(
-        `【${novel.chapters[0].title}】开头:\n${novel.chapters[0].content.slice(0, 1500)}`
-      );
-    }
-    if (novel.chapters.length > 1) {
-      sampleChapters.push(
-        `【${novel.chapters[1].title}】开头:\n${novel.chapters[1].content.slice(0, 1500)}`
-      );
-    }
-    // Middle chapter
-    if (novel.chapters.length > 4) {
-      const mid = Math.floor(novel.chapters.length / 2);
-      sampleChapters.push(
-        `【${novel.chapters[mid].title}】开头:\n${novel.chapters[mid].content.slice(0, 1500)}`
-      );
-    }
-    // Last chapter
-    if (novel.chapters.length > 2) {
-      const last = novel.chapters[novel.chapters.length - 1];
-      sampleChapters.push(
-        `【${last.title}】开头:\n${last.content.slice(0, 1500)}`
-      );
-    }
+    // Use pre-retrieved relevant text from RAG if available, else fall back to samples
+    const relevantContent = context.preRetrieved && context.preRetrieved.length > 100
+      ? context.preRetrieved
+      : (() => {
+          const samples: string[] = [];
+          if (novel.chapters.length > 0) samples.push(`【${novel.chapters[0].title}】开头:\n${novel.chapters[0].content.slice(0, 1500)}`);
+          if (novel.chapters.length > 1) samples.push(`【${novel.chapters[1].title}】开头:\n${novel.chapters[1].content.slice(0, 1500)}`);
+          if (novel.chapters.length > 4) {
+            const mid = Math.floor(novel.chapters.length / 2);
+            samples.push(`【${novel.chapters[mid].title}】开头:\n${novel.chapters[mid].content.slice(0, 1500)}`);
+          }
+          if (novel.chapters.length > 2) samples.push(`【${novel.chapters[novel.chapters.length - 1].title}】开头:\n${novel.chapters[novel.chapters.length - 1].content.slice(0, 1500)}`);
+          return samples.join("\n\n---\n\n");
+        })();
+
+    const promptLabel = context.preRetrieved ? "语义检索相关段落" : "内容样本（开头几章+中间+结尾的片段）";
 
     const metadataPrompt = `你是一位专业的小说分析助手。你需要分析一部小说，以下是该小说的基本信息，请基于这些信息生成一份全面的分析报告。
 
@@ -125,8 +115,8 @@ export const globalSummarizerAgent: Agent = {
 **完整章节目录：**
 ${chapterList}
 
-**内容样本（开头几章+中间+结尾的片段）：**
-${sampleChapters.join("\n\n---\n\n")}
+**${promptLabel}：**
+${relevantContent}
 
 **分析要求：**
 请根据以上信息，生成一份详细的分析报告，包含：

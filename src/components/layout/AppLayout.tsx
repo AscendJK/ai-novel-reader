@@ -3,6 +3,10 @@ import { Header } from "./Header";
 import { BookSelect } from "./BookSelect";
 import { ReadingPanel } from "@/components/reader/ReadingPanel";
 import { ApiSettings } from "@/components/settings/ApiSettings";
+import { setupLocalModelLoader } from "@/rag/model-loader";
+
+// Configure Transformers.js to load models from local public/models/
+setupLocalModelLoader();
 import { useUIStore } from "@/stores/ui-store";
 import { useNovelStore } from "@/stores/novel-store";
 import { loadAllNovels, loadSummaries } from "@/db/repositories";
@@ -55,8 +59,14 @@ export function AppLayout() {
         </div>
         {/* Settings overlay */}
         {showSettings && (
-          <div className="h-full">
+          <div className="h-full overflow-auto">
             <ApiSettings onBack={() => setShowSettings(false)} />
+          </div>
+        )}
+        {/* Book select */}
+        {!currentNovel && !showSettings && (
+          <div className="h-full overflow-auto">
+            <BookSelect />
           </div>
         )}
         {/* Book select */}
