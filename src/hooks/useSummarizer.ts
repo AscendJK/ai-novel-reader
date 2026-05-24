@@ -99,7 +99,7 @@ export function useSummarizer() {
       const data = result.data as { summaries: { chapterTitle: string; content: string; tokens: number }[] };
       for (const s of data.summaries) {
         const summary: SummaryItem = {
-          id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
+          id: Math.random().toString(36).slice(2) + Date.now().toString(36), novelId: currentNovel.id, chapterId,
           chapterTitle: s.chapterTitle, content: s.content,
           tokensUsed: s.tokens, createdAt: Date.now(), type: "chapter",
         };
@@ -115,7 +115,7 @@ export function useSummarizer() {
       if (!currentNovel || !result.success || !result.data) return;
       const data = result.data as { content: string; usedFallback?: boolean };
       const summary: SummaryItem = {
-        id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
+        id: Math.random().toString(36).slice(2) + Date.now().toString(36), novelId: currentNovel.id, chapterId,
         chapterTitle: title + (data.usedFallback ? "（精简版）" : ""),
         content: data.content, tokensUsed: result.tokensUsed || 0, createdAt: Date.now(), type,
       };
@@ -311,7 +311,7 @@ ${combinedText}`;
         });
 
         return {
-          id: crypto.randomUUID(),
+          id: Math.random().toString(36).slice(2) + Date.now().toString(36),
           title: `第${fromChapter}-${toChapter}章 范围总结`,
           content: response.content,
           tokensUsed: response.tokensUsed.total,

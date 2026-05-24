@@ -71,7 +71,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       ? currentNovel.chapters.find((c) => c.id === selectedChapterId)?.title || "当前章节"
       : "全书笔记";
     const note: NoteItem = {
-      id: crypto.randomUUID(),
+      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
       novelId: currentNovel.id,
       chapterId,
       chapterTitle,
@@ -108,7 +108,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     const finalChapterId = isBook ? "__book__" : (chapterId || "__book__");
     const chTitle = isBook ? "全书笔记" : currentNovel.chapters.find((c) => c.id === chapterId)?.title || title;
     const note: NoteItem = {
-      id: crypto.randomUUID(),
+      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
       novelId: currentNovel.id,
       chapterId: finalChapterId,
       chapterTitle: chTitle,
@@ -162,13 +162,13 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const handleAsk = async () => {
     if (!customQuestion.trim()) return;
     const q = customQuestion.trim(); setCustomQuestion("");
-    const um = { id: crypto.randomUUID(), role: "user" as const, content: q };
+    const um = { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "user" as const, content: q };
     setQaMessages((p) => [...p, um]);
     const hist = qaMessages.map((m) => ({ role: m.role, content: m.content }));
     setQaLoading(true); setQaError(null);
     try {
       const r = await askCustomQuestion(q, hist);
-      if (r) setQaMessages((p) => [...p, { id: crypto.randomUUID(), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
+      if (r) setQaMessages((p) => [...p, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
     } catch (e) { setQaError(e instanceof Error ? e.message : "failed"); }
     finally { setQaLoading(false); }
   };
