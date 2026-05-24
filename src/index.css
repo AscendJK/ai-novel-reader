@@ -87,6 +87,14 @@
   }
 }
 
+/* Softer prose text in dark mode — gray instead of harsh white */
+.dark .prose {
+  --tw-prose-body: #9ca3af;
+  --tw-prose-headings: #d1d5db;
+  --tw-prose-bold: #d1d5db;
+  --tw-prose-links: #93c5fd;
+}
+
 /* Immersive reading on mobile */
 @media (max-width: 767px) {
   html.immersive header {

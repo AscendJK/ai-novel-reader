@@ -6,7 +6,6 @@ import { useUIStore } from "@/stores/ui-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Type } from "lucide-react";
 
 interface ChapterContentProps {
@@ -27,7 +26,7 @@ const FONT_WEIGHTS = [
 export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immersive, onToggleImmersive }: ChapterContentProps) {
   const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
-  const { fontSize, setFontSize, fontWeight, setFontWeight, readingTheme, setReadingTheme } = useUIStore();
+  const { fontSize, setFontSize, fontWeight, setFontWeight } = useUIStore();
   const [showFontPanel, setShowFontPanel] = useState(false);
 
   const chapters = currentNovel?.chapters || [];
@@ -136,24 +135,6 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
                   <Button variant="outline" size="sm" className="h-6 text-xs"
                     onClick={cycleFontWeight}>{currentWeightLabel}</Button>
                 </div>
-                <Separator />
-                {/* Reading theme */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">背景</span>
-                  <div className="flex gap-0.5">
-                    <button
-                      className={`w-6 h-6 rounded border-2 ${readingTheme === "default" ? "border-primary" : "border-border"} bg-white dark:bg-gray-800`}
-                      onClick={() => setReadingTheme("default")} title="默认" />
-                    <button
-                      className={`w-6 h-6 rounded border-2 ${readingTheme === "sepia" ? "border-primary" : "border-border"}`}
-                      style={{ background: "#fef3c7" }}
-                      onClick={() => setReadingTheme("sepia")} title="护眼" />
-                    <button
-                      className={`w-6 h-6 rounded border-2 ${readingTheme === "black" ? "border-primary" : "border-border"}`}
-                      style={{ background: "#000" }}
-                      onClick={() => setReadingTheme("black")} title="沉浸黑" />
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -179,10 +160,7 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
             )}
 
             <div
-              className={`prose prose-neutral dark:prose-invert max-w-none rounded-lg p-4 ${
-                readingTheme === "sepia" ? "bg-amber-50/50 prose-amber" :
-                readingTheme === "black" ? "bg-black prose-invert" : ""
-              }`}
+              className="prose prose-neutral dark:prose-invert max-w-none"
               style={{
                 fontSize: `${fontSize}px`,
                 lineHeight: 1.8,

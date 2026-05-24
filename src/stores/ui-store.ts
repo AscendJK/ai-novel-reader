@@ -24,33 +24,20 @@ function getInitialFontWeight(): number {
   return 400;
 }
 
-type ReadingTheme = "default" | "sepia" | "black";
-
-function getInitialReadingTheme(): ReadingTheme {
-  try {
-    const stored = localStorage.getItem("novel-reader-reading-theme");
-    if (stored === "sepia" || stored === "black") return stored;
-  } catch { /* ignore */ }
-  return "default";
-}
-
 interface UIState {
   theme: "light" | "dark";
   fontSize: number;
   fontWeight: number;
-  readingTheme: ReadingTheme;
   setTheme: (theme: "light" | "dark") => void;
   toggleTheme: () => void;
   setFontSize: (size: number) => void;
   setFontWeight: (weight: number) => void;
-  setReadingTheme: (t: ReadingTheme) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   theme: getInitialTheme(),
   fontSize: getInitialFontSize(),
   fontWeight: getInitialFontWeight(),
-  readingTheme: getInitialReadingTheme(),
 
   setTheme: (theme) => {
     localStorage.setItem("novel-reader-theme", theme);
@@ -73,11 +60,4 @@ export const useUIStore = create<UIState>((set) => ({
     localStorage.setItem("novel-reader-font-weight", String(weight));
     set({ fontWeight: weight });
   },
-
-  setReadingTheme: (readingTheme) => {
-    localStorage.setItem("novel-reader-reading-theme", readingTheme);
-    set({ readingTheme });
-  },
 }));
-
-export type { ReadingTheme };
