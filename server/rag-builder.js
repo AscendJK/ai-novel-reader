@@ -37,6 +37,19 @@ export async function buildIndex(novelId, engine = "bge-small-zh") {
   return { status: "building" };
 }
 
+/** Get build statuses for multiple novels at once */
+export function getStatuses(novelIds, engine = "bge-small-zh") {
+  const result = {};
+  for (const nid of novelIds) {
+    const key = `${nid}-${engine}`;
+    const mem = buildProgress.get(key);
+    if (mem) { result[nid] = mem; continue; }
+    const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(nid, engine);
+    result[nid] = dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg } : { status: "none" };
+  }
+  return result;
+}
+
 /** Get build progress */
 export function getProgress(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;

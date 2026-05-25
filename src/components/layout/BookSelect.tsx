@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2, Search } from "lucide-react";
+import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2, Search, Loader2 } from "lucide-react";
 import { useFileParser } from "@/hooks/useFileParser";
 import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
 import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCharCount } from "@/lib/text-utils";
+import { useBuildStore } from "@/stores/build-store";
 import type { NovelMeta } from "@/parsers/types";
 
 export function BookSelect() {
@@ -33,6 +34,54 @@ export function BookSelect() {
 
   const [serverScanned, setServerScanned] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+  const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
+
+  // Poll build statuses for bookshelf novels
+  useEffect(() => {
+    const ids = savedNovels.map((n) => n.id);
+    if (!ids.length) return;
+    let active = true;
+    const poll = async () => {
+      const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=bge-small-zh`);
+      if (!active) return;
+      const statuses = await resp.json();
+      setBuildStatuses(statuses);
+      // Stop polling current build if it completed
+      const cur = buildingId ? statuses[buildingId] : null;
+      if (cur && (cur.status === "ready" || cur.status === "error")) {
+        setBuildingId(null);
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [savedNovels, buildingId]);
+
+  const handleBuild = async (novelId: string) => {
+    setBuildingId(novelId);
+    useBuildStore.getState().start();
+    useBuildStore.getState().setProgress({ message: "触发服务器构建...", novelId, engine: "bge-small-zh", status: "building" });
+    await fetch(`/api/rag/${novelId}/build`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ engine: "bge-small-zh" }),
+    });
+    const bs = useBuildStore.getState();
+    const poll = setInterval(async () => {
+      try {
+        const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+        const st = await sr.json();
+        if (st.status === "ready") { bs.finish(); clearInterval(poll); setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st })); }
+        else if (st.status === "error") { bs.fail(st.error || "失败"); clearInterval(poll); setBuildingId(null); }
+        else {
+          bs.setProgress({
+            message: st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`,
+            current: st.current || 0, total: st.total || 0, novelId, engine: "bge-small-zh",
+          });
+        }
+      } catch { /* keep polling */ }
+    }, 3000);
+  };
 
   // Scan server novel library on demand
   const scanServer = async () => {
@@ -378,6 +427,36 @@ export function BookSelect() {
                           <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                       </div>
+
+                      {/* Build status indicator */}
+                      {(() => {
+                        const st = buildStatuses[novel.id] || { status: "none" };
+                        if (st.status === "ready") return (
+                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                            <Badge variant="outline" className="text-[10px] text-green-500 border-green-500/30">BGE 就绪</Badge>
+                          </div>
+                        );
+                        if (st.status === "building" || st.status === "loading" || st.status === "encoding") return (
+                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                            <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />
+                            <span className="text-[10px] text-yellow-500">BGE 构建中...</span>
+                          </div>
+                        );
+                        if (st.status === "error") return (
+                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                            <span className="text-[10px] text-red-400">BGE 失败</span>
+                            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }}>重试</Button>
+                          </div>
+                        );
+                        return (
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                            <span className="text-[10px] text-muted-foreground">BGE 未构建</span>
+                            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }} disabled={buildingId === novel.id}>
+                              {buildingId === novel.id ? "触发中..." : "构建"}
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 );

@@ -75,29 +75,6 @@ export function useFileParser() {
           body: JSON.stringify({ username: user }),
         }).catch(() => {});
 
-        // Trigger RAG build + poll progress
-        const engine = "bge-small-zh";
-        fetch(`/api/rag/${nid}/build`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ engine }),
-        }).then(() => {
-          const bs = useBuildStore.getState();
-          bs.start();
-          bs.setProgress({ message: "服务器已收到请求...", novelId: nid, engine, status: "building" });
-          const poll = setInterval(async () => {
-            try {
-              const sr = await fetch(`/api/rag/${nid}/status?engine=${engine}`);
-              const st = await sr.json();
-              if (st.status === "ready") { bs.finish(); clearInterval(poll); }
-              else if (st.status === "error") { bs.fail(st.error || "构建失败"); clearInterval(poll); }
-              else if (st.status === "loading") {
-                bs.setProgress({ message: "正在加载嵌入模型...", current: 0, total: st.total || 0, novelId: nid, engine });
-              } else if (st.status === "encoding" || st.status === "building") {
-                bs.setProgress({ message: `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`, current: st.current || 0, total: st.total || 0, novelId: nid, engine });
-              }
-            } catch { /* keep polling */ }
-          }, 3000);
-        }).catch(() => {});
       }).catch(() => {});
 
       setProgress(100);

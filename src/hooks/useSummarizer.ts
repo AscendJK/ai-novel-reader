@@ -49,38 +49,7 @@ export function useSummarizer() {
     setCurrentTask("");
   }, []);
 
-  // Eagerly build index when opening a novel
-  const buildingRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!currentNovel) return;
-    const engine = useRAGStore.getState().engine;
-    const key = `${currentNovel.id}-${engine}`;
-    if (buildingRef.current === key) return;
-    buildingRef.current = key;
-
-    const buildStore = useBuildStore.getState();
-    buildStore.start();
-
-    buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => {
-      ragLog(msg);
-      setCurrentTask(msg);
-      // Parse progress from message like "正在编码文本 (120/16448)..."
-      const m = msg.match(/\((\d+)\/(\d+)\)/);
-      if (m) buildStore.setProgress({ current: parseInt(m[1]), total: parseInt(m[2]), message: msg });
-      else buildStore.setProgress({ message: msg });
-    }).then(() => {
-      ragLog("索引构建完成");
-      setCurrentTask("");
-      buildStore.finish();
-      buildingRef.current = null;
-    }).catch((e) => {
-      const err = e instanceof Error ? e.message : String(e);
-      ragLog(`索引构建失败: ${err}`);
-      setCurrentTask("");
-      buildStore.fail(err);
-      buildingRef.current = null;
-    });
-  }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Build is now triggered manually from bookshelf per-book card
 
   // Create a fresh AbortController, aborting any previous one
   const createSignal = useCallback(() => {

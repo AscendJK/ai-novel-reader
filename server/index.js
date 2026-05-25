@@ -142,7 +142,7 @@ app.get("/api/rag/test", async (_req, res) => {
 
 // ── RAG Index API ──────────────────────────────────────────
 
-import { buildIndex as buildRagIndex, getProgress, getIndexData } from "./rag-builder.js";
+import { buildIndex as buildRagIndex, getProgress, getIndexData, getStatuses } from "./rag-builder.js";
 
 // POST /api/rag/encode — encode query text (single small batch)
 app.post("/api/rag/encode", async (req, res) => {
@@ -157,6 +157,15 @@ app.post("/api/rag/encode", async (req, res) => {
     const vectors = await result.tolist();
     await pipe.dispose?.();
     res.json({ vectors });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/rag/statuses?ids=a,b,c&engine=bge-small-zh
+app.get("/api/rag/statuses", (req, res) => {
+  try {
+    const ids = (req.query.ids || "").split(",").filter(Boolean);
+    const engine = req.query.engine || "bge-small-zh";
+    res.json(getStatuses(ids, engine));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
