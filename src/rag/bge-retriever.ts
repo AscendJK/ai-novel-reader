@@ -18,10 +18,25 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
       onProgress?.({ phase: "loading" });
       await setupLocalModelLoader();
       const { pipeline, env } = await import("@xenova/transformers");
-      console.log("[bge] env before pipeline:", { localModelPath: env.localModelPath, allowRemoteModels: env.allowRemoteModels });
-      pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
-        local_files_only: true,
-      });
+      console.log("[bge] env:", { localModelPath: env.localModelPath, allowRemoteModels: env.allowRemoteModels });
+
+      // Intercept to see what URLs Transformers.js requests
+      const origFetch = (window as any).fetch;
+      (window as any).fetch = async (url: string, ...args: any[]) => {
+        const resp = await origFetch(url, ...args);
+        if (!resp.ok && String(url).includes("models")) {
+          console.warn("[bge] fetch 404:", url, resp.status);
+        }
+        return resp;
+      };
+
+      try {
+        pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
+          local_files_only: true,
+        });
+      } finally {
+        (window as any).fetch = origFetch;
+      }
       return pipelineInstance;
     })();
   }
