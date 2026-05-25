@@ -83,7 +83,7 @@ export function useFileParser() {
         }).then(() => {
           const bs = useBuildStore.getState();
           bs.start();
-          bs.setProgress({ message: "服务器正在构建RAG索引...", novelId: nid, engine });
+          bs.setProgress({ message: "服务器已收到请求...", novelId: nid, engine, status: "building" });
           const poll = setInterval(async () => {
             try {
               const sr = await fetch(`/api/rag/${nid}/status?engine=${engine}`);

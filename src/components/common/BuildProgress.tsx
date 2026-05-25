@@ -37,11 +37,11 @@ export function BuildProgress({ open, engine, status, message, current, total, e
             引擎: <span className="font-mono">{engine}</span>
           </p>
 
-          {status === "building" && total && (
+          {status === "building" && (
             <div className="space-y-2">
-              <Progress value={pct > 0 ? pct : undefined} className="h-2" />
+              <Progress value={total ? pct : undefined} className="h-2" />
               <p className="text-xs text-muted-foreground">
-                {current ?? 0} / {total} · {pct}%
+                {total ? `${current ?? 0} / ${total} · ${pct}%` : "准备中..."}
               </p>
             </div>
           )}
