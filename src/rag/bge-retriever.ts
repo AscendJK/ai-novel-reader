@@ -22,6 +22,12 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
   return pipelinePromise;
 }
 
+export interface BGERetrieverData {
+  vectors: number[][];
+  chunks: Chunk[];
+  dim: number;
+}
+
 export class BGERetriever {
   private vectors: Float32Array[] = [];
   private chunks: Chunk[] = [];
@@ -29,6 +35,24 @@ export class BGERetriever {
 
   get chunkCount() { return this.chunks.length; }
   get vectorDim() { return this.dim; }
+
+  /** Serialize for IndexedDB storage */
+  toData(): BGERetrieverData {
+    return {
+      vectors: this.vectors.map((v) => Array.from(v)),
+      chunks: this.chunks,
+      dim: this.dim,
+    };
+  }
+
+  /** Restore from IndexedDB cache */
+  static fromData(data: BGERetrieverData): BGERetriever {
+    const r = new BGERetriever();
+    r.vectors = data.vectors.map((v) => new Float32Array(v));
+    r.chunks = data.chunks;
+    r.dim = data.dim;
+    return r;
+  }
 
   async init(
     chunks: Chunk[],
@@ -43,9 +67,7 @@ export class BGERetriever {
       const batch = chunks.slice(i, i + batchSize).map((c) => c.content);
       onProgress?.({ phase: "encoding", current: i, total: chunks.length });
       const result = await pipe(batch, { pooling: "mean", normalize: true });
-      // result is a 2D tensor: [batch, dim]
       const arr = await result.tolist();
-      // arr is number[][] — one Float32Array per item
       for (const row of arr) {
         vectors.push(new Float32Array(row));
       }

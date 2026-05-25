@@ -2,6 +2,7 @@ import { Retriever, type Chunk } from "./retriever";
 import { BGERetriever, type BGEProgress } from "./bge-retriever";
 import type { EngineId } from "./engines";
 import { ragLog } from "@/components/common/DebugPanel";
+import { db } from "@/db/database";
 
 interface IndexEntry {
   novelId: string;
@@ -49,6 +50,19 @@ export async function buildIndex(
   const t0 = Date.now();
   ragLog(`开始构建索引: ${chunks.length}片段 · 引擎: ${engine}`);
   if (engine === "bge-small-zh") {
+    // Check IndexedDB cache first
+    try {
+      const cached = await db.ragCache.get(novelId);
+      if (cached && cached.engine === "bge-small-zh" && cached.dim > 0) {
+        ragLog(`从缓存加载 BGE 索引: ${cached.vectors.length}片段 · ${cached.dim}维`);
+        const bge = BGERetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim });
+        const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
+        indexCache.set(novelId, entry);
+        return bge;
+      }
+    } catch { /* cache miss */ }
+
+    // Build from scratch
     onProgress?.("正在加载嵌入模型...");
     ragLog("加载 BGE Small ZH 模型...");
     const bge = new BGERetriever();
@@ -57,9 +71,22 @@ export async function buildIndex(
         onProgress?.(`正在编码文本 (${p.current}/${p.total})...`);
       } else if (p.phase === "done") {
         onProgress?.("编码完成");
-        ragLog(`编码完成: ${chunks.length}片段 · ${(Date.now() - t0) / 1000}s`);
       }
     });
+    ragLog(`编码完成: ${chunks.length}片段 · ${(Date.now() - t0) / 1000}s`);
+
+    // Save to IndexedDB cache
+    try {
+      await db.ragCache.put({
+        novelId, engine: "bge-small-zh",
+        vectors: bge.toData().vectors,
+        chunks: bge.toData().chunks,
+        dim: bge.toData().dim,
+        createdAt: Date.now(),
+      });
+      ragLog("索引已缓存到 IndexedDB");
+    } catch (e) { ragLog(`缓存索引失败: ${e}`); }
+
     const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
     indexCache.set(novelId, entry);
     return bge;

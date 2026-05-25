@@ -58,8 +58,8 @@ export function useSummarizer() {
     }).then(() => {
       ragLog("索引构建完成");
       setCurrentTask("");
-    }).catch(() => {
-      ragLog("索引构建失败，将在首次检索时重试");
+    }).catch((e) => {
+      ragLog(`索引构建失败: ${e instanceof Error ? e.message : String(e)}`);
       setCurrentTask("");
     });
   }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps

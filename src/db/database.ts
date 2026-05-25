@@ -48,21 +48,32 @@ export interface NoteRecord {
   createdAt: number;
 }
 
+export interface RAGCacheRecord {
+  novelId: string;
+  engine: string;
+  vectors: number[][];  // serialized Float32Array as nested number arrays
+  chunks: { id: string; content: string }[];
+  dim: number;
+  createdAt: number;
+}
+
 class NovelDB extends Dexie {
   novels!: Table<NovelRecord, string>;
   chapters!: Table<ChapterRecord, string>;
   summaries!: Table<SummaryRecord, string>;
   settings!: Table<SettingsRecord, string>;
   notes!: Table<NoteRecord, string>;
+  ragCache!: Table<RAGCacheRecord, string>;
 
   constructor() {
     super("ai-novel-reader");
-    this.version(2).stores({
+    this.version(3).stores({
       novels: "id, createdAt",
       chapters: "id, novelId, index",
       summaries: "id, novelId, chapterId, type",
       settings: "key",
       notes: "id, novelId, chapterId, source, createdAt",
+      ragCache: "novelId",
     });
   }
 }
