@@ -156,8 +156,10 @@ export class BGERetriever {
         useBuildStore.getState().fail(st.error || "构建失败");
         throw new Error(st.error || "服务器构建失败");
       }
+      const msg = st.status === "loading" ? "正在加载嵌入模型..."
+        : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
       useBuildStore.getState().setProgress({
-        message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`,
+        message: msg,
         current: st.current || 0, total: st.total || _allChunks.length,
         novelId, engine: "bge-small-zh",
       });

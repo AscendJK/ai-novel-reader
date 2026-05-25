@@ -90,8 +90,10 @@ export function useFileParser() {
               const st = await sr.json();
               if (st.status === "ready") { bs.finish(); clearInterval(poll); }
               else if (st.status === "error") { bs.fail(st.error || "构建失败"); clearInterval(poll); }
-              else if (st.status === "building") {
-                bs.setProgress({ message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`, current: st.current, total: st.total, novelId: nid, engine });
+              else if (st.status === "loading") {
+                bs.setProgress({ message: "正在加载嵌入模型...", current: 0, total: st.total || 0, novelId: nid, engine });
+              } else if (st.status === "encoding" || st.status === "building") {
+                bs.setProgress({ message: `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`, current: st.current || 0, total: st.total || 0, novelId: nid, engine });
               }
             } catch { /* keep polling */ }
           }, 3000);

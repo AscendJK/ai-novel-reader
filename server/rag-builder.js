@@ -80,12 +80,14 @@ async function _doBuild(novelId, engine, key) {
   db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)").run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
   // Load Transformers.js in Node.js
+  buildProgress.set(key, { status: "loading", current: 0, total: chunks.length });
   const { pipeline, env } = await import("@xenova/transformers");
   env.allowRemoteModels = false;
   env.localModelPath = "./public/models/builtin/";
 
   const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
 
+  buildProgress.set(key, { status: "encoding", current: 0, total: chunks.length });
   const vectors = [];
   const totalBatches = Math.ceil(chunks.length / BATCH_SIZE);
   const t0 = Date.now();
@@ -95,7 +97,7 @@ async function _doBuild(novelId, engine, key) {
     const result = await pipe(batch, { pooling: "mean", normalize: true });
     const arr = await result.tolist();
     for (const row of arr) vectors.push(new Float32Array(row));
-    buildProgress.set(key, { status: "building", current: Math.min((b + 1) * BATCH_SIZE, chunks.length), total: chunks.length });
+    buildProgress.set(key, { status: "encoding", current: Math.min((b + 1) * BATCH_SIZE, chunks.length), total: chunks.length });
   }
 
   // Serialize vectors as binary blob
