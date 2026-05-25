@@ -173,11 +173,11 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
               </span>
             </div>
             <div className="flex gap-1.5 items-center">
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(0.2)} title="缩小">
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(-0.2)} title="缩小">
                 <ZoomOut className="h-3.5 w-3.5" />
               </Button>
               <span className="text-xs text-muted-foreground w-10 text-center">{Math.round(zoom * 100)}%</span>
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(-0.2)} title="放大">
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(0.2)} title="放大">
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
               {onRegenerate && (
