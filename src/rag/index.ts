@@ -1,79 +1,144 @@
 import { Retriever, type Chunk } from "./retriever";
+import { BGERetriever, type BGEProgress } from "./bge-retriever";
 import type { EngineId } from "./engines";
 
 interface IndexEntry {
   novelId: string;
   engine: EngineId;
   retriever: Retriever;
+  bge?: BGERetriever;
   chunks: Chunk[];
+  buildTime?: number;
 }
 
 const indexCache = new Map<string, IndexEntry>();
 
-export function buildIndex(
+export async function buildIndex(
   novelId: string,
   chapters: { title: string; content: string }[],
-  engine: EngineId = "tfidf"
-): { retriever: Retriever; chunks: Chunk[] } {
-  // Invalidate if engine changed
+  engine: EngineId = "tfidf",
+  onProgress?: (msg: string) => void
+): Promise<Retriever | BGERetriever> {
+  // Reuse if already built with same engine
   const existing = indexCache.get(novelId);
-  if (existing && existing.engine === engine) return existing;
+  if (existing && existing.engine === engine) return engine === "bge-small-zh" ? existing.bge! : existing.retriever;
   if (existing && existing.engine !== engine) {
+    existing.bge?.dispose();
     indexCache.delete(novelId);
   }
 
+  // Chunk the text
+  onProgress?.("正在分割文本...");
   const chunks: Chunk[] = [];
-  for (const chapter of chapters) {
-    const content = chapter.content;
-    const chunkSize = 500;
-    const overlap = 100;
-    if (overlap >= chunkSize) break; // guard against infinite loop
+  const chunkSize = 500;
+  const overlap = 100;
+  for (const ch of chapters) {
     let start = 0;
+    const { content } = ch;
     while (start < content.length) {
       const end = Math.min(start + chunkSize, content.length);
-      const chunkText = content.slice(start, end).trim();
-      if (chunkText) {
-        chunks.push({
-          id: `${novelId}-${chunks.length}`,
-          content: `[${chapter.title}] ${chunkText}`,
-        });
+      const text = content.slice(start, end).trim();
+      if (text) {
+        chunks.push({ id: `${novelId}-${chunks.length}`, content: `[${ch.title}] ${text}` });
       }
       start += chunkSize - overlap;
     }
   }
 
-  const retriever = new Retriever(chunks);
-  const entry = { novelId, engine, retriever, chunks };
-  indexCache.set(novelId, entry);
-  return entry;
+  const t0 = Date.now();
+  if (engine === "bge-small-zh") {
+    onProgress?.("正在加载嵌入模型...");
+    const bge = new BGERetriever();
+    await bge.init(chunks, (p: BGEProgress) => {
+      if (p.phase === "encoding" && p.current != null && p.total != null) {
+        onProgress?.(`正在编码文本 (${p.current}/${p.total})...`);
+      } else if (p.phase === "done") {
+        onProgress?.("编码完成");
+      }
+    });
+    const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
+    indexCache.set(novelId, entry);
+    return bge;
+  } else {
+    const retriever = new Retriever(chunks);
+    const entry: IndexEntry = { novelId, engine, retriever, chunks, buildTime: Date.now() - t0 };
+    indexCache.set(novelId, entry);
+    return retriever;
+  }
 }
 
 export function getRetriever(novelId: string): Retriever | undefined {
   return indexCache.get(novelId)?.retriever;
 }
 
+export function getBGEMeta(novelId: string) {
+  const e = indexCache.get(novelId);
+  if (!e?.bge) return null;
+  return { chunkCount: e.bge.chunkCount, dim: e.bge.vectorDim, buildTime: e.buildTime };
+}
+
 export function clearCache(novelId?: string) {
   if (novelId) {
+    indexCache.get(novelId)?.bge?.dispose();
     indexCache.delete(novelId);
   } else {
+    for (const entry of indexCache.values()) entry.bge?.dispose();
     indexCache.clear();
   }
 }
 
-export function retrieveRelevant(
+export async function retrieveRelevant(
   novelId: string,
   query: string,
-  topK: number = 10
-): string {
-  const retriever = getRetriever(novelId);
-  if (!retriever) return "";
+  topK: number = 15
+): Promise<string> {
+  const entry = indexCache.get(novelId);
+  if (!entry) return "";
 
-  const results = retriever.search(query, topK);
+  if (entry.engine === "bge-small-zh" && entry.bge) {
+    const results = await entry.bge.search(query, topK);
+    return results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n");
+  }
+
+  // TF-IDF fallback
+  const results = entry.retriever.search(query, topK);
   return results
     .map((r) => {
-      const chunk = indexCache.get(novelId)?.chunks.find((c) => c.id === r.id);
+      const chunk = entry.chunks.find((c) => c.id === r.id);
       return chunk?.content || "";
     })
     .filter(Boolean)
     .join("\n\n---\n\n");
+}
+
+// For debug panel: get full retrieval details
+export async function retrieveRelevantWithDetails(
+  novelId: string,
+  query: string,
+  topK: number = 15
+): Promise<{ text: string; results: { content: string; score: number }[]; engine: string }> {
+  const entry = indexCache.get(novelId);
+  if (!entry) return { text: "", results: [], engine: entry?.engine || "none" };
+
+  if (entry.engine === "bge-small-zh" && entry.bge) {
+    const results = await entry.bge.search(query, topK);
+    return {
+      engine: "bge-small-zh",
+      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
+      results: results.map((r) => ({ content: r.chunk.content, score: r.score })),
+    };
+  }
+
+  const results = entry.retriever.search(query, topK);
+  const mapped = results
+    .map((r) => {
+      const chunk = entry.chunks.find((c) => c.id === r.id);
+      return chunk ? { content: chunk.content, score: 1 } : null;
+    })
+    .filter(Boolean) as { content: string; score: number }[];
+  return {
+    engine: "tfidf",
+    text: mapped.map((r) => `[TF-IDF] ${r.content}`).join("\n\n---\n\n"),
+    results: mapped,
+  };
 }

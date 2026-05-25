@@ -30,20 +30,27 @@ function getInitialFontWeight(): number {
   return 400;
 }
 
+function getInitialDebugMode(): boolean {
+  try { return localStorage.getItem("novel-reader-debug") === "true"; } catch { return false; }
+}
+
 interface UIState {
   theme: "light" | "dark";
   fontSize: number;
   fontWeight: number;
+  debugMode: boolean;
   setTheme: (theme: "light" | "dark") => void;
   toggleTheme: () => void;
   setFontSize: (size: number) => void;
   setFontWeight: (weight: number) => void;
+  setDebugMode: (v: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   theme: getInitialTheme(),
   fontSize: getInitialFontSize(),
   fontWeight: getInitialFontWeight(),
+  debugMode: getInitialDebugMode(),
 
   setTheme: (theme) => {
     try { localStorage.setItem("novel-reader-theme", theme); } catch { /* ignore */ }
@@ -65,5 +72,10 @@ export const useUIStore = create<UIState>((set) => ({
   setFontWeight: (weight) => {
     try { localStorage.setItem("novel-reader-font-weight", String(weight)); } catch { /* ignore */ }
     set({ fontWeight: weight });
+  },
+
+  setDebugMode: (v) => {
+    try { localStorage.setItem("novel-reader-debug", String(v)); } catch { /* ignore */ }
+    set({ debugMode: v });
   },
 }));

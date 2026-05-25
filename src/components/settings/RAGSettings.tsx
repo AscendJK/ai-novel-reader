@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRAGStore } from "@/stores/rag-store";
+import { useUIStore } from "@/stores/ui-store";
 import { ENGINES, type EngineId } from "@/rag/engines";
 import { scanCustomModels, getBuiltinBGEStatus, RECOMMENDED_MODELS } from "@/rag/model-loader";
 import type { ModelEntry, ModelStatus } from "@/rag/model-loader";
@@ -393,6 +394,22 @@ export function RAGSettings() {
             <p>• 向量索引按需重建：首次使用新引擎打开小说时，会自动用新引擎重建索引</p>
             <p>• 无可用模型时自动回退到 TF-IDF</p>
           </div>
+        </div>
+
+        <Separator className="my-4" />
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">调试模式</p>
+            <p className="text-xs text-muted-foreground">开启后在右下角显示 RAG 检索详情面板</p>
+          </div>
+          <Button
+            variant={useUIStore.getState().debugMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => useUIStore.getState().setDebugMode(!useUIStore.getState().debugMode)}
+          >
+            {useUIStore.getState().debugMode ? "已开启" : "已关闭"}
+          </Button>
         </div>
       </CardContent>
     </Card>

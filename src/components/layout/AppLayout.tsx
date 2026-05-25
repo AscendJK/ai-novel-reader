@@ -4,6 +4,7 @@ import { BookSelect } from "./BookSelect";
 import { ReadingPanel } from "@/components/reader/ReadingPanel";
 import { ApiSettings } from "@/components/settings/ApiSettings";
 import { UsernameLogin } from "@/components/login/UsernameLogin";
+import { DebugPanel } from "@/components/common/DebugPanel";
 import { setupLocalModelLoader } from "@/rag/model-loader";
 
 // Configure Transformers.js to load models from local public/models/
@@ -19,7 +20,7 @@ import { gatherChanges, applyServerData } from "@/sync/sync-bridge";
 import type { SyncData } from "@/sync/types";
 
 export function AppLayout() {
-  const { theme } = useUIStore();
+  const { theme, debugMode } = useUIStore();
   const { currentNovel, setCurrentNovel, addNovel } = useNovelStore();
   const { setSummaries } = useSummaryStore();
   const [showSettings, setShowSettings] = useState(false);
@@ -238,6 +239,7 @@ export function AppLayout() {
           </div>
         )}
       </main>
+      {debugMode && <DebugPanel />}
     </div>
   );
 }

@@ -8,9 +8,10 @@ import { characterGraphAgent } from "@/agents/graph-agent";
 import { getProvider } from "@/api/registry";
 import { saveSummary } from "@/db/repositories";
 import { APIError } from "@/api/error-handler";
-import { buildIndex, retrieveRelevant } from "@/rag/index";
+import { buildIndex, retrieveRelevant, retrieveRelevantWithDetails } from "@/rag/index";
 import { useRAGStore } from "@/stores/rag-store";
 import { syncClient } from "@/sync/sync-client";
+import { addDebugEntry } from "@/components/common/DebugPanel";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -63,12 +64,22 @@ export function useSummarizer() {
   const getRelevantText = useCallback(
     async (query: string): Promise<string> => {
       if (!currentNovel) return "";
-      // Yield to let React render the "preparing" indicator
       await new Promise((r) => setTimeout(r, 0));
       const engine = useRAGStore.getState().engine;
       try {
-        buildIndex(currentNovel.id, currentNovel.chapters, engine);
-        return retrieveRelevant(currentNovel.id, query, 15);
+        setCurrentTask(`正在启动本地检索引擎 (${engine})...`);
+        await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+        setCurrentTask("正在检索相关段落...");
+        const t0 = performance.now();
+        const result = await retrieveRelevantWithDetails(currentNovel.id, query, 15);
+        const duration = performance.now() - t0;
+        addDebugEntry({
+          query,
+          duration: duration / 1000,
+          results: result.results,
+          engine: result.engine,
+        });
+        return result.text;
       } catch {
         return "";
       }
@@ -293,10 +304,13 @@ export function useSummarizer() {
       const provider = getActiveProvider();
       if (!provider) return null;
 
-      const chapters = currentNovel.chapters.slice(fromChapter - 1, toChapter);
-      const combinedText = chapters
-        .map((c, i) => `[第${fromChapter + i}章: ${c.title}]\n${c.content.slice(0, 2500)}`)
-        .join("\n\n---\n\n");
+      // Build temporary index for the range and retrieve relevant content
+      const rangeChapters = currentNovel.chapters.slice(fromChapter - 1, toChapter);
+      const rangeId = `${currentNovel.id}-range-${fromChapter}-${toChapter}`;
+      const engine = useRAGStore.getState().engine;
+      setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
+      await buildIndex(rangeId, rangeChapters, engine, (msg) => setCurrentTask(msg));
+      const combinedText = await retrieveRelevant(rangeId, "核心情节 关键事件 人物变化 承上启下", 20);
 
       const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
 
@@ -307,6 +321,8 @@ export function useSummarizer() {
 4. **承上启下**（该段落在全书中的位置和作用）
 
 请用简洁清晰的中文回答。
+
+以下是通过语义检索找到的该范围内最相关的段落：
 
 ${combinedText}`;
 
