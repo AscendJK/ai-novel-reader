@@ -236,6 +236,7 @@ export function setupLocalModelLoader(): Promise<void> {
       .then(({ env }) => {
         env.localModelPath = (typeof window !== "undefined" ? window.location.origin : "") + BUILTIN;
         env.allowRemoteModels = false;
+        env.useBrowserCache = false;
         console.log("[transformers] localModelPath set to:", env.localModelPath);
       })
       .catch((e) => { console.error("Failed to configure Transformers.js:", e); });
