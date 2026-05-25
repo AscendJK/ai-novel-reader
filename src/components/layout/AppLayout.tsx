@@ -28,12 +28,13 @@ export function AppLayout() {
   const [loginSyncing, setLoginSyncing] = useState(false);
   const syncStarted = useRef(false);
 
+  const kickedRef = useRef(false);
   const handleKicked = useCallback(() => {
+    if (kickedRef.current) return;
+    kickedRef.current = true;
     alert("该账号已在另一设备登录，当前会话已下线。");
-    // Clear local data and reload so login screen appears
-    localStorage.removeItem("sync-username");
-    localStorage.removeItem("sync-clientId");
-    db.delete().then(() => window.location.reload());
+    localStorage.clear();
+    db.delete().then(() => window.location.reload()).catch(() => window.location.reload());
   }, []);
 
   useEffect(() => {
