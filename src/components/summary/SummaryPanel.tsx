@@ -59,7 +59,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     generateCharacterGraph, regenerateCharacterGraph,
     regenerateCharacters, regenerateTimeline,
     generateRangeSummary, askCustomQuestion,
-    clearError,
+    clearError, ragEngineUsed,
   } = useSummarizer();
 
   const loading = isRunning || isGenerating || qaLoading;
