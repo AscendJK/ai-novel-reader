@@ -122,6 +122,24 @@ app.post("/api/novels/:id/leave", (req, res) => {
 
 // DELETE /api/novels/:id — removed; use /api/admin/novels/:id with token auth instead
 
+// ── RAG: Quick test endpoint ──────────────────────────────
+
+app.get("/api/rag/test", async (_req, res) => {
+  try {
+    const { pipeline, env } = await import("@xenova/transformers");
+    env.allowRemoteModels = false;
+    env.localModelPath = "./public/models/builtin/";
+    const t0 = Date.now();
+    const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
+    const result = await pipe(["测试文本"], { pooling: "mean", normalize: true });
+    const arr = await result.tolist();
+    await pipe.dispose?.();
+    res.json({ ok: true, dim: arr[0]?.length, time: Date.now() - t0 });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 // ── RAG Index API ──────────────────────────────────────────
 
 import { buildIndex as buildRagIndex, getProgress, getIndexData } from "./rag-builder.js";
