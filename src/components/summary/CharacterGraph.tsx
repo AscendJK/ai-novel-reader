@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import type { GraphData } from "@/hooks/useSummarizer";
 import { Button } from "@/components/ui/button";
-import { Maximize2, Minimize2, RefreshCw } from "lucide-react";
+import { Maximize2, Minimize2, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
 
 interface Props {
   graphData: GraphData;
@@ -33,6 +33,12 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+
+  // Reset zoom on expand/collapse
+  useEffect(() => { setZoom(1); setDragOffset({ x: 0, y: 0 }); }, [expanded]);
+
+  const handleZoom = (delta: number) => setZoom((z) => Math.max(0.3, Math.min(3, z + delta)));
 
   useEffect(() => {
     if (!graphData.nodes.length) return;
@@ -82,6 +88,18 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   if (!simData) {
     return <div className="flex items-center justify-center h-20 text-xs text-muted-foreground">计算布局中...</div>;
   }
+
+  // Compute tight bounds from actual node positions
+  const nodesXs = simData.nodes.map((n) => n.x);
+  const nodesYs = simData.nodes.map((n) => n.y);
+  const pad = 80;
+  const minX = Math.min(...nodesXs) - pad;
+  const maxX = Math.max(...nodesXs) + pad;
+  const minY = Math.min(...nodesYs) - pad;
+  const maxY = Math.max(...nodesYs) + pad;
+  const viewW = maxX - minX;
+  const viewH = maxY - minY;
+  const viewBoxStr = `${minX} ${minY} ${viewW} ${viewH}`;
 
   const nodeCount = simData.nodes.length;
   const viewSize = expanded ? Math.max(900, nodeCount * 160) : 280;
@@ -154,7 +172,14 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                 {simData.nodes.length} 人 · {simData.edges.length} 条关系 · 可拖拽平移
               </span>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1.5 items-center">
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(0.2)} title="缩小">
+                <ZoomOut className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-muted-foreground w-10 text-center">{Math.round(zoom * 100)}%</span>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(-0.2)} title="放大">
+                <ZoomIn className="h-3.5 w-3.5" />
+              </Button>
               {onRegenerate && (
                 <Button variant="outline" size="sm" onClick={onRegenerate}>重绘</Button>
               )}
@@ -179,10 +204,10 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
               }}
             >
               <svg
-                viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}
-                width={viewSize}
-                height={viewSize}
-                style={{ maxWidth: viewSize, maxHeight: viewSize }}
+                viewBox={viewBoxStr}
+                width={viewW * zoom}
+                height={viewH * zoom}
+                style={{ maxWidth: viewW * zoom, maxHeight: viewH * zoom }}
               >
                 {simData.edges.map((e, i) => {
                   if (!e.source || !e.target) return null;
