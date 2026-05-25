@@ -222,11 +222,16 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
 
 // ── Transformers.js config ──────────────────────────────────────────
 
-export function setupLocalModelLoader(): void {
-  import("@xenova/transformers")
-    .then(({ env }) => {
-      env.localModelPath = BUILTIN;
-      env.allowRemoteModels = false;
-    })
-    .catch((e) => { console.error("Failed to configure Transformers.js local model path:", e); });
+let envReady: Promise<void> | null = null;
+
+export function setupLocalModelLoader(): Promise<void> {
+  if (!envReady) {
+    envReady = import("@xenova/transformers")
+      .then(({ env }) => {
+        env.localModelPath = BUILTIN;
+        env.allowRemoteModels = false;
+      })
+      .catch((e) => { console.error("Failed to configure Transformers.js local model path:", e); });
+  }
+  return envReady;
 }

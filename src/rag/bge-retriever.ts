@@ -6,6 +6,8 @@ export interface BGEProgress {
   total?: number;
 }
 
+import { setupLocalModelLoader } from "./model-loader";
+
 let pipelinePromise: Promise<any> | null = null;
 let pipelineInstance: any = null;
 
@@ -14,6 +16,8 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
   if (!pipelinePromise) {
     pipelinePromise = (async () => {
       onProgress?.({ phase: "loading" });
+      // Ensure Transformers.js env is configured before loading the pipeline
+      await setupLocalModelLoader();
       const { pipeline } = await import("@xenova/transformers");
       pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5");
       return pipelineInstance;
