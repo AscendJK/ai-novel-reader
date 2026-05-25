@@ -49,7 +49,24 @@ export function useSummarizer() {
     setCurrentTask("");
   }, []);
 
-  // Build is now triggered manually from bookshelf per-book card
+  // On opening a novel, eagerly download BGE index if ready on server
+  useEffect(() => {
+    if (!currentNovel) return;
+    const engine = useRAGStore.getState().engine;
+    if (engine !== "bge-small-zh") return;
+    setCurrentTask("正在检查索引状态...");
+    fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`)
+      .then(r => r.json())
+      .then(async (st) => {
+        if (st.status === "ready") {
+          setCurrentTask("正在加载BGE索引...");
+          await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+          ragLog("BGE 索引已加载到浏览器");
+        }
+        setCurrentTask("");
+      })
+      .catch(() => setCurrentTask(""));
+  }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create a fresh AbortController, aborting any previous one
   const createSignal = useCallback(() => {
