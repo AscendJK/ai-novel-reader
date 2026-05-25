@@ -24,7 +24,11 @@ function log(msg: string) {
   listeners.forEach((fn) => fn());
 }
 
-export function ragLog(msg: string) { log(msg); }
+export function ragLog(msg: string) {
+  // Only accumulate logs when debug panel is visible
+  if (listeners.size === 0) return;
+  log(msg);
+}
 
 export function addDebugEntry(e: Omit<DebugEntry, "id" | "time">) {
   entries.unshift({ ...e, id: ++entryId, time: Date.now() });
