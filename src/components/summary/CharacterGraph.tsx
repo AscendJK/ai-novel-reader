@@ -145,7 +145,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                 <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                   stroke="var(--background)" strokeWidth={1.5} />
-                <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="central"
+                <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
                   className="fill-foreground font-medium" fontSize={fontSize}>
                   {n.id}
                 </text>
