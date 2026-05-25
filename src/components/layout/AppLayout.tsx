@@ -160,7 +160,7 @@ export function AppLayout() {
     } catch (e) { console.error("[sync] syncOnce error:", e); }
 
     // Download joined novels missing from local
-    syncJoinedNovels();
+    await syncJoinedNovels();
 
     setSyncReady(true);
     setLoginSyncing(false);
@@ -172,16 +172,15 @@ export function AppLayout() {
       const username = localStorage.getItem("sync-username");
       if (!username) return;
       const resp = await fetch(`/api/novels?username=${encodeURIComponent(username)}`);
+      if (!resp.ok) return;
       const list = await resp.json();
       for (const sn of list) {
         if (!sn.joined) continue;
-        const existing = await import("@/db/database").then(m => m.db.novels.get(sn.id));
+        const existing = await db.novels.get(sn.id);
         if (existing) continue;
-        // Download chapters and save
         const chResp = await fetch(`/api/novels/${sn.id}/chapters?username=${encodeURIComponent(username)}`);
         if (!chResp.ok) continue;
         const chapters = await chResp.json();
-        const { db } = await import("@/db/database");
         await db.transaction("rw", db.novels, db.chapters, async () => {
           await db.novels.put({
             id: sn.id, title: sn.title, author: sn.author,
@@ -199,7 +198,7 @@ export function AppLayout() {
         });
         addNovel({ ...sn, chapters, chapterCount: chapters.length });
       }
-    } catch { /* server may be unreachable */ }
+    } catch (e) { console.error("syncJoinedNovels:", e); }
   };
 
   const handleBackToLibrary = () => {
