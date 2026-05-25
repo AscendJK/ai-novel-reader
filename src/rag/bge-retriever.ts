@@ -7,6 +7,7 @@ export interface BGEProgress {
 }
 
 import { setupLocalModelLoader } from "./model-loader";
+import { ragLog } from "@/components/common/DebugPanel";
 
 let pipelinePromise: Promise<any> | null = null;
 let pipelineInstance: any = null;
@@ -25,12 +26,10 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
       const fetches: string[] = [];
       (window as any).fetch = async (url: string, ...args: any[]) => {
         const u = String(url);
-        fetches.push(u);
+        fetches.push(u.slice(0, 120));
         const resp = await origFetch(url, ...args);
         if (!resp.ok) {
-          console.warn("[bge] fetch failed:", u, resp.status, resp.headers.get("content-type")?.slice(0, 50));
-        } else {
-          console.log("[bge] fetch ok:", u, resp.status);
+          ragLog(`FETCH FAIL ${resp.status}: ${u.slice(0, 100)}`);
         }
         return resp;
       };
@@ -40,7 +39,7 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
           local_files_only: true,
         });
       } catch (e) {
-        console.error("[bge] pipeline error, all fetches:", fetches);
+        ragLog(`pipeline失败, 共 ${fetches.length} 次fetch: ${fetches.join(", ")}`);
         throw e;
       } finally {
         (window as any).fetch = origFetch;
