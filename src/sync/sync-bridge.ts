@@ -67,6 +67,11 @@ export async function applyServerData(data: SyncData): Promise<void> {
         await db.settings.put({ key, value });
       }
     }
+    // Reload API store so new providers appear without refresh
+    try {
+      const { useAPIStore } = await import("@/stores/api-store");
+      useAPIStore.getState().loadFromDB();
+    } catch { /* ok */ }
   }
 
   // Progress
