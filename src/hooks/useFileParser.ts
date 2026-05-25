@@ -44,9 +44,10 @@ export function useFileParser() {
 
       setProgress(90);
       await saveNovel(novel);
-      // Also upload to server
-      const username = localStorage.getItem("sync-username") || "";
-      fetch(`/api/novels?username=${encodeURIComponent(username)}`, {
+
+      // Upload to server + auto-join + trigger RAG build (fire-and-forget)
+      const user = localStorage.getItem("sync-username") || "";
+      fetch(`/api/novels?username=${encodeURIComponent(user)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -62,62 +63,44 @@ export function useFileParser() {
             startOffset: c.startOffset, endOffset: c.endOffset,
           })),
         }),
-      }).then((r) => r?.ok ? r.json() : null).then((data: any) => {
-        // Auto-join for uploader
-        const username = localStorage.getItem("sync-username");
-        if (username && data?.novelId) {
-          fetch(`/api/novels/${data.novelId}/join`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username }),
-          }).catch(() => {});
-        }
-      }).then((r) => r?.ok ? r.json() : null).then((data: any) => {
-        // Auto-join for uploader
-        const username = localStorage.getItem("sync-username");
-        if (username && data?.novelId) {
-          fetch(`/api/novels/${data.novelId}/join`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username }),
-          }).catch(() => {});
-        }
-        // Trigger server-side RAG build and show progress
-        if (data?.novelId) {
-          const engine = useBuildStore.getState().engine || "bge-small-zh";
-          fetch(`/api/rag/${data.novelId}/build`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ engine }),
-          }).then(() => {
-            useBuildStore.getState().start();
-            useBuildStore.getState().setProgress({ message: "服务器正在处理...", novelId: data!.novelId });
-            // Poll until done
-            const poll = setInterval(async () => {
-              try {
-                const sr = await fetch(`/api/rag/${data!.novelId}/status?engine=${engine}`);
-                const st = await sr.json();
-                if (st.status === "ready") {
-                  useBuildStore.getState().finish();
-                  clearInterval(poll);
-                } else if (st.status === "error") {
-                  useBuildStore.getState().fail(st.error || "构建失败");
-                  clearInterval(poll);
-                } else if (st.status === "building") {
-                  useBuildStore.getState().setProgress({
-                    message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`,
-                    current: st.current, total: st.total,
-                    novelId: data!.novelId,
-                  });
-                }
-              } catch { /* server error, keep polling */ }
-            }, 3000);
-          }).catch(() => {});
-        }
-      }).catch(() => { /* server may be offline */ });
-      setProgress(100);
+      }).then(async (r) => {
+        if (!r?.ok) return;
+        const data = await r.json();
+        const nid = data.novelId;
+        if (!nid) return;
 
+        // Auto-join
+        if (user) fetch(`/api/novels/${nid}/join`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user }),
+        }).catch(() => {});
+
+        // Trigger RAG build + poll progress
+        const engine = "bge-small-zh";
+        fetch(`/api/rag/${nid}/build`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ engine }),
+        }).then(() => {
+          const bs = useBuildStore.getState();
+          bs.start();
+          bs.setProgress({ message: "服务器正在构建RAG索引...", novelId: nid, engine });
+          const poll = setInterval(async () => {
+            try {
+              const sr = await fetch(`/api/rag/${nid}/status?engine=${engine}`);
+              const st = await sr.json();
+              if (st.status === "ready") { bs.finish(); clearInterval(poll); }
+              else if (st.status === "error") { bs.fail(st.error || "构建失败"); clearInterval(poll); }
+              else if (st.status === "building") {
+                bs.setProgress({ message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`, current: st.current, total: st.total, novelId: nid, engine });
+              }
+            } catch { /* keep polling */ }
+          }, 3000);
+        }).catch(() => {});
+      }).catch(() => {});
+
+      setProgress(100);
       addNovel(novel);
       setCurrentNovel(novel);
-
       return novel;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "文件解析失败";
