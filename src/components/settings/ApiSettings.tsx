@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProviderSelect } from "./ProviderSelect";
 import type { ProviderType, ProviderConfig } from "@/api/types";
 import { Key, Trash2, ArrowLeft, AlertTriangle, Plus } from "lucide-react";
@@ -113,12 +112,12 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
         {!isCompatProvider && type !== "openai-compat-0" && (
           <div className="space-y-2">
             <Label>模型</Label>
-            <Select value={formData.model} onValueChange={(v) => setFormData((d) => ({ ...d, model: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(MODEL_OPTIONS[type] || []).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Input placeholder="输入模型名称..." value={formData.model}
+              onChange={(e) => setFormData((d) => ({ ...d, model: e.target.value }))}
+              list={`model-suggest-${type}`} />
+            <datalist id={`model-suggest-${type}`}>
+              {(MODEL_OPTIONS[type] || []).map((m) => <option key={m} value={m} />)}
+            </datalist>
           </div>
         )}
         {(isCompatProvider || type === "openai-compat-0") && (
