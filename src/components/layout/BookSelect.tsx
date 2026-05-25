@@ -449,7 +449,7 @@ export function BookSelect() {
                         if (st.status === "ready") {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                              <Badge variant="outline" className={`text-[10px] ${cached ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
+                              <Badge variant="outline" className={`text-[10px] ${loadedInMem ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
                                 {loadedInMem ? "BGE 已加载" : `BGE 就绪 ${estSize || "?"}`}
                               </Badge>
                             </div>
