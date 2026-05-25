@@ -17,17 +17,7 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
     pipelinePromise = (async () => {
       onProgress?.({ phase: "loading" });
       await setupLocalModelLoader();
-
-      // Debug: verify config file is accessible
-      try {
-        const testUrl = "/models/builtin/Xenova/bge-small-zh-v1.5/config.json";
-        const tr = await fetch(testUrl);
-        console.log("[bge] config.json test:", testUrl, tr.status, tr.headers.get("content-type"));
-        if (!tr.ok) console.error("[bge] config.json NOT FOUND at", testUrl);
-      } catch (e) { console.error("[bge] config.json fetch error:", e); }
-
-      const { pipeline, env } = await import("@xenova/transformers");
-      console.log("[bge] env.localModelPath:", env.localModelPath, "allowRemote:", env.allowRemoteModels);
+      const { pipeline } = await import("@xenova/transformers");
       pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5");
       return pipelineInstance;
     })();
