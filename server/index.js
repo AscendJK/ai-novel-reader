@@ -122,6 +122,60 @@ app.post("/api/novels/:id/leave", (req, res) => {
 
 // DELETE /api/novels/:id — removed; use /api/admin/novels/:id with token auth instead
 
+// ── RAG Index API ──────────────────────────────────────────
+
+import { buildIndex as buildRagIndex, getProgress, getIndexData } from "./rag-builder.js";
+
+// POST /api/rag/encode — encode query text (single small batch)
+app.post("/api/rag/encode", async (req, res) => {
+  try {
+    const { texts } = req.body;
+    if (!texts?.length) return res.status(400).json({ error: "texts required" });
+    const { pipeline, env } = await import("@xenova/transformers");
+    env.allowRemoteModels = false;
+    env.localModelPath = "./public/models/builtin/";
+    const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
+    const result = await pipe(texts, { pooling: "mean", normalize: true });
+    const vectors = await result.tolist();
+    await pipe.dispose?.();
+    res.json({ vectors });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/rag/:novelId/status?engine=bge-small-zh
+app.get("/api/rag/:novelId/status", (req, res) => {
+  try {
+    const engine = req.query.engine || "bge-small-zh";
+    const progress = getProgress(req.params.novelId, engine);
+    res.json(progress);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/rag/:novelId/build — trigger async build
+app.post("/api/rag/:novelId/build", (req, res) => {
+  try {
+    const engine = req.body?.engine || "bge-small-zh";
+    const result = buildRagIndex(req.params.novelId, engine);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/rag/:novelId/index?engine=bge-small-zh — download built index
+app.get("/api/rag/:novelId/index", (req, res) => {
+  try {
+    const engine = req.query.engine || "bge-small-zh";
+    const data = getIndexData(req.params.novelId, engine);
+    if (!data) return res.status(404).json({ error: "索引未构建" });
+    // Return chunks as JSON + vectors as base64
+    res.json({
+      chunks: JSON.parse(data.chunks_json),
+      vectorsBase64: data.vectors_blob.toString("base64"),
+      dim: data.dim,
+      chunkCount: data.chunk_count,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Sync API ────────────────────────────────────────────────
 
 // POST /api/sync/register

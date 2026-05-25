@@ -97,6 +97,20 @@ db.exec(`
     value TEXT,
     PRIMARY KEY (username, key)
   );
+
+  CREATE TABLE IF NOT EXISTS rag_indices (
+    novel_id TEXT NOT NULL,
+    engine TEXT NOT NULL DEFAULT 'bge-small-zh',
+    status TEXT NOT NULL DEFAULT 'none',
+    chunks_json TEXT NOT NULL DEFAULT '[]',
+    vectors_blob BLOB,
+    dim INTEGER DEFAULT 0,
+    chunk_count INTEGER DEFAULT 0,
+    build_time INTEGER DEFAULT 0,
+    error_msg TEXT,
+    PRIMARY KEY (novel_id, engine),
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+  );
 `);
 
 // ── Prepared statements ─────────────────────────────────────

@@ -5,58 +5,19 @@ import { db } from "@/db/database";
 export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
 export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
 
-const BATCH_SIZE = 16;
-const YIELD_EVERY = 4;
-const INIT_TIMEOUT_MS = 300_000;  // 5 min for model load
-const ENCODE_TIMEOUT_MS = 60_000; // 1 min per batch
+const MAX_CACHE_MB = 100;
+const LRU_CACHE = new Map<string, { vectors: Float32Array[]; chunks: Chunk[]; dim: number; size: number }>();
+let cacheTotalSize = 0;
 
-let worker: Worker | null = null;
-const pendingResolve = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-let reqId = 0;
-
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL("./bge-worker.ts", import.meta.url), { type: "module" });
-  }
-  return worker;
-}
-
-function initWorker(): Promise<void> {
-  const w = getWorker();
-  const id = ++reqId;
-  ragLog("等待 Worker 加载 BGE 模型...");
-  return new Promise((resolve, reject) => {
-    pendingResolve.set(id, {
-      resolve: () => resolve(),
-      reject: (e: Error) => reject(e),
-      timer: setTimeout(() => reject(new Error("worker init timeout after 5min")), INIT_TIMEOUT_MS),
-    });
-    w.onmessage = (e) => {
-      if (e.data.type === "ready") {
-        const p = pendingResolve.get(e.data.id);
-        if (p) { clearTimeout(p.timer); p.resolve(); pendingResolve.delete(e.data.id); }
-      } else if (e.data.type === "error") {
-        const p = pendingResolve.get(e.data.id);
-        if (p) { clearTimeout(p.timer); p.reject(new Error(e.data.error)); pendingResolve.delete(e.data.id); }
-      } else if (e.data.type === "result") {
-        const p = pendingResolve.get(e.data.id);
-        if (p) { clearTimeout(p.timer); p.resolve(e.data.vectors); pendingResolve.delete(e.data.id); }
-      }
-    };
-  });
-}
-
-function encodeBatch(texts: string[]): Promise<number[][]> {
-  const w = getWorker();
-  const id = ++reqId;
-  return new Promise((resolve, reject) => {
-    pendingResolve.set(id, {
-      resolve: (v: number[][]) => resolve(v),
-      reject: (e: Error) => reject(e),
-      timer: setTimeout(() => reject(new Error("encode timeout after 60s")), ENCODE_TIMEOUT_MS),
-    });
-    w.postMessage({ type: "encode", id, data: texts });
-  });
+function evictLRU() {
+  if (cacheTotalSize <= MAX_CACHE_MB * 1024 * 1024) return;
+  // Delete oldest (first inserted)
+  const firstKey = LRU_CACHE.keys().next().value;
+  if (!firstKey) return;
+  const entry = LRU_CACHE.get(firstKey)!;
+  cacheTotalSize -= entry.size;
+  LRU_CACHE.delete(firstKey);
+  ragLog(`LRU 淘汰: ${firstKey}, 释放 ${(entry.size / 1024 / 1024).toFixed(1)}MB`);
 }
 
 export class BGERetriever {
@@ -81,87 +42,142 @@ export class BGERetriever {
 
   async init(
     novelId: string,
-    allChunks: Chunk[],
+    _allChunks: Chunk[],
     onProgress?: (p: BGEProgress) => void
   ): Promise<void> {
-    // Filter empty/short chunks
-    const chunks = allChunks.filter((c) => c.content.replace(/\s/g, "").length >= 10);
-    ragLog(`过滤后片段: ${chunks.length}/${allChunks.length}`);
-    this.chunks = chunks;
-
-    onProgress?.({ phase: "loading" });
-
-    // Check checkpoint
-    let startBatch = 0;
-    let vectors: Float32Array[] = [];
-    try {
-      const cp = await db.ragCache.get(novelId + "-checkpoint");
-      if (cp && cp.dim > 0) {
-        startBatch = cp.vectors.length;
-        vectors = cp.vectors.map((v: number[]) => new Float32Array(v));
-        ragLog(`断点续传: 从第 ${startBatch} 批继续 (已有 ${vectors.length} 向量)`);
-      }
-    } catch { /* no checkpoint */ }
-
-    // Init worker
-    await initWorker();
-    ragLog("BGE pipeline ready (Web Worker)");
-
-    const totalBatches = Math.ceil(chunks.length / BATCH_SIZE);
-    if (startBatch >= totalBatches) {
-      this.vectors = vectors;
-      this.dim = vectors[0]?.length || 0;
+    // Check LRU memory cache first
+    const memCacheKey = `${novelId}-bge-small-zh`;
+    const memCached = LRU_CACHE.get(memCacheKey);
+    if (memCached) {
+      // Refresh LRU position
+      LRU_CACHE.delete(memCacheKey);
+      LRU_CACHE.set(memCacheKey, memCached);
+      this.vectors = memCached.vectors;
+      this.chunks = memCached.chunks;
+      this.dim = memCached.dim;
       onProgress?.({ phase: "done" });
       return;
     }
 
-    for (let b = startBatch; b < totalBatches; b++) {
-      const batch = chunks.slice(b * BATCH_SIZE, Math.min((b + 1) * BATCH_SIZE, chunks.length));
-      onProgress?.({ phase: "encoding", current: b * BATCH_SIZE, total: chunks.length });
+    onProgress?.({ phase: "loading" });
 
-      try {
-        const result = await encodeBatch(batch.map((c) => c.content));
-        for (const row of result) vectors.push(new Float32Array(row));
-        this.dim = vectors[0]?.length || 0;
-      } catch (e) {
-        ragLog(`批次 ${b} 失败: ${e}, 重试中...`);
-        try {
-          const result = await encodeBatch(batch.map((c) => c.content));
-          for (const row of result) vectors.push(new Float32Array(row));
-        } catch (e2) {
-          ragLog(`批次 ${b} 重试失败, 跳过: ${e2}`);
-          // Fill with zero vectors as placeholder
-          for (const _ of batch) vectors.push(new Float32Array(this.dim || 512));
-        }
+    // Check IndexedDB cache
+    try {
+      const cached = await db.ragCache.get(memCacheKey);
+      if (cached && cached.vectors?.length > 0) {
+        const data = BGERetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim });
+        this.vectors = data.vectors;
+        this.chunks = data.chunks;
+        this.dim = data.dim;
+        // Promote to memory cache
+        const size = this.vectors.length * this.dim * 4;
+        LRU_CACHE.set(memCacheKey, { vectors: this.vectors, chunks: this.chunks, dim: this.dim, size });
+        cacheTotalSize += size;
+        evictLRU();
+        onProgress?.({ phase: "done" });
+        return;
+      }
+    } catch { /* no cached index */ }
+
+    // Fetch from server
+    ragLog("从服务器加载索引...");
+    const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+
+    if (resp.status === 404) {
+      // Index not built yet — trigger build and poll
+      ragLog("索引未构建, 触发服务器构建...");
+      await fetch(`/api/rag/${novelId}/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engine: "bge-small-zh" }),
+      });
+
+      // Poll for progress
+      let waited = 0;
+      while (waited < 600_000) { // 10 min max
+        await new Promise((r) => setTimeout(r, 3000));
+        waited += 3000;
+        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+        const status = await statusResp.json();
+        ragLog(`服务器构建中: ${status.status} ${status.current ?? ""}/${status.total ?? ""}`);
+
+        if (status.status === "ready") break;
+        if (status.status === "error") throw new Error(status.error || "服务器构建失败");
+
+        onProgress?.({
+          phase: "encoding",
+          current: status.current || 0,
+          total: status.total || _allChunks.length,
+        });
       }
 
-      // Checkpoint every 4 batches
-      if ((b + 1) % YIELD_EVERY === 0 || b === totalBatches - 1) {
-        try {
-          await db.ragCache.put({
-            novelId: novelId + "-checkpoint",
-            engine: "bge-small-zh",
-            vectors: vectors.map((v) => Array.from(v)),
-            chunks: chunks,
-            dim: this.dim || 512,
-            createdAt: Date.now(),
-          });
-        } catch { /* ignore */ }
-        // Yield to UI thread
-        await new Promise((r) => setTimeout(r, 0));
-      }
+      // Fetch the built index
+      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+      if (!retryResp.ok) throw new Error("索引加载失败");
+      const data = await retryResp.json();
+      await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+      return;
     }
 
+    if (!resp.ok) throw new Error(`服务器错误: ${resp.status}`);
+    const data = await resp.json();
+    await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+  }
+
+  private async _loadFromServer(
+    novelId: string,
+    data: { chunks: Chunk[]; vectorsBase64: string; dim: number },
+    memCacheKey: string,
+    onProgress?: (p: BGEProgress) => void
+  ) {
+    this.chunks = data.chunks;
+    this.dim = data.dim;
+
+    // Decode base64 → Float32Array[]
+    const binary = Uint8Array.from(atob(data.vectorsBase64), (c) => c.charCodeAt(0));
+    const flatVectors = new Float32Array(binary.buffer);
+    const count = flatVectors.length / data.dim;
+    const vectors: Float32Array[] = [];
+    for (let i = 0; i < count; i++) {
+      vectors.push(flatVectors.slice(i * data.dim, (i + 1) * data.dim));
+    }
     this.vectors = vectors;
-    // Clean checkpoint after full completion
-    try { await db.ragCache.delete(novelId + "-checkpoint"); } catch { /* ok */ }
+
+    const size = vectors.length * data.dim * 4;
+    ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
+
+    // Cache in memory (LRU)
+    LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
+    cacheTotalSize += size;
+    evictLRU();
+
+    // Cache in IndexedDB
+    try {
+      await db.ragCache.put({
+        novelId: memCacheKey,
+        engine: "bge-small-zh",
+        vectors: vectors.map((v) => Array.from(v)),
+        chunks: data.chunks,
+        dim: data.dim,
+        createdAt: Date.now(),
+      });
+    } catch { /* storage full, memory cache is enough */ }
+
     onProgress?.({ phase: "done" });
   }
 
   async search(query: string, topK: number = 15): Promise<{ chunk: Chunk; score: number }[]> {
     if (this.vectors.length === 0) return [];
-    const qVecs = await encodeBatch([query]);
-    const qVec = new Float32Array(qVecs[0]);
+    // Use the server for query encoding (single vector, fast)
+    const resp = await fetch("/api/rag/encode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texts: [query] }),
+    });
+    if (!resp.ok) return [];
+    const { vectors: [qArr] } = await resp.json();
+    const qVec = new Float32Array(qArr);
+
     const scores = this.vectors.map((v, i) => {
       let dot = 0;
       for (let j = 0; j < qVec.length; j++) dot += qVec[j] * v[j];
@@ -171,5 +187,9 @@ export class BGERetriever {
     return scores.slice(0, topK).map((s) => ({ chunk: this.chunks[s.index], score: s.score }));
   }
 
-  dispose() { this.vectors = []; this.chunks = []; this.dim = 0; }
+  dispose() {
+    this.vectors = [];
+    this.chunks = [];
+    this.dim = 0;
+  }
 }
