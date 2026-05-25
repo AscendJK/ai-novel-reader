@@ -61,6 +61,7 @@ export function useSummarizer() {
         if (st.status === "ready") {
           setCurrentTask("正在加载BGE索引...");
           await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+          setRagEngineUsed(engine);
           ragLog("BGE 索引已加载到浏览器");
         }
         setCurrentTask("");
