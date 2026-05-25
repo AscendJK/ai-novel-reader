@@ -5,6 +5,9 @@ import { ReadingPanel } from "@/components/reader/ReadingPanel";
 import { ApiSettings } from "@/components/settings/ApiSettings";
 import { UsernameLogin } from "@/components/login/UsernameLogin";
 import { DebugPanel } from "@/components/common/DebugPanel";
+import { BuildProgress } from "@/components/common/BuildProgress";
+import { useBuildStore } from "@/stores/build-store";
+import { useRAGStore } from "@/stores/rag-store";
 import { setupLocalModelLoader } from "@/rag/model-loader";
 
 // Configure Transformers.js to load models from local public/models/
@@ -240,6 +243,25 @@ export function AppLayout() {
         )}
       </main>
       {debugMode && <DebugPanel />}
+      <BuildProgressBox />
     </div>
+  );
+}
+
+function BuildProgressBox() {
+  const build = useBuildStore();
+  const rag = useRAGStore();
+  return (
+    <BuildProgress
+      open={build.open}
+      engine={rag.engine}
+      status={build.status}
+      message={build.message}
+      current={build.current}
+      total={build.total}
+      error={build.error}
+      onRetry={build.retry}
+      onFallbackToTFIDF={build.fallbackToTFIDF}
+    />
   );
 }
