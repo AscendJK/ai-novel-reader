@@ -228,10 +228,11 @@ export function setupLocalModelLoader(): Promise<void> {
   if (!envReady) {
     envReady = import("@xenova/transformers")
       .then(({ env }) => {
-        env.localModelPath = BUILTIN;
+        env.localModelPath = (typeof window !== "undefined" ? window.location.origin : "") + BUILTIN;
         env.allowRemoteModels = false;
+        console.log("[transformers] localModelPath set to:", env.localModelPath);
       })
-      .catch((e) => { console.error("Failed to configure Transformers.js local model path:", e); });
+      .catch((e) => { console.error("Failed to configure Transformers.js:", e); });
   }
   return envReady;
 }
