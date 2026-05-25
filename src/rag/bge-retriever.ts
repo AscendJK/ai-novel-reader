@@ -85,12 +85,12 @@ export class BGERetriever {
       }
     } catch { /* no cached index */ }
 
-    // Fetch from server
-    ragLog("从服务器加载索引...");
-    const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+    // Check status first to avoid 404
+    ragLog("检查服务器索引状态...");
+    const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+    const statusData = await statusCheck.json();
 
-    if (resp.status === 404) {
-      // Index not built yet — trigger build and poll
+    if (statusData.status === "none") {
       ragLog("索引未构建, 触发服务器构建...");
       useBuildStore.getState().start();
       await fetch(`/api/rag/${novelId}/build`, {
@@ -128,9 +128,41 @@ export class BGERetriever {
       return;
     }
 
-    if (!resp.ok) throw new Error(`服务器错误: ${resp.status}`);
-    const data = await resp.json();
-    await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+    if (statusData.status === "ready") {
+      const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+      if (!resp.ok) throw new Error(`服务器错误: ${resp.status}`);
+      const data = await resp.json();
+      await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+      return;
+    }
+
+    // Still building — poll
+    useBuildStore.getState().start();
+    let waited = 0;
+    while (waited < 600_000) {
+      await new Promise((r) => setTimeout(r, 3000));
+      waited += 3000;
+      const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+      const st = await sr.json();
+      if (st.status === "ready") {
+        useBuildStore.getState().finish();
+        const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+        if (!resp.ok) throw new Error("索引加载失败");
+        const data = await resp.json();
+        await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+        return;
+      }
+      if (st.status === "error") {
+        useBuildStore.getState().fail(st.error || "构建失败");
+        throw new Error(st.error || "服务器构建失败");
+      }
+      useBuildStore.getState().setProgress({
+        message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`,
+        current: st.current || 0, total: st.total || _allChunks.length,
+        novelId, engine: "bge-small-zh",
+      });
+      onProgress?.({ phase: "encoding", current: st.current || 0, total: st.total || _allChunks.length });
+    }
   }
 
   private async _loadFromServer(
