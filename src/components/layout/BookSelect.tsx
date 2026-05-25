@@ -388,61 +388,59 @@ export function BookSelect() {
 
         {/* Server novel library */}
         <div className="space-y-4 mt-8">
-          {(() => {
-            if (!serverScanned) return (
-              <div className="text-center py-6">
-                <Button variant="outline" onClick={scanServer} disabled={scanning}>
-                  <Search className="h-4 w-4 mr-2" />
-                  {scanning ? "扫描中..." : "扫描书库"}
-                </Button>
+          {!serverScanned && (
+            <div className="text-center py-6">
+              <Button variant="outline" onClick={scanServer} disabled={scanning}>
+                <Search className="h-4 w-4 mr-2" />
+                {scanning ? "扫描中..." : "扫描书库"}
+              </Button>
+            </div>
+          )}
+          {serverScanned && serverNovels.length === 0 && (
+            <div className="text-center py-4">
+              <p className="text-sm text-muted-foreground mb-3">扫描完成，书库为空</p>
+              <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>重新扫描</Button>
+            </div>
+          )}
+          {serverScanned && serverNovels.length > 0 && (
+            <>
+              <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
+                <FolderOpen className="h-5 w-5" />书库
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                {serverNovels.map((novel: any) => (
+                  <Card key={novel.id} className="transition-all hover:shadow-md">
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className="w-10 h-14 rounded bg-muted flex items-center justify-center shrink-0">
+                          <FileText className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold truncate">{novel.title}</h3>
+                          {novel.author && <p className="text-xs text-muted-foreground">{novel.author}</p>}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        <Badge variant="secondary" className="text-xs">{novel.fileFormat.toUpperCase()}</Badge>
+                        <Badge variant="secondary" className="text-xs">{novel.chapterCount} 章</Badge>
+                        <Badge variant="secondary" className="text-xs">{formatCharCount(novel.totalChars)}</Badge>
+                      </div>
+                      <div className="flex justify-end">
+                        {novel.joined ? (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">已添加</Badge>
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => handleJoinNovel(novel)} disabled={joiningId === novel.id}>
+                            {joiningId === novel.id ? "加载中..." : "加入书架"}
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-            );
-            if (serverNovels.length === 0) return (
-              <div className="text-center py-4">
-                <p className="text-sm text-muted-foreground mb-3">扫描完成，书库为空</p>
-                <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>重新扫描</Button>
-              </div>
-            );
-            return (
-              <>
-                <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
-                  <FolderOpen className="h-5 w-5" />书库
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                  {serverNovels.map((novel: any) => (
-                    <Card key={novel.id} className="transition-all hover:shadow-md">
-                      <CardContent className="p-5">
-                        <div className="flex items-start gap-3 mb-3">
-                          <div className="w-10 h-14 rounded bg-muted flex items-center justify-center shrink-0">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-semibold truncate">{novel.title}</h3>
-                            {novel.author && <p className="text-xs text-muted-foreground">{novel.author}</p>}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          <Badge variant="secondary" className="text-xs">{novel.fileFormat.toUpperCase()}</Badge>
-                          <Badge variant="secondary" className="text-xs">{novel.chapterCount} 章</Badge>
-                          <Badge variant="secondary" className="text-xs">{formatCharCount(novel.totalChars)}</Badge>
-                        </div>
-                        <div className="flex justify-end">
-                          {novel.joined ? (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">已添加</Badge>
-                          ) : (
-                            <Button variant="outline" size="sm" onClick={() => handleJoinNovel(novel)} disabled={joiningId === novel.id}>
-                              {joiningId === novel.id ? "加载中..." : "加入书架"}
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            );
-          })()}
-        </div>}
+            </>
+          )}
+        </div>
 
         {savedNovels.length === 0 && !loading && (
           <div className="text-center py-8">
