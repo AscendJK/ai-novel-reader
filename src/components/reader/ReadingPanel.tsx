@@ -118,7 +118,7 @@ export function ReadingPanel() {
             <button onClick={() => setMobileAiOpen(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
           </div>
           <div className="flex-1 min-h-0">
-            <SummaryPanel defaultTab={mobileAiTab} />
+            <SummaryPanel key={mobileAiTab} defaultTab={mobileAiTab} />
           </div>
         </div>
     </div>
