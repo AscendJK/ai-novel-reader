@@ -15,18 +15,23 @@ export async function buildIndex(novelId, engine = "bge-small-zh") {
 
   // Check DB status
   const existing = db.db.prepare("SELECT status, chunk_count, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
+  console.log(`[rag] buildIndex called: ${key}, existing:`, existing?.status);
   if (existing && existing.status === "ready") return { status: "ready", chunkCount: existing.chunk_count };
 
   // Don't allow duplicate builds
   if (buildProgress.has(key)) return buildProgress.get(key);
 
-  buildProgress.set(key, { status: "building", current: 0, total: 0 });
+  const progress = { status: "building", current: 0, total: 0 };
+  buildProgress.set(key, progress);
 
   // Start async build
+  console.log(`[rag] starting async build for ${key}`);
   _doBuild(novelId, engine, key).catch(e => {
-    console.error(`[rag] build failed for ${key}:`, e);
-    db.db.prepare("UPDATE rag_indices SET status = 'error', error_msg = ? WHERE novel_id = ? AND engine = ?").run(String(e), novelId, engine);
-    buildProgress.set(key, { ...buildProgress.get(key), status: "error", error: String(e) });
+    console.error(`[rag] build failed for ${key}:`, e.message || e);
+    try {
+      db.db.prepare("UPDATE rag_indices SET status = 'error', error_msg = ? WHERE novel_id = ? AND engine = ?").run(String(e.message || e), novelId, engine);
+    } catch (dbErr) { console.error("[rag] DB update error:", dbErr); }
+    buildProgress.set(key, { ...buildProgress.get(key), status: "error", error: String(e.message || e) });
   });
 
   return { status: "building" };
@@ -51,10 +56,10 @@ export function getIndexData(novelId, engine = "bge-small-zh") {
 // ── Internal build logic ──
 
 async function _doBuild(novelId, engine, key) {
+  console.log(`[rag] _doBuild start: ${key}`);
   const chapters = db.db.prepare("SELECT title, content FROM chapters WHERE novel_id = ? ORDER BY index_num").all(novelId);
+  console.log(`[rag] chapters found: ${chapters.length}`);
   if (!chapters.length) throw new Error("No chapters found");
-
-  // Chunk
   const chunks = [];
   for (const ch of chapters) {
     let start = 0;
