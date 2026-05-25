@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2 } from "lucide-react";
+import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2, Search } from "lucide-react";
 import { useFileParser } from "@/hooks/useFileParser";
 import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
 import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
@@ -31,20 +31,28 @@ export function BookSelect() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch server novel library with join status
-  useEffect(() => {
-    const username = localStorage.getItem("sync-username");
-    const url = username ? `/api/novels?username=${encodeURIComponent(username)}` : "/api/novels";
-    fetch(url).then((r) => r.json()).then((list: any[]) => {
+  const [serverScanned, setServerScanned] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  // Scan server novel library on demand
+  const scanServer = async () => {
+    setScanning(true);
+    try {
+      const username = localStorage.getItem("sync-username");
+      const url = username ? `/api/novels?username=${encodeURIComponent(username)}` : "/api/novels";
+      const r = await fetch(url);
+      const list = await r.json();
       setServerNovels(list.map((n: any) => ({
         id: n.id, title: n.title, author: n.author,
         fileName: n.fileName, fileFormat: n.fileFormat,
         totalChars: n.totalChars, chapterCount: n.chapterCount,
         createdAt: n.createdAt, updatedAt: n.updatedAt,
-        joined: n.joined, // from server
+        joined: n.joined,
       } as any)));
-    }).catch(() => {});
-  }, []);
+      setServerScanned(true);
+    } catch { /* server unreachable */ }
+    finally { setScanning(false); }
+  };
 
   // Join a server novel (download chapters + register on server)
   const handleJoinNovel = async (novel: any) => {
@@ -378,15 +386,23 @@ export function BookSelect() {
           </div>
         )}
 
-        {/* Server novel library — show all server novels with join status */}
-        {serverNovels.length > 0 && (
-          <div className="space-y-4 mt-8">
-            <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
-              <FolderOpen className="h-5 w-5" />
-              书库
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-              {serverNovels.map((novel: any) => (
+        {/* Server novel library */}
+        <div className="space-y-4 mt-8">
+          {!serverScanned ? (
+            <div className="text-center py-6">
+              <Button variant="outline" onClick={scanServer} disabled={scanning}>
+                <Search className="h-4 w-4 mr-2" />
+                {scanning ? "扫描中..." : "扫描书库"}
+              </Button>
+            </div>
+          ) : serverNovels.length > 0 ? (
+            <>
+              <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
+                <FolderOpen className="h-5 w-5" />
+                书库
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                {serverNovels.map((novel: any) => (
                 <Card key={novel.id} className="transition-all hover:shadow-md">
                   <CardContent className="p-5">
                     <div className="flex items-start gap-3 mb-3">
@@ -421,8 +437,14 @@ export function BookSelect() {
                 </Card>
               ))}
             </div>
-          </div>
-        )}
+          </>
+          ) : (
+            <div className="text-center py-4">
+              <p className="text-sm text-muted-foreground mb-3">扫描完成，书库为空</p>
+              <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>重新扫描</Button>
+            </div>
+          )}
+        </div>}
 
         {savedNovels.length === 0 && !loading && (
           <div className="text-center py-8">
