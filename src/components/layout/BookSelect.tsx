@@ -71,10 +71,20 @@ export function BookSelect() {
   const handleBuild = async (novelId: string) => {
     setBuildingId(novelId);
     useBuildStore.getState().start();
-    useBuildStore.getState().setProgress({ message: "触发服务器构建...", novelId, engine: "bge-small-zh", status: "building" });
-    await fetch(`/api/rag/${novelId}/build`, {
+    const resp = await fetch(`/api/rag/${novelId}/build`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engine: "bge-small-zh" }),
+    });
+    const result = await resp.json();
+    if (result.status === "busy") {
+      alert("服务器繁忙，当前排队已满。请稍后再试。");
+      useBuildStore.getState().dismiss();
+      setBuildingId(null);
+      return;
+    }
+    useBuildStore.getState().setProgress({
+      message: result.status === "queued" ? `排队中 (第 ${result.queuePosition} 位)...` : "服务器已收到请求...",
+      novelId, engine: "bge-small-zh", status: "building",
     });
     const bs = useBuildStore.getState();
     const poll = setInterval(async () => {
@@ -461,6 +471,15 @@ export function BookSelect() {
                             <span className="text-[10px] text-yellow-500">BGE 构建中...</span>
                           </div>
                         );
+                        if (st.status === "queued") {
+                          const qpos = (st as any).queuePosition || "?";
+                          return (
+                            <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                              <Loader2 className="h-3 w-3 text-blue-400" />
+                              <span className="text-[10px] text-blue-400">排队第 {qpos} 位</span>
+                            </div>
+                          );
+                        }
                         if (st.status === "error") return (
                           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                             <span className="text-[10px] text-red-400">BGE 失败</span>

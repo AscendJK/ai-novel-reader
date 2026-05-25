@@ -12,6 +12,8 @@ let running = false;
 
 // ── Public API ──
 
+const MAX_QUEUE = 10;
+
 /** Add a novel to the build queue */
 export function buildIndex(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
@@ -21,16 +23,28 @@ export function buildIndex(novelId, engine = "bge-small-zh") {
   if (existing && existing.status === "ready") return { status: "ready", chunkCount: existing.chunk_count };
 
   // Don't allow duplicate
-  if (buildProgress.has(key)) return buildProgress.get(key);
-  if (queue.some(t => t.key === key)) return { status: "queued" };
+  if (buildProgress.has(key)) return { ...buildProgress.get(key), queuePosition: queue.length + (running ? 1 : 0) };
+  if (queue.some(t => t.key === key)) {
+    const pos = queue.findIndex(t => t.key === key) + 1 + (running ? 1 : 0);
+    return { status: "queued", queuePosition: pos };
+  }
 
-  buildProgress.set(key, { status: "queued", current: 0, total: 0 });
+  // Check queue limit (include currently running task)
+  const total = queue.length + (running ? 1 : 0);
+  if (total >= MAX_QUEUE) return { status: "busy", message: "服务器繁忙，请稍后再试" };
+
+  const pos = total + 1;
+  buildProgress.set(key, { status: "queued", current: 0, total: 0, queuePosition: pos });
   queue.push({ novelId, engine, key });
-  console.log(`[rag] queued: ${key} (position ${queue.length})`);
+  console.log(`[rag] queued: ${key} (position ${pos}, queue: ${queue.length})`);
 
   processQueue();
 
-  return { status: "queued" };
+  return { status: "queued", queuePosition: pos };
+}
+
+export function getQueueLength() {
+  return queue.length + (running ? 1 : 0);
 }
 
 function processQueue() {
@@ -62,7 +76,12 @@ export function getStatuses(novelIds, engine = "bge-small-zh") {
   for (const nid of novelIds) {
     const key = `${nid}-${engine}`;
     const mem = buildProgress.get(key);
-    if (mem) { result[nid] = mem; continue; }
+    if (mem) {
+      // Refresh queue position
+      const pos = queue.findIndex(t => t.key === key);
+      result[nid] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
+      continue;
+    }
     const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(nid, engine);
     result[nid] = dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg } : { status: "none" };
   }
