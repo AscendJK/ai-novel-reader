@@ -5,13 +5,13 @@ import { db } from "@/db/database";
 export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
 export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
 
-const BATCH_SIZE = 16;       // encode batch size
-const YIELD_EVERY = 4;       // yield main thread every N batches
-const TIMEOUT_MS = 45000;    // per-batch timeout
+const BATCH_SIZE = 16;
+const YIELD_EVERY = 4;
+const INIT_TIMEOUT_MS = 300_000;  // 5 min for model load
+const ENCODE_TIMEOUT_MS = 60_000; // 1 min per batch
 
 let worker: Worker | null = null;
-let workerBusy = false;
-const pendingResolve = new Map<number, { resolve: (v: number[][]) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+const pendingResolve = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 let reqId = 0;
 
 function getWorker(): Worker {
@@ -24,11 +24,12 @@ function getWorker(): Worker {
 function initWorker(): Promise<void> {
   const w = getWorker();
   const id = ++reqId;
+  ragLog("等待 Worker 加载 BGE 模型...");
   return new Promise((resolve, reject) => {
     pendingResolve.set(id, {
       resolve: () => resolve(),
       reject: (e: Error) => reject(e),
-      timer: setTimeout(() => reject(new Error("worker init timeout")), TIMEOUT_MS),
+      timer: setTimeout(() => reject(new Error("worker init timeout after 5min")), INIT_TIMEOUT_MS),
     });
     w.onmessage = (e) => {
       if (e.data.type === "ready") {
@@ -52,7 +53,7 @@ function encodeBatch(texts: string[]): Promise<number[][]> {
     pendingResolve.set(id, {
       resolve: (v: number[][]) => resolve(v),
       reject: (e: Error) => reject(e),
-      timer: setTimeout(() => reject(new Error("encode timeout")), TIMEOUT_MS),
+      timer: setTimeout(() => reject(new Error("encode timeout after 60s")), ENCODE_TIMEOUT_MS),
     });
     w.postMessage({ type: "encode", id, data: texts });
   });
