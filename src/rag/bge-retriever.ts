@@ -136,8 +136,8 @@ export class BGERetriever {
       return;
     }
 
-    // Still building — poll
-    useBuildStore.getState().start();
+    // Still building — poll (don't reset progress if upload already started tracking)
+    if (!useBuildStore.getState().open) useBuildStore.getState().start();
     let waited = 0;
     while (waited < 600_000) {
       await new Promise((r) => setTimeout(r, 3000));

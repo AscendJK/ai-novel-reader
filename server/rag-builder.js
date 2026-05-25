@@ -73,10 +73,11 @@ async function _doBuild(novelId, engine, key) {
     }
   }
 
+  // Immediately show total so frontend displays progress
+  buildProgress.set(key, { status: "building", current: 0, total: chunks.length });
+
   // Init/update DB record
   db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)").run(novelId, engine, JSON.stringify(chunks), chunks.length);
-
-  buildProgress.set(key, { status: "building", current: 0, total: chunks.length });
 
   // Load Transformers.js in Node.js
   const { pipeline, env } = await import("@xenova/transformers");
