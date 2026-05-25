@@ -34,6 +34,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [tooltip, setTooltip] = useState<{ name: string; desc: string; x: number; y: number } | null>(null);
 
   // Reset zoom on expand/collapse
   useEffect(() => { setZoom(1); setDragOffset({ x: 0, y: 0 }); }, [expanded]);
@@ -142,7 +143,13 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
             className="w-full h-full">
             {simData.nodes.map((n) => (
               <g key={n.id}>
-                <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
+                {n.description && (
+                    <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
+                      onMouseEnter={() => setTooltip({ name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onMouseLeave={() => setTooltip(null)}
+                      onClick={() => setTooltip((prev) => prev ? null : { name: n.id, desc: n.description, x: n.x, y: n.y })}
+                    />
+                  )}
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                   stroke="var(--background)" strokeWidth={1.5} />
                 <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
@@ -229,7 +236,13 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                   <g key={n.id}>
                     <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                       stroke="var(--background)" strokeWidth={2} />
-                    <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
+                    {n.description && (
+                    <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
+                      onMouseEnter={() => setTooltip({ name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onMouseLeave={() => setTooltip(null)}
+                      onClick={() => setTooltip((prev) => prev ? null : { name: n.id, desc: n.description, x: n.x, y: n.y })}
+                    />
+                  )}
                     <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
                       className="fill-foreground font-medium" fontSize={fontSize}>
                       {n.id}
@@ -247,6 +260,13 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                 </g>
               </svg>
             </div>
+            {/* Tooltip */}
+            {tooltip && (
+              <div className="fixed z-[60] px-2 py-1 rounded bg-black/90 text-white text-xs max-w-48 pointer-events-none"
+                style={{ left: "50%", bottom: "60px", transform: "translateX(-50%)" }}>
+                <span className="font-medium">{tooltip.name}</span>: {tooltip.desc}
+              </div>
+            )}
           </div>
         </div>
       )}
