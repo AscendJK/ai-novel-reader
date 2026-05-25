@@ -14,6 +14,7 @@ interface IndexEntry {
 }
 
 const indexCache = new Map<string, IndexEntry>();
+const buildingNow = new Set<string>(); // prevent concurrent builds
 
 export async function buildIndex(
   novelId: string,
@@ -21,9 +22,17 @@ export async function buildIndex(
   engine: EngineId = "tfidf",
   onProgress?: (msg: string) => void
 ): Promise<Retriever | BGERetriever> {
-  // Reuse if already built with same engine
+  // Reuse if already built
   const existing = indexCache.get(novelId);
   if (existing && existing.engine === engine) return engine === "bge-small-zh" ? existing.bge! : existing.retriever;
+
+  // Prevent concurrent builds
+  const buildKey = `${novelId}-${engine}`;
+  if (buildingNow.has(buildKey)) {
+    ragLog(`索引正在构建中, 跳过重复请求`);
+    throw new Error("Build already in progress");
+  }
+  buildingNow.add(buildKey);
   if (existing && existing.engine !== engine) {
     existing.bge?.dispose();
     indexCache.delete(novelId);
@@ -74,6 +83,7 @@ export async function buildIndex(
       }
     });
     ragLog(`编码完成: ${chunks.length}片段 · ${(Date.now() - t0) / 1000}s`);
+    buildingNow.delete(buildKey);
 
     // Save to IndexedDB cache
     try {
@@ -92,6 +102,7 @@ export async function buildIndex(
     return bge;
   } else {
     const retriever = new Retriever(chunks);
+    buildingNow.delete(buildKey);
     ragLog(`TF-IDF 索引就绪: ${chunks.length}片段 · ${(Date.now() - t0)}ms`);
     const entry: IndexEntry = { novelId, engine, retriever, chunks, buildTime: Date.now() - t0 };
     indexCache.set(novelId, entry);
