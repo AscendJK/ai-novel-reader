@@ -11,7 +11,7 @@ import { APIError } from "@/api/error-handler";
 import { buildIndex, retrieveRelevant, retrieveRelevantWithDetails } from "@/rag/index";
 import { useRAGStore } from "@/stores/rag-store";
 import { syncClient } from "@/sync/sync-client";
-import { addDebugEntry } from "@/components/common/DebugPanel";
+import { addDebugEntry, ragLog } from "@/components/common/DebugPanel";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -47,6 +47,22 @@ export function useSummarizer() {
     (window as any).__aiRunning = false;
     setCurrentTask("");
   }, []);
+
+  // Eagerly build index when opening a novel
+  useEffect(() => {
+    if (!currentNovel) return;
+    const engine = useRAGStore.getState().engine;
+    buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => {
+      ragLog(msg);
+      setCurrentTask(msg);
+    }).then(() => {
+      ragLog("索引构建完成");
+      setCurrentTask("");
+    }).catch(() => {
+      ragLog("索引构建失败，将在首次检索时重试");
+      setCurrentTask("");
+    });
+  }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create a fresh AbortController, aborting any previous one
   const createSignal = useCallback(() => {

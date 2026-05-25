@@ -119,7 +119,7 @@ export function DebugPanel() {
   return (
     <div
       ref={containerRef}
-      className="fixed z-[9999] bg-black/95 border border-gray-700 rounded-lg shadow-2xl overflow-hidden flex flex-col font-mono text-[11px] select-none"
+      className="fixed z-[9999] bg-black/95 border border-gray-700 rounded-lg shadow-2xl overflow-hidden flex flex-col font-mono text-[11px]"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, pointerEvents: "all" }}
     >
       {/* Title bar — draggable */}
