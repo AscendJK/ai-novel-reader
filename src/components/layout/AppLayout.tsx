@@ -264,6 +264,7 @@ function BuildProgressBox() {
       onRetry={build.retry}
       onFallbackToTFIDF={build.fallbackToTFIDF}
       onDismiss={build.dismiss}
+      queuePosition={(build as any).queuePosition}
     />
   );
 }

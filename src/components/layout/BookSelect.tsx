@@ -83,9 +83,11 @@ export function BookSelect() {
       return;
     }
     useBuildStore.getState().setProgress({
-      message: result.status === "queued" ? `排队中 (第 ${result.queuePosition} 位)...` : "服务器已收到请求...",
-      novelId, engine: "bge-small-zh", status: "building",
-    });
+      message: result.status === "queued" ? `排队中 (第 ${result.queuePosition} 位)...` : "服务器构建中...",
+      novelId, engine: "bge-small-zh",
+      status: result.status === "queued" ? "queued" : "building",
+      queuePosition: result.queuePosition,
+    } as any);
     const bs = useBuildStore.getState();
     const poll = setInterval(async () => {
       try {

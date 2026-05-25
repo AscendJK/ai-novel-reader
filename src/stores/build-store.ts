@@ -3,19 +3,21 @@ import { useRAGStore } from "./rag-store";
 
 interface BuildState {
   open: boolean;
-  status: "building" | "done" | "error";
+  status: "building" | "queued" | "done" | "error";
   message: string;
   current?: number;
   total?: number;
   error?: string;
   novelId?: string;
   engine?: string;
+  queuePosition?: number;
   setProgress: (p: Partial<BuildState>) => void;
   start: () => void;
   finish: () => void;
   fail: (err: string) => void;
   fallbackToTFIDF: () => void;
   retry: () => void;
+  dismiss: () => void;
 }
 
 export const useBuildStore = create<BuildState>((set, get) => ({

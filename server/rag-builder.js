@@ -1,5 +1,9 @@
 import * as db from "./database.js";
+import { Worker } from "node:worker_threads";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BATCH_SIZE = 16;
 const CHUNK_SIZE = 500;
 const OVERLAP = 100;
@@ -127,32 +131,25 @@ async function _doBuild(novelId, engine, key) {
   db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)")
     .run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
-  // Load model
-  buildProgress.set(key, { status: "loading", current: 0, total: chunks.length });
-  const { pipeline, env } = await import("@xenova/transformers");
-  env.allowRemoteModels = false;
-  env.localModelPath = "./public/models/builtin/";
-  const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
-
-  buildProgress.set(key, { status: "encoding", current: 0, total: chunks.length });
-  const vectors = [];
-  const totalBatches = Math.ceil(chunks.length / BATCH_SIZE);
+  // Encode in Worker Thread
   const t0 = Date.now();
-
-  for (let b = 0; b < totalBatches; b++) {
-    const batch = chunks.slice(b * BATCH_SIZE, Math.min((b + 1) * BATCH_SIZE, chunks.length));
-    const result = await pipe(batch, { pooling: "mean", normalize: true });
-    const arr = await result.tolist();
-    for (const row of arr) vectors.push(new Float32Array(row));
-    buildProgress.set(key, {
-      status: "encoding",
-      current: Math.min((b + 1) * BATCH_SIZE, chunks.length),
-      total: chunks.length,
+  const vectors = await new Promise((resolve, reject) => {
+    const workerPath = path.join(__dirname, "rag-worker.mjs");
+    const worker = new Worker(workerPath, {
+      workerData: { chunks, batchSize: BATCH_SIZE },
     });
-    await new Promise((resolve) => setImmediate(resolve));
-  }
+    worker.on("message", (msg) => {
+      if (msg.type === "progress") {
+        buildProgress.set(key, { status: "encoding", current: msg.current, total: msg.total });
+      } else if (msg.type === "done") {
+        resolve(msg.vectors.map((row) => new Float32Array(row)));
+      } else if (msg.type === "error") {
+        reject(new Error(msg.error));
+      }
+    });
+    worker.on("error", reject);
+  });
 
-  // Save
   const dim = vectors[0]?.length || 0;
   const totalFloats = vectors.length * dim;
   const buf = new Float32Array(totalFloats);
