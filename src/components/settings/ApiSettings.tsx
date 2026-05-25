@@ -38,6 +38,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     }
     if (!preset) return;
 
+    const idx = isCompat(type) ? parseInt(type.replace(COMPAT_PREFIX, ""), 10) + 1 : 0;
     setEditingType(type);
     setFormData({
       apiKey: existing?.apiKey || "",
@@ -55,7 +56,8 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     if (preset) {
       name = preset.name;
     } else if (isCompat(editingType)) {
-      name = formData.customName.trim() || "OpenAI 格式接口";
+      const defIdx = parseInt(editingType.replace(COMPAT_PREFIX, ""), 10) + 1;
+      name = formData.customName.trim() || `OpenAI 格式接口 ${defIdx}`;
     } else {
       return;
     }
@@ -81,7 +83,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     const type = `${COMPAT_PREFIX}${idx}` as ProviderType;
     addProvider({
       type,
-      name: "OpenAI 格式接口",
+      name: `OpenAI 格式接口 ${idx + 1}`,
       apiKey: "",
       baseUrl: "",
       model: "",
@@ -123,7 +125,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
           <>
             <div className="space-y-2">
               <Label>厂商名称（可选）</Label>
-              <Input placeholder="OpenAI 格式接口" value={formData.customName}
+              <Input placeholder={`OpenAI 格式接口 ${parseInt((editingType || "").replace(COMPAT_PREFIX, ""), 10) + 1}`} value={formData.customName}
                 onChange={(e) => setFormData((d) => ({ ...d, customName: e.target.value }))} />
             </div>
             <div className="space-y-2">
@@ -149,7 +151,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const renderCard = (type: string, isCompact: boolean) => {
     const configured = providers.find((p) => p.type === type);
     const name = isCompact
-      ? (configured?.name || "OpenAI 格式接口")
+      ? (configured?.name || `OpenAI 格式接口 ${parseInt(type.replace(COMPAT_PREFIX, ""), 10) + 1}`)
       : PROVIDER_PRESETS.find((p) => p.type === type)?.name || type;
 
     return (
