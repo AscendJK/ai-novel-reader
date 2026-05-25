@@ -104,7 +104,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const nodeCount = simData.nodes.length;
   const viewSize = expanded ? Math.max(900, nodeCount * 160) : 280;
   const fontSize = expanded ? 13 : 9;
-  const nodeRadius = expanded ? 20 : 10;
+  const nodeRadius = expanded ? 24 : 14;
 
   // Mouse drag handlers for panning
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -145,7 +145,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                 <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                   stroke="var(--background)" strokeWidth={1.5} />
-                <text x={n.x} y={n.y + nodeRadius + 3} textAnchor="middle"
+                <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="central"
                   className="fill-foreground font-medium" fontSize={fontSize}>
                   {n.id}
                 </text>
