@@ -2,6 +2,7 @@ import type { Chunk } from "./retriever";
 import { ragLog } from "@/components/common/DebugPanel";
 import { db } from "@/db/database";
 import { useRAGStore } from "@/stores/rag-store";
+import { useBuildStore } from "@/stores/build-store";
 
 export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
 export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
@@ -91,6 +92,7 @@ export class BGERetriever {
     if (resp.status === 404) {
       // Index not built yet — trigger build and poll
       ragLog("索引未构建, 触发服务器构建...");
+      useBuildStore.getState().start();
       await fetch(`/api/rag/${novelId}/build`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -106,14 +108,16 @@ export class BGERetriever {
         const status = await statusResp.json();
         ragLog(`服务器构建中: ${status.status} ${status.current ?? ""}/${status.total ?? ""}`);
 
-        if (status.status === "ready") break;
-        if (status.status === "error") throw new Error(status.error || "服务器构建失败");
+        if (status.status === "ready") { useBuildStore.getState().finish(); break; }
+        if (status.status === "error") { useBuildStore.getState().fail(status.error || "构建失败"); throw new Error(status.error || "服务器构建失败"); }
 
-        onProgress?.({
-          phase: "encoding",
+        useBuildStore.getState().setProgress({
+          message: `服务器处理中 (${status.current ?? 0}/${status.total ?? "?"})`,
           current: status.current || 0,
           total: status.total || _allChunks.length,
+          novelId, engine: "bge-small-zh",
         });
+        onProgress?.({ phase: "encoding", current: status.current || 0, total: status.total || _allChunks.length });
       }
 
       // Fetch the built index
