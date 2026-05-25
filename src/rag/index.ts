@@ -1,6 +1,7 @@
 import { Retriever, type Chunk } from "./retriever";
 import { BGERetriever, type BGEProgress } from "./bge-retriever";
 import type { EngineId } from "./engines";
+import { ragLog } from "@/components/common/DebugPanel";
 
 interface IndexEntry {
   novelId: string;
@@ -46,14 +47,17 @@ export async function buildIndex(
   }
 
   const t0 = Date.now();
+  ragLog(`开始构建索引: ${chunks.length}片段 · 引擎: ${engine}`);
   if (engine === "bge-small-zh") {
     onProgress?.("正在加载嵌入模型...");
+    ragLog("加载 BGE Small ZH 模型...");
     const bge = new BGERetriever();
     await bge.init(chunks, (p: BGEProgress) => {
       if (p.phase === "encoding" && p.current != null && p.total != null) {
         onProgress?.(`正在编码文本 (${p.current}/${p.total})...`);
       } else if (p.phase === "done") {
         onProgress?.("编码完成");
+        ragLog(`编码完成: ${chunks.length}片段 · ${(Date.now() - t0) / 1000}s`);
       }
     });
     const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
@@ -61,6 +65,7 @@ export async function buildIndex(
     return bge;
   } else {
     const retriever = new Retriever(chunks);
+    ragLog(`TF-IDF 索引就绪: ${chunks.length}片段 · ${(Date.now() - t0)}ms`);
     const entry: IndexEntry = { novelId, engine, retriever, chunks, buildTime: Date.now() - t0 };
     indexCache.set(novelId, entry);
     return retriever;
