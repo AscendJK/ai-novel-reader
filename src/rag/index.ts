@@ -167,8 +167,8 @@ export async function retrieveRelevantWithDetails(
     const results = await entry.bge.search(query, topK);
     return {
       engine: "bge-small-zh",
-      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
-      results: results.map((r) => ({ content: r.chunk.content, score: r.score })),
+      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${typeof r.chunk === "string" ? r.chunk : r.chunk.content}`).join("\n\n---\n\n"),
+      results: results.map((r) => ({ content: typeof r.chunk === "string" ? r.chunk : r.chunk.content || "", score: r.score })),
     };
   }
 

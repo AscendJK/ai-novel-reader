@@ -175,7 +175,7 @@ export class BGERetriever {
     memCacheKey: string,
     onProgress?: (p: BGEProgress) => void
   ) {
-    this.chunks = data.chunks;
+    this.chunks = data.chunks.map((c: any) => typeof c === "string" ? { id: "", content: c } : c);
     this.dim = data.dim;
 
     // Decode base64 → Float32Array[]
