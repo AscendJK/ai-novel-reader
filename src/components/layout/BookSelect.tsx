@@ -95,11 +95,11 @@ export function BookSelect() {
         const st = await sr.json();
         if (st.status === "ready") { bs.finish(); clearInterval(poll); setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st })); }
         else if (st.status === "error") { bs.fail(st.error || "失败"); clearInterval(poll); setBuildingId(null); }
-        else {
-          bs.setProgress({
-            message: st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`,
-            current: st.current || 0, total: st.total || 0, novelId, engine: "bge-small-zh",
-          });
+        else if (st.status === "queued") {
+          bs.setProgress({ status: "queued", queuePosition: st.queuePosition || "?", message: `排队中 (第 ${st.queuePosition || "?"} 位)...`, novelId, engine: "bge-small-zh" } as any);
+        } else {
+          const msg = st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
+          bs.setProgress({ status: "building", message: msg, current: st.current || 0, total: st.total || 0, novelId, engine: "bge-small-zh" });
         }
       } catch { /* keep polling */ }
     }, 3000);
