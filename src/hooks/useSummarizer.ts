@@ -49,18 +49,24 @@ export function useSummarizer() {
   }, []);
 
   // Eagerly build index when opening a novel
+  const buildingRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentNovel) return;
     const engine = useRAGStore.getState().engine;
+    const key = `${currentNovel.id}-${engine}`;
+    if (buildingRef.current === key) return; // already building
+    buildingRef.current = key;
     buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => {
       ragLog(msg);
       setCurrentTask(msg);
     }).then(() => {
       ragLog("索引构建完成");
       setCurrentTask("");
+      buildingRef.current = null;
     }).catch((e) => {
       ragLog(`索引构建失败: ${e instanceof Error ? e.message : String(e)}`);
       setCurrentTask("");
+      buildingRef.current = null;
     });
   }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
