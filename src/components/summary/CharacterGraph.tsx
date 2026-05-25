@@ -34,7 +34,8 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [tooltip, setTooltip] = useState<{ name: string; desc: string; x: number; y: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ desc: string; x: number; y: number } | null>(null);
+  const [ttScreen, setTTScreen] = useState<{ sx: number; sy: number }>({ sx: 0, sy: 0 });
 
   // Reset zoom on expand/collapse
   useEffect(() => { setZoom(1); setDragOffset({ x: 0, y: 0 }); }, [expanded]);
@@ -145,9 +146,10 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
               <g key={n.id}>
                 {n.description && (
                     <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
-                      onMouseEnter={() => setTooltip({ name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
+                      onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
                       onMouseLeave={() => setTooltip(null)}
-                      onClick={() => setTooltip((prev) => prev ? null : { name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y }) as any}
                     />
                   )}
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
@@ -238,9 +240,10 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                       stroke="var(--background)" strokeWidth={2} />
                     {n.description && (
                     <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
-                      onMouseEnter={() => setTooltip({ name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
+                      onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
                       onMouseLeave={() => setTooltip(null)}
-                      onClick={() => setTooltip((prev) => prev ? null : { name: n.id, desc: n.description, x: n.x, y: n.y })}
+                      onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y }) as any}
                     />
                   )}
                     <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
@@ -262,9 +265,9 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
             </div>
             {/* Tooltip */}
             {tooltip && (
-              <div className="fixed z-[60] px-2 py-1 rounded bg-black/90 text-white text-xs max-w-48 pointer-events-none"
-                style={{ left: "50%", bottom: "60px", transform: "translateX(-50%)" }}>
-                <span className="font-medium">{tooltip.name}</span>: {tooltip.desc}
+              <div className="fixed z-[60] px-2 py-1 rounded bg-black/90 text-white text-xs max-w-56 pointer-events-none"
+                style={{ left: ttScreen.sx + 12, top: ttScreen.sy - 10 }}>
+                {tooltip.desc}
               </div>
             )}
           </div>
