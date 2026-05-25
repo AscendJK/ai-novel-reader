@@ -5,7 +5,7 @@ export function createOpenAICompatProvider(config: ProviderConfig): AIProvider {
   const baseUrl = config.baseUrl.replace(/\/+$/, "") || "https://api.openai.com/v1";
 
   return {
-    type: "openai-compat",
+    type: config.type,
     async chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
       let response: Response;
       try {

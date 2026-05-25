@@ -1,4 +1,8 @@
-export type ProviderType = "openai" | "anthropic" | "deepseek" | "openai-compat";
+export type ProviderType = "openai" | "anthropic" | "deepseek" | `openai-compat-${number}`;
+export const COMPAT_PREFIX = "openai-compat-";
+export function isCompatProvider(type: string): type is `openai-compat-${number}` {
+  return type.startsWith("openai-compat-");
+}
 
 export interface ProviderConfig {
   type: ProviderType;
