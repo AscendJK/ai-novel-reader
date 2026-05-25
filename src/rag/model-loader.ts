@@ -51,8 +51,8 @@ export interface ModelStatus {
  */
 async function getModelStatus(base: string, modelKey: string): Promise<ModelStatus> {
   const missing: ModelStatus = { available: false, onnxFiles: [] };
-  // Try HF cache format first (models--org--model), then flat format (org/model)
-  const candidates = [hfCacheDir(modelKey), modelKey];
+  // Try flat format first (org/model), then HF cache (models--org--model)
+  const candidates = [modelKey, hfCacheDir(modelKey)];
 
   const noCache = { cache: "no-cache" as RequestCache };
   let dir = "";
