@@ -98,6 +98,8 @@ async function _doBuild(novelId, engine, key) {
     const arr = await result.tolist();
     for (const row of arr) vectors.push(new Float32Array(row));
     buildProgress.set(key, { status: "encoding", current: Math.min((b + 1) * BATCH_SIZE, chunks.length), total: chunks.length });
+    // Yield event loop so status requests can be handled
+    await new Promise((resolve) => setImmediate(resolve));
   }
 
   // Serialize vectors as binary blob
