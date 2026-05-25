@@ -27,7 +27,14 @@
   .toast.show{opacity:1}
   .toast.ok{background:#1a3a1a;border:1px solid #2a5a2a;color:#8c8}
   .toast.err{background:#3a1a1a;border:1px solid #5a2a2a;color:#e88}
+  .rag-ready{color:#4a4;font-size:12px}
+  .rag-building{color:#aa4;font-size:12px}
+  .rag-none{color:#555;font-size:12px}
   .badge{padding:2px 8px;border-radius:4px;font-size:11px;background:#1a2a3a;color:#89b}
+  .badge-status{padding:2px 8px;border-radius:4px;font-size:11px}
+  .badge-status.ready{background:#1a2a1a;color:#4a4}
+  .badge-status.building{background:#2a2a1a;color:#aa4}
+  .badge-status.error{background:#2a1a1a;color:#a44}
   @media (max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -67,7 +74,21 @@ async function del(path) {
   return r.json();
 }
 
-// ── Overview ──
+// Helpers
+function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function fmt(ts) { return ts ? new Date(ts).toLocaleDateString("zh-CN") : "-"; }
+function fmtSize(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e4)+"万" : String(n); }
+function fmtTime(ms) { if (!ms) return "-"; const s = ms/1000; return s >= 60 ? Math.round(s/60)+"min" : Math.round(s)+"s"; }
+function ragBadge(n) {
+  const status = n.ragStatus || "none";
+  if (status === "ready") return `<span class="badge-status ready">就绪 ${fmtSize((n.ragChunks||0)*512*4)} ${fmtTime(n.ragBuildTime)}</span>`;
+  if (status === "building" || status === "loading" || status === "encoding") return '<span class="badge-status building">构建中</span>';
+  if (status === "queued") return '<span class="badge-status building">排队中</span>';
+  if (status === "error") return '<span class="badge-status error">失败</span>';
+  return '<span class="badge-status" style="color:#555">未构建</span>';
+}
+
+// Overview
 async function loadOverview() {
   const s = await get("/stats");
   document.getElementById("content").innerHTML = `
@@ -77,22 +98,18 @@ async function loadOverview() {
       <div class="stat"><div class="v">${s.summaryCount}</div><div class="l">AI 总结数</div></div>
       <div class="stat"><div class="v">${s.dbSizeMB} MB</div><div class="l">数据库大小</div></div>
     </div>
-    <p style="color:#555;font-size:12px">数据库路径: server/data/novels.db</p>
+    <p style="color:#555;font-size:12px">数据库: server/data/novels.db</p>
   `;
 }
 
-// ── Users ──
+// Users
 async function loadUsers() {
   const users = await get("/users");
   document.getElementById("content").innerHTML = `
     <table><thead><tr><th>用户名</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead>
     <tbody>${users.map(u => `
       <tr>
-        <td>${h(u.username)}</td>
-        <td>${fmt(u.created_at)}</td>
-        <td>${u.novel_count}</td>
-        <td>${u.summary_count}</td>
-        <td>${u.note_count}</td>
+        <td>${h(u.username)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>
         <td><button class="danger" onclick="delUser('${h(u.username)}')">删除</button></td>
       </tr>`).join("")}</tbody></table>
   `;
@@ -104,20 +121,17 @@ async function delUser(name) {
   catch(e) { toast(e.message, false); }
 }
 
-// ── Novels ──
+// Novels
 async function loadNovels() {
   const novels = await get("/novels");
   document.getElementById("content").innerHTML = `
-    <table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入人数</th><th>上传时间</th><th>操作</th></tr></thead>
+    <table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>BGE 构建</th><th>上传</th><th>操作</th></tr></thead>
     <tbody>${novels.map(n => `
       <tr>
-        <td>${h(n.title)}</td>
-        <td>${h(n.author||"-")}</td>
+        <td>${h(n.title)}</td><td>${h(n.author||"-")}</td>
         <td><span class="badge">${(n.fileFormat||"?").toUpperCase()}</span></td>
-        <td>${n.chapterCount}</td>
-        <td>${fmtSize(n.totalChars)}</td>
-        <td>${n.joinCount||0}</td>
-        <td>${fmt(n.createdAt)}</td>
+        <td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td>
+        <td>${ragBadge(n)}</td><td>${fmt(n.createdAt)}</td>
         <td><button class="danger" onclick="delNovel('${n.id}')">删除</button></td>
       </tr>`).join("")}</tbody></table>
   `;
@@ -129,12 +143,7 @@ async function delNovel(id) {
   catch(e) { toast(e.message, false); }
 }
 
-// ── Helpers ──
-function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/\\/g,"&#92;"); }
-function fmt(ts) { return ts ? new Date(ts).toLocaleDateString("zh-CN") : "-"; }
-function fmtSize(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e4)+"万" : String(n); }
-
-// ── Tab switching ──
+// Tab switching
 document.querySelectorAll(".tab").forEach(t => {
   t.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
@@ -146,7 +155,6 @@ document.querySelectorAll(".tab").forEach(t => {
   });
 });
 
-// ── Init ──
 loadOverview();
 </script>
 </body>

@@ -70,8 +70,11 @@ export function mountAdminRoutes(app) {
     if (!auth(req, res)) return;
     const rows = db.db.prepare(`
       SELECT n.*,
-        (SELECT COUNT(*) FROM user_novels un WHERE un.novel_id = n.id) as join_count
-      FROM novels n ORDER BY n.updated_at DESC
+        (SELECT COUNT(*) FROM user_novels un WHERE un.novel_id = n.id) as join_count,
+        ri.status as rag_status, ri.chunk_count as rag_chunks, ri.build_time as rag_build_time
+      FROM novels n
+      LEFT JOIN rag_indices ri ON n.id = ri.novel_id AND ri.engine = 'bge-small-zh'
+      ORDER BY n.updated_at DESC
     `).all();
     res.json(rows.map(n => ({
       id: n.id, title: n.title, author: n.author,
@@ -79,6 +82,9 @@ export function mountAdminRoutes(app) {
       totalChars: n.total_chars, chapterCount: n.chapter_count,
       createdAt: n.created_at, updatedAt: n.updated_at,
       joinCount: n.join_count,
+      ragStatus: n.rag_status || "none",
+      ragChunks: n.rag_chunks || 0,
+      ragBuildTime: n.rag_build_time || 0,
     })));
   });
 
