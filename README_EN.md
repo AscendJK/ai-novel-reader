@@ -1,8 +1,6 @@
 # AI Novel Reader
 
-A browser-based intelligent novel reading tool powered by large language models. Upload TXT/EPUB files, configure any LLM API key, and get chapter summaries, character relationship graphs, plot timelines, AI-powered Q&A, and more.
-
-Supports multi-device sync — all data stored in server-side SQLite, seamlessly switch between devices with one username.
+A browser-based AI-powered novel reading tool. Upload TXT/EPUB files, configure any LLM API, and get chapter summaries, character relationship graphs, plot timelines, AI Q&A, and more. Built-in user system with cross-device sync.
 
 ## Quick Start
 
@@ -16,17 +14,12 @@ npm install
 
 ### Launch
 
-```bash
-./start.sh    # Linux/macOS, choose 1=Dev or 2=Prod
-start.bat     # Windows double-click
-```
+| OS | Command |
+|----|---------|
+| Linux / macOS | `./start.sh` → choose 1 (Dev) or 2 (Prod) |
+| Windows | Double-click `start.bat` → choose 1 or 2 |
 
 Open `http://localhost:5173`.
-
-| Mode | Description |
-|------|-------------|
-| Dev (1) | Hot reload, but mobile may refresh on wake |
-| Prod (2) | Build then serve, stable for mobile |
 
 Stop: `./stop.sh` or `stop.bat`
 
@@ -34,91 +27,70 @@ Stop: `./stop.sh` or `stop.bat`
 
 ### 1. Login
 
-First visit shows a login popup:
-- **Create New** — pick a username, start a fresh reading space
-- **Join Existing** — enter an existing username to restore all data
+- **Create New**: Pick a username for a fresh reading space
+- **Join Existing**: Enter an existing username to restore all data
 
-> One username, one active session. New login kicks old device.
+> One active session per username. Logout only clears browser data — server data persists.
 
 ### 2. Configure AI
 
-Settings (top-right) → choose provider (OpenAI / Anthropic / DeepSeek / Custom) → enter API key and model → save.
+Settings → choose provider (OpenAI, Anthropic, DeepSeek, or up to 5 custom OpenAI-compatible APIs) → enter API key and model name.
 
-API key is stored only in your browser.
+API keys are stored only in your browser.
 
 ### 3. Upload Novels
 
-Drag TXT/EPUB files onto the bookshelf, or click "Import from Folder" for batch.
-
-Uploaded novels are added to the server library and visible to all users.
+Drag TXT/EPUB files onto the bookshelf. Supports GBK/Big5/UTF-8 encoding detection and smart chapter recognition. Uploaded novels appear in the shared library.
 
 ### 4. Read & Analyze
 
-Click any novel on your bookshelf:
-- **Left sidebar** for chapter navigation, **bottom bar** for prev/next, **← → keys** for quick switching
-- **AI Analysis button** → chapter summary / book analysis / Q&A / notes
-- **Aa button** adjusts font size and weight, supports dark mode
+Click a novel to enter reading view. Left sidebar navigates chapters; bottom bar provides prev/next; `←` `→` keys switch chapters. Aa button adjusts font size and weight. Dark mode supported.
 
-### 5. Multi-Device Sync
+The AI analysis panel (top-right) provides:
 
-After logging in with the same username, these sync automatically:
+| Feature | Description |
+|---------|-------------|
+| Chapter Summary | Core plot, key characters, foreshadowing |
+| Book Overview | Main storyline, themes, structure, reading advice |
+| Characters | Auto-identify roles + interactive force-directed graph with zoom/pan |
+| Timeline | 15-25 key events with causality annotations |
+| Q&A | Multi-turn conversation with semantic text retrieval |
+| Range Summary | Custom chapter range analysis |
+| Notes | Per-chapter and global notes, one-click bookmark AI responses |
 
-| Synced | Not Synced |
-|--------|------------|
-| Reading progress, AI summaries, notes, API config | Theme, font (per-device) |
+### 5. RAG Engine
 
-Sync mechanism: client and server push/pull every 30 seconds. Chapter changes and summary generation trigger an immediate push.
+Two retrieval engines included: **TF-IDF** (zero-config, instant) and **BGE Small ZH** (semantic vector search, higher accuracy).
 
-**Notes:**
-- Only one device per username at a time — new login kicks the old one
-- Logout only clears **browser-local** data, never server data
-- Logging back in restores all data from the server
+- Build BGE index per novel via the "Build" button on the bookshelf card
+- Built index downloads to browser cache (~1-3 MB per novel)
+- Falls back to TF-IDF automatically when BGE is unavailable
 
-### 6. Library (LAN Sharing)
+### 6. Multi-Device Sync
 
-On the same WiFi, other devices can access `http://<your-ip>:5173`.
+Same username syncs: reading progress, AI summaries, notes, API config. Theme and font settings are per-device.
 
-- **Bookshelf** — your personal books with progress, summaries, notes
-- **Library** — all books uploaded to this server, click "Add to Shelf" to read
-- **Remove from shelf** — only deletes your data (progress, summaries, notes); the book stays in the library
+### 7. Library
 
-### 7. Admin Panel
+The Library browses all novels on the server. Click "Add to Shelf" to start reading. Removing from shelf only clears your data — the novel stays in the library.
+
+### 8. Admin Panel
 
 ```bash
-./admin.sh    # Linux/macOS
-admin.bat     # Windows double-click
+./admin.sh       # Linux / macOS
+admin.bat        # Windows double-click
 ```
 
-Opens the admin page (auto-generates admin token). View/delete users and novels.
+Auto-starts server and opens admin page for viewing/deleting users and novels.
 
-## Architecture
+## Notes
 
-```
-React 19 + TypeScript + Vite (frontend)
-Express + SQLite (backend)
-├─ Multi-Agent Engine: summarizer / character / timeline
-├─ Local RAG: TF-IDF + BGE Small ZH semantic retrieval
-├─ d3-force character graph
-└─ IndexedDB (browser cache) + SQLite (server persistence)
-```
-
-- **React 19 + Vite** — frontend
-- **Tailwind CSS + shadcn/ui** — UI components
-- **Express + better-sqlite3** — sync backend + data storage
-- **Zustand + Dexie.js** — state management + browser cache
-- **d3-force** — character relationship graph
-- **JSZip** — EPUB parsing
-- **BGE Small ZH / TF-IDF** — local semantic retrieval
-
-## Browser Support
-
-| Browser | Status |
-|---------|--------|
-| Chrome / Edge 86+ | Full support |
-| Firefox 120+ | Manual file selection for folders |
-| Safari 15+ | Basic features |
-| Mobile | Responsive design |
+- BGE index for very long novels (5000+ chapters) may take 5-30 min; normal reading is unaffected during build
+- Server model loading peaks at ~2GB RAM
+- Simultaneous builds are queued (max 10 tasks)
+- For LAN/local use only — do not expose to the internet
+- API keys stored in browser IndexedDB, never uploaded
 
 ## License
 
-MIT License · Built-in BGE Small ZH v1.5 model from BAAI, also MIT licensed
+MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
