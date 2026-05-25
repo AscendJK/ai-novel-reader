@@ -1,23 +1,28 @@
 import type { Chunk } from "./retriever";
 import { ragLog } from "@/components/common/DebugPanel";
 import { db } from "@/db/database";
+import { useRAGStore } from "@/stores/rag-store";
 
 export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
 export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
 
-const MAX_CACHE_MB = 100;
 const LRU_CACHE = new Map<string, { vectors: Float32Array[]; chunks: Chunk[]; dim: number; size: number }>();
 let cacheTotalSize = 0;
 
+function getMaxCacheMB() {
+  try { return useRAGStore.getState().cacheSizeMB || 100; } catch { return 100; }
+}
+
 function evictLRU() {
-  if (cacheTotalSize <= MAX_CACHE_MB * 1024 * 1024) return;
-  // Delete oldest (first inserted)
-  const firstKey = LRU_CACHE.keys().next().value;
-  if (!firstKey) return;
-  const entry = LRU_CACHE.get(firstKey)!;
-  cacheTotalSize -= entry.size;
-  LRU_CACHE.delete(firstKey);
-  ragLog(`LRU 淘汰: ${firstKey}, 释放 ${(entry.size / 1024 / 1024).toFixed(1)}MB`);
+  const max = getMaxCacheMB() * 1024 * 1024;
+  while (cacheTotalSize > max) {
+    const firstKey = LRU_CACHE.keys().next().value;
+    if (!firstKey) break;
+    const entry = LRU_CACHE.get(firstKey)!;
+    cacheTotalSize -= entry.size;
+    LRU_CACHE.delete(firstKey);
+    ragLog(`LRU 淘汰: ${firstKey}, 释放 ${(entry.size / 1024 / 1024).toFixed(1)}MB`);
+  }
 }
 
 export class BGERetriever {

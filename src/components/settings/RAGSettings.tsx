@@ -400,6 +400,24 @@ export function RAGSettings() {
 
         <div className="flex items-center justify-between">
           <div>
+            <p className="font-medium text-sm">索引缓存上限</p>
+            <p className="text-xs text-muted-foreground">{useRAGStore.getState().cacheSizeMB}MB，超过自动淘汰旧索引</p>
+          </div>
+          <select
+            className="text-xs border rounded px-2 py-1 bg-background"
+            value={useRAGStore.getState().cacheSizeMB}
+            onChange={(e) => useRAGStore.getState().setCacheSizeMB(parseInt(e.target.value))}
+          >
+            {[100, 200, 300, 400, 500].map((mb) => (
+              <option key={mb} value={mb}>{mb} MB</option>
+            ))}
+          </select>
+        </div>
+
+        <Separator className="my-4" />
+
+        <div className="flex items-center justify-between">
+          <div>
             <p className="font-medium text-sm">调试模式</p>
             <p className="text-xs text-muted-foreground">开启后在右下角显示 RAG 检索详情面板</p>
           </div>

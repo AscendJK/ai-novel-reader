@@ -28,20 +28,30 @@ function saveCustomModels(models: { key: string; name: string; size: string }[])
   } catch { /* ignore */ }
 }
 
+function loadCacheSize(): number {
+  try {
+    const v = parseInt(localStorage.getItem("novel-reader-rag-cache-mb") || "", 10);
+    return (v >= 100 && v <= 500) ? v : 100;
+  } catch { return 100; }
+}
+
 interface RAGState {
   engine: EngineId;
   customModelKey: string | null;
   savedCustomModels: { key: string; name: string; size: string }[];
+  cacheSizeMB: number;
   setEngine: (e: EngineId) => void;
   setCustomModel: (key: string | null, name?: string, size?: string) => void;
   setSavedCustomModels: (models: { key: string; name: string; size: string }[]) => void;
   clearCustomModel: () => void;
+  setCacheSizeMB: (size: number) => void;
 }
 
 export const useRAGStore = create<RAGState>((set, get) => ({
   engine: loadPref(),
   customModelKey: loadCustomKey(),
   savedCustomModels: loadCustomModels(),
+  cacheSizeMB: loadCacheSize(),
 
   setEngine: (engine) => {
     try { localStorage.setItem("novel-reader-rag-engine", engine); } catch { /* ignore */ }
@@ -72,5 +82,10 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   clearCustomModel: () => {
     try { localStorage.removeItem("novel-reader-rag-custom-key"); } catch { /* ignore */ }
     set({ customModelKey: null });
+  },
+
+  setCacheSizeMB: (size) => {
+    try { localStorage.setItem("novel-reader-rag-cache-mb", String(size)); } catch { /* ignore */ }
+    set({ cacheSizeMB: size });
   },
 }));
