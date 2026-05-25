@@ -158,6 +158,6 @@ async function _doBuild(novelId, engine, key) {
   db.db.prepare("UPDATE rag_indices SET status = 'ready', vectors_blob = ?, dim = ?, chunk_count = ?, build_time = ? WHERE novel_id = ? AND engine = ?")
     .run(Buffer.from(buf.buffer), dim, chunks.length, Date.now() - t0, novelId, engine);
 
-  buildProgress.set(key, { status: "ready", current: chunks.length, total: chunks.length });
+  buildProgress.set(key, { status: "ready", current: chunks.length, total: chunks.length, chunkCount: chunks.length });
   console.log(`[rag] done: ${key} ${chunks.length} chunks ${Date.now() - t0}ms`);
 }
