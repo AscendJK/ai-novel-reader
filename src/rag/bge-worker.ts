@@ -1,24 +1,21 @@
-// BGE embedding Web Worker — runs model inference off the main thread
-import { pipeline } from "@xenova/transformers";
+// BGE embedding Web Worker
+import { env, pipeline } from "@xenova/transformers";
 
 let pipe: any = null;
-let loading = false;
 
 self.onmessage = async (e: MessageEvent) => {
   const { type, id, data } = e.data;
 
   if (type === "init") {
     if (pipe) { self.postMessage({ type: "ready", id }); return; }
-    if (loading) return; // already loading
-    loading = true;
     try {
-      pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
-        local_files_only: true,
-      });
-      loading = false;
+      // Configure env INSIDE the worker
+      env.localModelPath = "/models/builtin/";
+      env.allowRemoteModels = false;
+      env.useBrowserCache = false;
+      pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
       self.postMessage({ type: "ready", id });
     } catch (err) {
-      loading = false;
       self.postMessage({ type: "error", id, error: String(err) });
     }
     return;
