@@ -34,7 +34,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     const existing = providers.find((p) => p.type === type);
     let preset = PROVIDER_PRESETS.find((p) => p.type === type);
     if (!preset && isCompat(type)) {
-      preset = { type: type as any, name: `兼容接口 ${type.replace(COMPAT_PREFIX, "")}`, baseUrl: "", defaultModel: "" };
+      preset = { type: type as any, name: `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}`, baseUrl: "", defaultModel: "" };
     }
     if (!preset) return;
 
@@ -54,7 +54,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     if (preset) {
       name = preset.name;
     } else if (isCompat(editingType)) {
-      name = `兼容接口 ${editingType.replace(COMPAT_PREFIX, "")}`;
+      name = `OpenAI 格式接口 ${editingType.replace(COMPAT_PREFIX, "")}`;
     } else {
       return;
     }
@@ -80,7 +80,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     const type = `${COMPAT_PREFIX}${idx}` as ProviderType;
     addProvider({
       type,
-      name: `兼容接口 ${idx}`,
+      name: `OpenAI 格式接口 ${idx}`,
       apiKey: "",
       baseUrl: "",
       model: "",
@@ -95,7 +95,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     <Card key={type} className="border-primary">
       <CardHeader>
         <CardTitle className="text-base">
-          {isCompatProvider ? `兼容接口 ${type.replace(COMPAT_PREFIX, "")}` : PROVIDER_PRESETS.find((p) => p.type === type)?.name}
+          {isCompatProvider ? `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}` : PROVIDER_PRESETS.find((p) => p.type === type)?.name}
         </CardTitle>
         <CardDescription>
           {isCompatProvider ? "" : `API 地址: ${formData.baseUrl || PROVIDER_PRESETS.find((p) => p.type === type)?.baseUrl}`}
@@ -143,7 +143,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const renderCard = (type: string, isCompact: boolean) => {
     const configured = providers.find((p) => p.type === type);
     const name = isCompact
-      ? `兼容接口 ${type.replace(COMPAT_PREFIX, "")}`
+      ? `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}`
       : PROVIDER_PRESETS.find((p) => p.type === type)?.name || type;
 
     return (
@@ -164,10 +164,12 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
             {configured?.apiKey ? (
               <>
                 {configured.model && <Badge variant="outline" className="text-xs">{configured.model}</Badge>}
-                <Button variant="ghost" size="icon" className="h-8 w-8"
-                  onClick={(e) => { e.stopPropagation(); removeProvider(type as ProviderType); }}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {isCompact && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8"
+                    onClick={(e) => { e.stopPropagation(); removeProvider(type as ProviderType); }}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </>
             ) : (
               <Button variant="outline" size="sm">配置</Button>
@@ -218,7 +220,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       {/* Add compat button */}
       {compatProviders.length < 5 && (
         <Button variant="outline" size="sm" onClick={handleAddCompat} className="w-full">
-          <Plus className="h-4 w-4 mr-2" /> 添加兼容接口 ({compatProviders.length}/5)
+          <Plus className="h-4 w-4 mr-2" /> 添加 OpenAI 格式接口 ({compatProviders.length}/5)
         </Button>
       )}
 

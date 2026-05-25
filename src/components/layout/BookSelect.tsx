@@ -316,7 +316,7 @@ export function BookSelect() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                      className="absolute top-2 right-2 h-7 w-7 hover:bg-destructive/10 hover:text-destructive"
                       onClick={(e) => handleDelete(e, novel.id, novel.title)}
                       title="删除此书"
                     >

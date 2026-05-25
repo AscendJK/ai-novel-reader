@@ -102,11 +102,9 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
 
         <div className="flex items-center gap-1 md:gap-2">
           {!summaryOpen && (
-            <Button variant={hasSummary ? "secondary" : "ghost"} size="sm" onClick={onToggleSummary}
-              className="text-xs h-7">
-              <Sparkles className={`h-3.5 w-3.5 mr-0 md:mr-1.5 ${hasSummary ? "text-primary" : ""}`} />
-              <span className="hidden md:inline">{hasSummary ? "已分析" : "AI 分析"}</span>
-            </Button>
+            <div className="flex items-center gap-1" title={hasSummary ? "已有章节总结" : "暂无章节总结"}>
+              <Sparkles className={`h-3.5 w-3.5 ${hasSummary ? "text-primary" : "text-muted-foreground/40"}`} />
+            </div>
           )}
 
           {/* Font panel toggle */}
