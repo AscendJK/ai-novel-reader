@@ -115,6 +115,7 @@ export function useSummarizer() {
         const result = await retrieveRelevantWithDetails(currentNovel.id, query, 15);
         setRagEngineUsed(result.engine);
         addDebugEntry({ query, duration: (performance.now() - t0) / 1000, results: result.results, engine: result.engine });
+        ragLog(`检索: "${query}" → ${result.results.length}段 ${result.text.length}字 (${result.engine})`);
         return result.text;
       } catch {
         return "";
