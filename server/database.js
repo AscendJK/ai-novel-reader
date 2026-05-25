@@ -280,12 +280,17 @@ export function deleteNotesByChapter(username, novelId, chapterId) {
 // ── Settings ──
 
 export function getSetting(username, key) {
-  const r = db.prepare("SELECT value FROM user_settings WHERE username = ? AND key = ?").get(username, key);
-  return r ? JSON.parse(r.value) : null;
+  try {
+    const r = db.prepare("SELECT value FROM user_settings WHERE username = ? AND key = ?").get(username, key);
+    return r ? JSON.parse(r.value) : null;
+  } catch { return null; }
 }
 
 export function setSetting(username, key, value) {
-  db.prepare("INSERT OR REPLACE INTO user_settings (username, key, value) VALUES (?, ?, ?)").run(username, key, JSON.stringify(value));
+  try {
+    const v = JSON.stringify(value);
+    db.prepare("INSERT OR REPLACE INTO user_settings (username, key, value) VALUES (?, ?, ?)").run(username, key, v);
+  } catch { /* ignore corrupt data */ }
 }
 
 // ── Sync: gather all user data for push (return camelCase for client) ──
@@ -317,26 +322,22 @@ export function gatherSyncData(username) {
 // ── Sync: apply merged data from server ──
 
 export function applySyncData(username, summaries, notes, settings, progress) {
-  if (summaries?.length) {
-    for (const s of summaries) {
-      s.username = username;
-      upsertSummary(s);
+  db.transaction(() => {
+    if (summaries?.length) {
+      for (const s of summaries) { s.username = username; upsertSummary(s); }
     }
-  }
-  if (notes?.length) {
-    for (const n of notes) {
-      n.username = username;
-      upsertNote(n);
+    if (notes?.length) {
+      for (const n of notes) { n.username = username; upsertNote(n); }
     }
-  }
-  if (settings) {
-    for (const [key, value] of Object.entries(settings)) {
-      setSetting(username, key, value);
+    if (settings) {
+      for (const [key, value] of Object.entries(settings)) {
+        setSetting(username, key, value);
+      }
     }
-  }
-  if (progress?.readingPositions) {
-    for (const [novelId, pos] of Object.entries(progress.readingPositions)) {
-      saveProgress(username, novelId, pos.chapterId, pos.chapterIndex);
+    if (progress?.readingPositions) {
+      for (const [novelId, pos] of Object.entries(progress.readingPositions)) {
+        saveProgress(username, novelId, pos.chapterId, pos.chapterIndex);
+      }
     }
-  }
+  })();
 }

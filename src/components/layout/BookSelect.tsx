@@ -51,7 +51,8 @@ export function BookSelect() {
     setJoiningId(novel.id);
     const username = localStorage.getItem("sync-username");
     try {
-      const chResp = await fetch(`/api/novels/${novel.id}/chapters`);
+      const uname = localStorage.getItem("sync-username") || "";
+      const chResp = await fetch(`/api/novels/${novel.id}/chapters?username=${encodeURIComponent(uname)}`);
       const chapters = await chResp.json();
       await db.transaction("rw", db.novels, db.chapters, async () => {
         await db.novels.put({

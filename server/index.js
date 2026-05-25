@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -141,7 +142,7 @@ app.post("/api/sync/register", (req, res) => {
 
   if (!exists) db.createUser(username);
 
-  const clientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const clientId = crypto.randomBytes(12).toString("hex");
   const activeCount = register(username, clientId);
   const data = db.gatherSyncData(username);
 
