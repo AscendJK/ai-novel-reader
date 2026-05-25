@@ -37,9 +37,19 @@ export function BookSelect() {
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
 
-  // Poll build statuses for bookshelf novels
+  // Poll build statuses for bookshelf novels + check IndexedDB cache
   useEffect(() => {
     const ids = savedNovels.map((n) => n.id);
+    // Check which indices are cached in IndexedDB
+    ids.forEach(async (nid) => {
+      try {
+        const c = await db.ragCache.get(nid + "-bge-small-zh");
+        if (c?.vectors?.length) {
+          if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
+          (window as any).__ragCacheLoaded.add(nid + "-bge-small-zh");
+        }
+      } catch { /* ignore */ }
+    });
     if (!ids.length) return;
     let active = true;
     const poll = async () => {
@@ -431,14 +441,16 @@ export function BookSelect() {
                       {/* Build status indicator */}
                       {(() => {
                         const st = buildStatuses[novel.id] || { status: "none" };
-                        // Estimate size: chunkCount * dim * 4 bytes
-                        const estSize = st.chunkCount ? `${((st.chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
+                        const chunkCount = st.chunkCount || st.chunk_count || 0;
+                        const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
+                        // Check if in memory cache (loaded this session) or IndexedDB (from previous session)
+                        const memKey = novel.id + "-bge-small-zh";
+                        const loadedInMem = (window as any).__ragCacheLoaded?.has(memKey);
                         if (st.status === "ready") {
-                          const cached = (window as any).__ragCacheLoaded?.has(novel.id + "-bge-small-zh");
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                               <Badge variant="outline" className={`text-[10px] ${cached ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
-                                {cached ? "BGE 已加载" : `BGE 就绪 ${estSize}`}
+                                {loadedInMem ? "BGE 已加载" : `BGE 就绪 ${estSize || "?"}`}
                               </Badge>
                             </div>
                           );

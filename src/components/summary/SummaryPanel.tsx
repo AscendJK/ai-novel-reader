@@ -202,12 +202,18 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
         </div>
       )}
 
-      {/* Engine indicator */}
-      {ragEngineUsed && (
-        <div className="mx-2.5 mt-2 text-[10px] text-muted-foreground text-center shrink-0">
-          检索引擎: <span className={ragEngineUsed === "bge-small-zh" ? "text-green-400" : "text-yellow-400"}>{ragEngineUsed === "bge-small-zh" ? "BGE Small ZH" : "TF-IDF"}</span>
-        </div>
-      )}
+      {/* Engine indicator — always show default engine if not yet used */}
+      {(() => {
+        const engine = ragEngineUsed || "tfidf"; // default until first retrieval
+        return (
+          <div className="mx-2.5 mt-2 text-[10px] text-muted-foreground text-center shrink-0">
+            检索引擎:{" "}
+            <span className={engine === "bge-small-zh" ? "text-green-400" : "text-yellow-400"}>
+              {engine === "bge-small-zh" ? "BGE Small ZH" : "TF-IDF"}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Error banner */}
       {(error || qaError) && (
