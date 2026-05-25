@@ -11,11 +11,12 @@ interface Props {
   current?: number;
   total?: number;
   error?: string;
+  novelId?: string;
   onRetry: () => void;
   onFallbackToTFIDF: () => void;
 }
 
-export function BuildProgress({ open, engine, status, message, current, total, error, onRetry, onFallbackToTFIDF }: Props) {
+export function BuildProgress({ open, engine, status, message, current, total, error, novelId, onRetry, onFallbackToTFIDF }: Props) {
   if (!open) return null;
 
   const pct = total ? Math.round(((current || 0) / total) * 100) : 0;

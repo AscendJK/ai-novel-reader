@@ -4,6 +4,7 @@ import { parseEpub } from "@/parsers/epub";
 import { createNovel } from "@/parsers/utils";
 import { saveNovel } from "@/db/repositories";
 import { useNovelStore } from "@/stores/novel-store";
+import { useBuildStore } from "@/stores/build-store";
 import type { Novel } from "@/parsers/types";
 
 export function useFileParser() {
@@ -67,6 +68,47 @@ export function useFileParser() {
           fetch(`/api/novels/${data.novelId}/join`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username }),
+          }).catch(() => {});
+        }
+      }).then((r) => r?.ok ? r.json() : null).then((data: any) => {
+        // Auto-join for uploader
+        const username = localStorage.getItem("sync-username");
+        if (username && data?.novelId) {
+          fetch(`/api/novels/${data.novelId}/join`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username }),
+          }).catch(() => {});
+        }
+        // Trigger server-side RAG build and show progress
+        if (data?.novelId) {
+          const engine = useBuildStore.getState().engine || "bge-small-zh";
+          fetch(`/api/rag/${data.novelId}/build`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ engine }),
+          }).then(() => {
+            useBuildStore.getState().start();
+            useBuildStore.getState().setProgress({ message: "服务器正在处理...", novelId: data!.novelId });
+            // Poll until done
+            const poll = setInterval(async () => {
+              try {
+                const sr = await fetch(`/api/rag/${data!.novelId}/status?engine=${engine}`);
+                const st = await sr.json();
+                if (st.status === "ready") {
+                  useBuildStore.getState().finish();
+                  clearInterval(poll);
+                } else if (st.status === "error") {
+                  useBuildStore.getState().fail(st.error || "构建失败");
+                  clearInterval(poll);
+                } else if (st.status === "building") {
+                  useBuildStore.getState().setProgress({
+                    message: `服务器处理中 (${st.current ?? 0}/${st.total ?? "?"})`,
+                    current: st.current, total: st.total,
+                    novelId: data!.novelId,
+                  });
+                }
+              } catch { /* server error, keep polling */ }
+            }, 3000);
           }).catch(() => {});
         }
       }).catch(() => { /* server may be offline */ });

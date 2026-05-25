@@ -8,6 +8,8 @@ interface BuildState {
   current?: number;
   total?: number;
   error?: string;
+  novelId?: string;
+  engine?: string;
   setProgress: (p: Partial<BuildState>) => void;
   start: () => void;
   finish: () => void;

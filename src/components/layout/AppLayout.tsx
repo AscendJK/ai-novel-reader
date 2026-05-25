@@ -254,12 +254,13 @@ function BuildProgressBox() {
   return (
     <BuildProgress
       open={build.open}
-      engine={rag.engine}
+      engine={build.engine || rag.engine}
       status={build.status}
       message={build.message}
       current={build.current}
       total={build.total}
       error={build.error}
+      novelId={build.novelId}
       onRetry={build.retry}
       onFallbackToTFIDF={build.fallbackToTFIDF}
     />
