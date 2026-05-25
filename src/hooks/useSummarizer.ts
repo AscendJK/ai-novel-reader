@@ -71,13 +71,19 @@ export function useSummarizer() {
       await new Promise((r) => setTimeout(r, 0));
       const prefEngine = useRAGStore.getState().engine;
       try {
-        // Check if BGE index is ready on server
+        // Check if BGE index is ready on server; download if needed
         let engine = prefEngine;
         if (engine === "bge-small-zh") {
           try {
             const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`);
             const st = await sr.json();
-            if (st.status !== "ready") {
+            if (st.status === "ready") {
+              // Index exists on server, trigger download via bge-retriever init
+              ragLog("BGE 就绪, 加载索引...");
+              try {
+                await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+              } catch { engine = "tfidf"; ragLog("BGE 加载失败, 降级 TF-IDF"); }
+            } else {
               ragLog("BGE 未就绪, 降级为 TF-IDF");
               engine = "tfidf";
             }
