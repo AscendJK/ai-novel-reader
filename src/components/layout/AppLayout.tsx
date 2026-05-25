@@ -75,6 +75,7 @@ export function AppLayout() {
             const s = await loadSummaries(cn.id);
             if (s.length > 0) setSummaries(s);
           }
+          syncJoinedNovels();
         },
         isAiRunning: () => (window as any).__aiRunning === true,
         onKicked: handleKicked,
@@ -142,6 +143,7 @@ export function AppLayout() {
             const s = await loadSummaries(cn2.id);
             if (s.length > 0) setSummaries(s);
           }
+          syncJoinedNovels();
         },
         isAiRunning: () => (window as any).__aiRunning === true,
         onKicked: handleKicked,
@@ -157,8 +159,47 @@ export function AppLayout() {
       console.log("[sync] initial syncOnce:", ok ? "ok" : "failed");
     } catch (e) { console.error("[sync] syncOnce error:", e); }
 
+    // Download joined novels missing from local
+    syncJoinedNovels();
+
     setSyncReady(true);
     setLoginSyncing(false);
+  };
+
+  // Download joined novels that are missing from local IndexedDB
+  const syncJoinedNovels = async () => {
+    try {
+      const username = localStorage.getItem("sync-username");
+      if (!username) return;
+      const resp = await fetch(`/api/novels?username=${encodeURIComponent(username)}`);
+      const list = await resp.json();
+      for (const sn of list) {
+        if (!sn.joined) continue;
+        const existing = await import("@/db/database").then(m => m.db.novels.get(sn.id));
+        if (existing) continue;
+        // Download chapters and save
+        const chResp = await fetch(`/api/novels/${sn.id}/chapters?username=${encodeURIComponent(username)}`);
+        if (!chResp.ok) continue;
+        const chapters = await chResp.json();
+        const { db } = await import("@/db/database");
+        await db.transaction("rw", db.novels, db.chapters, async () => {
+          await db.novels.put({
+            id: sn.id, title: sn.title, author: sn.author,
+            fileName: sn.fileName, fileFormat: sn.fileFormat,
+            totalChars: sn.totalChars, chapterCount: chapters.length,
+            createdAt: sn.createdAt, updatedAt: sn.updatedAt || Date.now(),
+          });
+          for (const ch of chapters) {
+            await db.chapters.put({
+              id: ch.id, novelId: sn.id, index: ch.index,
+              title: ch.title, content: ch.content,
+              startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? ch.content?.length ?? 0,
+            });
+          }
+        });
+        addNovel({ ...sn, chapters, chapterCount: chapters.length });
+      }
+    } catch { /* server may be unreachable */ }
   };
 
   const handleBackToLibrary = () => {
