@@ -142,6 +142,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
             className="w-full h-full">
             {simData.nodes.map((n) => (
               <g key={n.id}>
+                <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                   stroke="var(--background)" strokeWidth={1.5} />
                 <text x={n.x} y={n.y + nodeRadius + 3} textAnchor="middle"
@@ -228,16 +229,11 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                   <g key={n.id}>
                     <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                       stroke="var(--background)" strokeWidth={2} />
+                    <title>{n.description ? `${n.id}: ${n.description}` : n.id}</title>
                     <text x={n.x} y={n.y + nodeRadius + 4} textAnchor="middle"
                       className="fill-foreground font-medium" fontSize={fontSize}>
                       {n.id}
                     </text>
-                    {n.description && (
-                      <text x={n.x} y={n.y + nodeRadius + 18} textAnchor="middle"
-                        className="fill-muted-foreground" fontSize={fontSize - 2}>
-                        {n.description.length > 25 ? n.description.slice(0, 25) + "..." : n.description}
-                      </text>
-                    )}
                   </g>
                 ))}
                 {/* Legend */}
