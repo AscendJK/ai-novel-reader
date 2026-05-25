@@ -66,7 +66,7 @@ export async function buildIndex(
     onProgress?.("正在加载嵌入模型...");
     ragLog("加载 BGE Small ZH 模型...");
     const bge = new BGERetriever();
-    await bge.init(chunks, (p: BGEProgress) => {
+    await bge.init(novelId, chunks, (p: BGEProgress) => {
       if (p.phase === "encoding" && p.current != null && p.total != null) {
         onProgress?.(`正在编码文本 (${p.current}/${p.total})...`);
       } else if (p.phase === "done") {
