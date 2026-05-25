@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useAPIStore } from "@/stores/api-store";
 import { useSummaryStore, type SummaryItem } from "@/stores/summary-store";
