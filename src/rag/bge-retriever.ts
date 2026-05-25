@@ -15,9 +15,12 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
       onProgress?.({ phase: "loading" });
       await setupLocalModelLoader();
       const { pipeline } = await import("@xenova/transformers");
-      pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
-        local_files_only: true,
-      });
+      pipelineInstance = await pipeline("feature-extraction", {
+        model: "/models/builtin/Xenova/bge-small-zh-v1.5/onnx/model_quantized.onnx",
+        config: "/models/builtin/Xenova/bge-small-zh-v1.5/config.json",
+        tokenizer: "/models/builtin/Xenova/bge-small-zh-v1.5/tokenizer.json",
+        tokenizer_config: "/models/builtin/Xenova/bge-small-zh-v1.5/tokenizer_config.json",
+      }, { quantized: true, local_files_only: true });
       ragLog("BGE pipeline ready");
       return pipelineInstance;
     })();
