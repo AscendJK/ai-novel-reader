@@ -4,40 +4,59 @@ const BATCH_SIZE = 16;
 const CHUNK_SIZE = 500;
 const OVERLAP = 100;
 
-// Track build status in memory for progress reporting
-const buildProgress = new Map(); // key: "novelId-engine" → { current, total, status }
+const buildProgress = new Map(); // key: "novelId-engine" → { status, current, total }
+
+// Build queue: serial processing
+const queue = [];
+let running = false;
 
 // ── Public API ──
 
-/** Start or resume building a RAG index for a novel */
-export async function buildIndex(novelId, engine = "bge-small-zh") {
+/** Add a novel to the build queue */
+export function buildIndex(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
 
   // Check DB status
-  const existing = db.db.prepare("SELECT status, chunk_count, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
-  console.log(`[rag] buildIndex called: ${key}, existing:`, existing?.status);
+  const existing = db.db.prepare("SELECT status, chunk_count FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
   if (existing && existing.status === "ready") return { status: "ready", chunkCount: existing.chunk_count };
 
-  // Don't allow duplicate builds
+  // Don't allow duplicate
   if (buildProgress.has(key)) return buildProgress.get(key);
+  if (queue.some(t => t.key === key)) return { status: "queued" };
 
-  const progress = { status: "building", current: 0, total: 0 };
-  buildProgress.set(key, progress);
+  buildProgress.set(key, { status: "queued", current: 0, total: 0 });
+  queue.push({ novelId, engine, key });
+  console.log(`[rag] queued: ${key} (position ${queue.length})`);
 
-  // Start async build
-  console.log(`[rag] starting async build for ${key}`);
-  _doBuild(novelId, engine, key).catch(e => {
-    console.error(`[rag] build failed for ${key}:`, e.message || e);
-    try {
-      db.db.prepare("UPDATE rag_indices SET status = 'error', error_msg = ? WHERE novel_id = ? AND engine = ?").run(String(e.message || e), novelId, engine);
-    } catch (dbErr) { console.error("[rag] DB update error:", dbErr); }
-    buildProgress.set(key, { ...buildProgress.get(key), status: "error", error: String(e.message || e) });
-  });
+  processQueue();
 
-  return { status: "building" };
+  return { status: "queued" };
 }
 
-/** Get build statuses for multiple novels at once */
+function processQueue() {
+  if (running || queue.length === 0) return;
+  running = true;
+  const task = queue.shift();
+
+  buildProgress.set(task.key, { status: "building", current: 0, total: 0 });
+  console.log(`[rag] starting: ${task.key} (queue: ${queue.length})`);
+
+  _doBuild(task.novelId, task.engine, task.key)
+    .catch(e => {
+      console.error(`[rag] build failed for ${task.key}:`, e.message || e);
+      try {
+        db.db.prepare("UPDATE rag_indices SET status = 'error', error_msg = ? WHERE novel_id = ? AND engine = ?")
+          .run(String(e.message || e), task.novelId, task.engine);
+      } catch (dbErr) { console.error("[rag] DB error:", dbErr); }
+      buildProgress.set(task.key, { status: "error", error: String(e.message || e) });
+    })
+    .finally(() => {
+      running = false;
+      processQueue(); // next
+    });
+}
+
+/** Get build statuses for multiple novels */
 export function getStatuses(novelIds, engine = "bge-small-zh") {
   const result = {};
   for (const nid of novelIds) {
@@ -50,14 +69,13 @@ export function getStatuses(novelIds, engine = "bge-small-zh") {
   return result;
 }
 
-/** Get build progress */
+/** Get single build progress */
 export function getProgress(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
   const mem = buildProgress.get(key);
   if (mem) return mem;
   const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
-  if (dbRow) return { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg };
-  return { status: "none" };
+  return dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg } : { status: "none" };
 }
 
 export function getIndexData(novelId, engine = "bge-small-zh") {
@@ -66,38 +84,35 @@ export function getIndexData(novelId, engine = "bge-small-zh") {
   ).get(novelId, engine) || null;
 }
 
-// ── Internal build logic ──
+// ── Internal ──
 
 async function _doBuild(novelId, engine, key) {
-  console.log(`[rag] _doBuild start: ${key}`);
+  console.log(`[rag] _doBuild: ${key}`);
   const chapters = db.db.prepare("SELECT title, content FROM chapters WHERE novel_id = ? ORDER BY index_num").all(novelId);
-  console.log(`[rag] chapters found: ${chapters.length}`);
+  console.log(`[rag] chapters: ${chapters.length}`);
   if (!chapters.length) throw new Error("No chapters found");
+
+  // Chunk
   const chunks = [];
   for (const ch of chapters) {
     let start = 0;
     while (start < ch.content.length) {
       const end = Math.min(start + CHUNK_SIZE, ch.content.length);
       const text = ch.content.slice(start, end).trim();
-      if (text.replace(/\s/g, "").length >= 10) {
-        chunks.push(`[${ch.title}] ${text}`);
-      }
+      if (text.replace(/\s/g, "").length >= 10) chunks.push(`[${ch.title}] ${text}`);
       start += CHUNK_SIZE - OVERLAP;
     }
   }
 
-  // Immediately show total so frontend displays progress
   buildProgress.set(key, { status: "building", current: 0, total: chunks.length });
+  db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)")
+    .run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
-  // Init/update DB record
-  db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)").run(novelId, engine, JSON.stringify(chunks), chunks.length);
-
-  // Load Transformers.js in Node.js
+  // Load model
   buildProgress.set(key, { status: "loading", current: 0, total: chunks.length });
   const { pipeline, env } = await import("@xenova/transformers");
   env.allowRemoteModels = false;
   env.localModelPath = "./public/models/builtin/";
-
   const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
 
   buildProgress.set(key, { status: "encoding", current: 0, total: chunks.length });
@@ -110,20 +125,23 @@ async function _doBuild(novelId, engine, key) {
     const result = await pipe(batch, { pooling: "mean", normalize: true });
     const arr = await result.tolist();
     for (const row of arr) vectors.push(new Float32Array(row));
-    buildProgress.set(key, { status: "encoding", current: Math.min((b + 1) * BATCH_SIZE, chunks.length), total: chunks.length });
-    // Yield event loop so status requests can be handled
+    buildProgress.set(key, {
+      status: "encoding",
+      current: Math.min((b + 1) * BATCH_SIZE, chunks.length),
+      total: chunks.length,
+    });
     await new Promise((resolve) => setImmediate(resolve));
   }
 
-  // Serialize vectors as binary blob
+  // Save
   const dim = vectors[0]?.length || 0;
   const totalFloats = vectors.length * dim;
   const buf = new Float32Array(totalFloats);
-  for (let i = 0; i < vectors.length; i++) {
-    buf.set(vectors[i], i * dim);
-  }
+  for (let i = 0; i < vectors.length; i++) buf.set(vectors[i], i * dim);
 
-  db.db.prepare("UPDATE rag_indices SET status = 'ready', vectors_blob = ?, dim = ?, chunk_count = ?, build_time = ? WHERE novel_id = ? AND engine = ?").run(Buffer.from(buf.buffer), dim, chunks.length, Date.now() - t0, novelId, engine);
+  db.db.prepare("UPDATE rag_indices SET status = 'ready', vectors_blob = ?, dim = ?, chunk_count = ?, build_time = ? WHERE novel_id = ? AND engine = ?")
+    .run(Buffer.from(buf.buffer), dim, chunks.length, Date.now() - t0, novelId, engine);
 
   buildProgress.set(key, { status: "ready", current: chunks.length, total: chunks.length });
+  console.log(`[rag] done: ${key} ${chunks.length} chunks ${Date.now() - t0}ms`);
 }

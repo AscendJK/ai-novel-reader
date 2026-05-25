@@ -1,4 +1,4 @@
-import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,16 +14,20 @@ interface Props {
   novelId?: string;
   onRetry: () => void;
   onFallbackToTFIDF: () => void;
+  onDismiss: () => void;
 }
 
-export function BuildProgress({ open, engine, status, message, current, total, error, novelId, onRetry, onFallbackToTFIDF }: Props) {
+export function BuildProgress({ open, engine, status, message, current, total, error, novelId, onRetry, onFallbackToTFIDF, onDismiss }: Props) {
   if (!open) return null;
 
   const pct = total ? Math.round(((current || 0) / total) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <Card className="w-full max-w-md mx-4">
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-background/30">
+      <Card className="w-full max-w-md mx-4 relative">
+        <button className="absolute top-2 right-2 text-muted-foreground hover:text-foreground" onClick={onDismiss}>
+          <X className="h-4 w-4" />
+        </button>
         <CardHeader className="text-center">
           {status === "building" && <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />}
           {status === "done" && <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-2" />}

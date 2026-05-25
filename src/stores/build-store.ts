@@ -29,6 +29,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   setProgress: (p) => set(p),
 
   start: () => set({ open: true, status: "building", message: "正在准备...", error: undefined }),
+  dismiss: () => set({ open: false }),
   finish: () => {
     set({ status: "done", message: "索引构建成功" });
     setTimeout(() => set({ open: false }), 1500);

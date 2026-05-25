@@ -263,6 +263,7 @@ function BuildProgressBox() {
       novelId={build.novelId}
       onRetry={build.retry}
       onFallbackToTFIDF={build.fallbackToTFIDF}
+      onDismiss={build.dismiss}
     />
   );
 }
