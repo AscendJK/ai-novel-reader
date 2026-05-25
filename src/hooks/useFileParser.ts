@@ -12,7 +12,7 @@ export function useFileParser() {
   const parseCountRef = useRef(0);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const { setCurrentNovel, addNovel } = useNovelStore();
+  const { addNovel } = useNovelStore();
 
   const parseFile = useCallback(async (file: File): Promise<Novel | null> => {
     setIsParsing(true);
@@ -79,7 +79,6 @@ export function useFileParser() {
 
       setProgress(100);
       addNovel(novel);
-      setCurrentNovel(novel);
       return novel;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "文件解析失败";
@@ -89,7 +88,7 @@ export function useFileParser() {
       parseCountRef.current--;
       if (parseCountRef.current <= 0) setIsParsing(false);
     }
-  }, [setCurrentNovel, addNovel]);
+  }, [addNovel]);
 
   return { parseFile, isParsing, progress, error };
 }
