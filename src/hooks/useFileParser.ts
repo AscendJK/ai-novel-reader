@@ -45,7 +45,8 @@ export function useFileParser() {
       setProgress(90);
       await saveNovel(novel);
       // Also upload to server
-      fetch("/api/novels", {
+      const username = localStorage.getItem("sync-username") || "";
+      fetch(`/api/novels?username=${encodeURIComponent(username)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
