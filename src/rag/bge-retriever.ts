@@ -205,7 +205,7 @@ export class BGERetriever {
         novelId: memCacheKey,
         engine: "bge-small-zh",
         vectors: vectors.map((v) => Array.from(v)),
-        chunks: data.chunks,
+        chunks: this.chunks,
         dim: data.dim,
         createdAt: Date.now(),
       });
