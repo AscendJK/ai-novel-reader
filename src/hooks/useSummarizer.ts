@@ -63,25 +63,34 @@ export function useSummarizer() {
     abortRef.current?.abort();
   }, []);
 
-  // Pre-retrieve relevant text using local RAG
+  // Pre-retrieve relevant text using local RAG. Falls back to TF-IDF if BGE not ready.
+  const [ragEngineUsed, setRagEngineUsed] = useState<string>("");
   const getRelevantText = useCallback(
     async (query: string): Promise<string> => {
       if (!currentNovel) return "";
       await new Promise((r) => setTimeout(r, 0));
-      const engine = useRAGStore.getState().engine;
+      const prefEngine = useRAGStore.getState().engine;
       try {
-        setCurrentTask(`正在启动本地检索引擎 (${engine})...`);
+        // Check if BGE index is ready on server
+        let engine = prefEngine;
+        if (engine === "bge-small-zh") {
+          try {
+            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`);
+            const st = await sr.json();
+            if (st.status !== "ready") {
+              ragLog("BGE 未就绪, 降级为 TF-IDF");
+              engine = "tfidf";
+            }
+          } catch { engine = "tfidf"; }
+        }
+
+        setCurrentTask(`正在启动检索引擎 (${engine})...`);
         await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
         setCurrentTask("正在检索相关段落...");
         const t0 = performance.now();
         const result = await retrieveRelevantWithDetails(currentNovel.id, query, 15);
-        const duration = performance.now() - t0;
-        addDebugEntry({
-          query,
-          duration: duration / 1000,
-          results: result.results,
-          engine: result.engine,
-        });
+        setRagEngineUsed(result.engine);
+        addDebugEntry({ query, duration: (performance.now() - t0) / 1000, results: result.results, engine: result.engine });
         return result.text;
       } catch {
         return "";
@@ -415,5 +424,6 @@ ${relevantText || "（无额外参考信息，请基于章节目录回答）"}
     generateRangeSummary, askCustomQuestion,
     clearError: () => setError(null),
     abortAll,
+    ragEngineUsed,
   };
 }

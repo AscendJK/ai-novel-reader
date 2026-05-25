@@ -431,11 +431,18 @@ export function BookSelect() {
                       {/* Build status indicator */}
                       {(() => {
                         const st = buildStatuses[novel.id] || { status: "none" };
-                        if (st.status === "ready") return (
-                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                            <Badge variant="outline" className="text-[10px] text-green-500 border-green-500/30">BGE 就绪</Badge>
-                          </div>
-                        );
+                        // Estimate size: chunkCount * dim * 4 bytes
+                        const estSize = st.chunkCount ? `${((st.chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
+                        if (st.status === "ready") {
+                          const cached = (window as any).__ragCacheLoaded?.has(novel.id + "-bge-small-zh");
+                          return (
+                            <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                              <Badge variant="outline" className={`text-[10px] ${cached ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
+                                {cached ? "BGE 已加载" : `BGE 就绪 ${estSize}`}
+                              </Badge>
+                            </div>
+                          );
+                        }
                         if (st.status === "building" || st.status === "loading" || st.status === "encoding") return (
                           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                             <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />

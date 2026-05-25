@@ -188,6 +188,9 @@ export class BGERetriever {
 
     const size = vectors.length * data.dim * 4;
     ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
+    // Mark as loaded so bookshelf can show status
+    if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
+    (window as any).__ragCacheLoaded.add(memCacheKey);
 
     // Cache in memory (LRU)
     LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
