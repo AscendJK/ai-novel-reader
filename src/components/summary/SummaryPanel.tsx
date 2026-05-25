@@ -164,16 +164,14 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     if (!customQuestion.trim()) return;
     const q = customQuestion.trim(); setCustomQuestion("");
     const um = { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "user" as const, content: q };
-    setQaMessages((p) => {
-      const next = [...p, um];
-      const hist = next.map((m) => ({ role: m.role, content: m.content }));
-      setQaLoading(true); setQaError(null);
-      askCustomQuestion(q, hist).then((r) => {
-        if (r) setQaMessages((p2) => [...p2, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
-      }).catch((e) => { setQaError(e instanceof Error ? e.message : "failed"); })
-        .finally(() => { setQaLoading(false); });
-      return next;
-    });
+    setQaMessages((p) => [...p, um]);
+    setQaLoading(true); setQaError(null);
+    try {
+      const hist = useSummaryStore.getState().summaries.map((m: any) => ({ role: m.role, content: m.content }));
+      const r = await askCustomQuestion(q, hist);
+      if (r) setQaMessages((p) => [...p, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
+    } catch (e) { setQaError(e instanceof Error ? e.message : "failed"); }
+    finally { setQaLoading(false); }
   };
 
   const handleRange = async () => {

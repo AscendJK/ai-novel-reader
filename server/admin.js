@@ -15,7 +15,7 @@ function getOrCreateToken() {
 }
 
 const ADMIN_TOKEN = getOrCreateToken();
-console.log("[admin] Token:", ADMIN_TOKEN);
+console.log("[admin] Token:", ADMIN_TOKEN.slice(0, 4) + "..." + ADMIN_TOKEN.slice(-4));
 
 function auth(req, res) {
   const t = req.query.token || req.body?.token;
@@ -53,12 +53,14 @@ export function mountAdminRoutes(app) {
   app.delete("/api/admin/users/:name", (req, res) => {
     if (!auth(req, res)) return;
     const { name } = req.params;
-    db.db.prepare("DELETE FROM summaries WHERE username = ?").run(name);
-    db.db.prepare("DELETE FROM notes WHERE username = ?").run(name);
-    db.db.prepare("DELETE FROM reading_progress WHERE username = ?").run(name);
-    db.db.prepare("DELETE FROM user_settings WHERE username = ?").run(name);
-    db.db.prepare("DELETE FROM user_novels WHERE username = ?").run(name);
-    db.db.prepare("DELETE FROM users WHERE username = ?").run(name);
+    db.db.transaction(() => {
+      db.db.prepare("DELETE FROM summaries WHERE username = ?").run(name);
+      db.db.prepare("DELETE FROM notes WHERE username = ?").run(name);
+      db.db.prepare("DELETE FROM reading_progress WHERE username = ?").run(name);
+      db.db.prepare("DELETE FROM user_settings WHERE username = ?").run(name);
+      db.db.prepare("DELETE FROM user_novels WHERE username = ?").run(name);
+      db.db.prepare("DELETE FROM users WHERE username = ?").run(name);
+    })();
     res.json({ ok: true });
   });
 
@@ -88,7 +90,8 @@ export function mountAdminRoutes(app) {
 
   // ── Token ──
 
-  app.get("/api/admin/token", (_req, res) => {
+  app.get("/api/admin/token", (req, res) => {
+    if (!auth(req, res)) return;
     res.json({ token: ADMIN_TOKEN });
   });
 }

@@ -17,6 +17,16 @@ app.use(cors({
 app.use(express.json({ limit: "50mb" }));
 mountAdminRoutes(app);
 
+// ── Auth helper ──────────────────────────────────────────────
+
+function authNovel(req, res) {
+  const username = req.query.username || req.body?.username;
+  if (!username || !db.userExists(username)) {
+    res.status(401).json({ error: "需要登录" }); return false;
+  }
+  return true;
+}
+
 // ── Novel Library API ────────────────────────────────────────
 
 // GET /api/novels?username=xxx — list all novels with user join status
@@ -43,6 +53,7 @@ app.get("/api/novels/:id", (req, res) => {
 
 // GET /api/novels/:id/chapters — all chapters with content (for auto-join)
 app.get("/api/novels/:id/chapters", (req, res) => {
+  if (!authNovel(req, res)) return;
   try {
     const chapters = db.getAllChapters(req.params.id);
     res.json(chapters);
@@ -51,6 +62,7 @@ app.get("/api/novels/:id/chapters", (req, res) => {
 
 // GET /api/novels/:id/chapters/:index — single chapter content
 app.get("/api/novels/:id/chapters/:index", (req, res) => {
+  if (!authNovel(req, res)) return;
   try {
     const ch = db.getChapter(req.params.id, parseInt(req.params.index, 10));
     if (!ch) return res.status(404).json({ error: "章节未找到" });
@@ -60,6 +72,7 @@ app.get("/api/novels/:id/chapters/:index", (req, res) => {
 
 // POST /api/novels — upload/import a novel (parsed JSON from frontend)
 app.post("/api/novels", (req, res) => {
+  if (!authNovel(req, res)) return;
   try {
     const { novel, chapters } = req.body;
     if (!novel || !chapters) return res.status(400).json({ error: "novel and chapters required" });
@@ -85,6 +98,7 @@ app.post("/api/novels", (req, res) => {
 
 // POST /api/novels/:id/join — user adds novel to their bookshelf
 app.post("/api/novels/:id/join", (req, res) => {
+  if (!authNovel(req, res)) return;
   try {
     const { username } = req.body;
     if (!username) return res.status(400).json({ error: "username required" });
