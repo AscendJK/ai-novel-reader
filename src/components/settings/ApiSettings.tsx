@@ -161,18 +161,17 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {configured?.apiKey ? (
-              <>
-                {configured.model && <Badge variant="outline" className="text-xs">{configured.model}</Badge>}
-                {isCompact && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8"
-                    onClick={(e) => { e.stopPropagation(); removeProvider(type as ProviderType); }}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </>
-            ) : (
+            {configured?.apiKey && configured.model && (
+              <Badge variant="outline" className="text-xs">{configured.model}</Badge>
+            )}
+            {!configured?.apiKey && (
               <Button variant="outline" size="sm">配置</Button>
+            )}
+            {isCompact && (
+              <Button variant="ghost" size="icon" className="h-8 w-8"
+                onClick={(e) => { e.stopPropagation(); removeProvider(type as ProviderType); }}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
             )}
           </div>
         </CardContent>
