@@ -24,7 +24,7 @@ const MODEL_OPTIONS: Record<string, string[]> = {
 export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const { providers, addProvider, removeProvider, activeProviderId } = useAPIStore();
   const [editingType, setEditingType] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ apiKey: "", baseUrl: "", model: "" });
+  const [formData, setFormData] = useState({ apiKey: "", baseUrl: "", model: "", customName: "" });
 
   const isCompat = (t: string) => t.startsWith("openai-compat-");
   const compatProviders = providers.filter((p) => isCompat(p.type));
@@ -34,7 +34,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     const existing = providers.find((p) => p.type === type);
     let preset = PROVIDER_PRESETS.find((p) => p.type === type);
     if (!preset && isCompat(type)) {
-      preset = { type: type as any, name: `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}`, baseUrl: "", defaultModel: "" };
+      preset = { type: type as any, name: "", baseUrl: "", defaultModel: "" };
     }
     if (!preset) return;
 
@@ -43,6 +43,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       apiKey: existing?.apiKey || "",
       baseUrl: existing?.baseUrl || preset.baseUrl,
       model: existing?.model || preset.defaultModel,
+      customName: existing?.name || "",
     });
   };
 
@@ -54,7 +55,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     if (preset) {
       name = preset.name;
     } else if (isCompat(editingType)) {
-      name = `OpenAI 格式接口 ${editingType.replace(COMPAT_PREFIX, "")}`;
+      name = formData.customName.trim() || "OpenAI 格式接口";
     } else {
       return;
     }
@@ -80,7 +81,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     const type = `${COMPAT_PREFIX}${idx}` as ProviderType;
     addProvider({
       type,
-      name: `OpenAI 格式接口 ${idx}`,
+      name: "OpenAI 格式接口",
       apiKey: "",
       baseUrl: "",
       model: "",
@@ -95,7 +96,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
     <Card key={type} className="border-primary">
       <CardHeader>
         <CardTitle className="text-base">
-          {isCompatProvider ? `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}` : PROVIDER_PRESETS.find((p) => p.type === type)?.name}
+          {(isCompatProvider && providers.find(p => p.type === type)?.name) || (isCompatProvider ? "OpenAI 格式接口" : PROVIDER_PRESETS.find((p) => p.type === type)?.name)}
         </CardTitle>
         <CardDescription>
           {isCompatProvider ? "" : `API 地址: ${formData.baseUrl || PROVIDER_PRESETS.find((p) => p.type === type)?.baseUrl}`}
@@ -121,6 +122,11 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
         {(isCompatProvider || type === "openai-compat-0") && (
           <>
             <div className="space-y-2">
+              <Label>厂商名称（可选）</Label>
+              <Input placeholder="OpenAI 格式接口" value={formData.customName}
+                onChange={(e) => setFormData((d) => ({ ...d, customName: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
               <Label>API 地址 (Base URL)</Label>
               <Input placeholder="https://api.example.com/v1" value={formData.baseUrl}
                 onChange={(e) => setFormData((d) => ({ ...d, baseUrl: e.target.value }))} />
@@ -143,7 +149,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const renderCard = (type: string, isCompact: boolean) => {
     const configured = providers.find((p) => p.type === type);
     const name = isCompact
-      ? `OpenAI 格式接口 ${type.replace(COMPAT_PREFIX, "")}`
+      ? (configured?.name || "OpenAI 格式接口")
       : PROVIDER_PRESETS.find((p) => p.type === type)?.name || type;
 
     return (

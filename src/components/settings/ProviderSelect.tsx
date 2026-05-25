@@ -20,7 +20,7 @@ export function ProviderSelect() {
       <SelectContent>
         {configured.map((p) => {
           const isCompat = p.type.startsWith(COMPAT_PREFIX);
-          const label = isCompat ? `兼容接口 ${p.type.replace(COMPAT_PREFIX, "")}` : p.name;
+          const label = isCompat ? (p.name || "OpenAI 格式接口") : p.name;
           return (
             <SelectItem key={p.type} value={p.type}>
               <div className="flex items-center gap-2">
