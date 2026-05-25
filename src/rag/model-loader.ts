@@ -11,8 +11,12 @@
 
 const BUILTIN = "/models/builtin/";
 const CUSTOM = "/models/custom/";
-// Transformers.js only loads "model_quantized.onnx" or "model.onnx".
-// We detect ALL common variants so we can tell the user about rename.
+
+// HF cache format: org/model → models--org--model
+function hfCacheDir(modelKey: string): string {
+  return "models--" + modelKey.replace("/", "--");
+}
+
 const ONNX_EXPECTED = "model_quantized.onnx";
 const ONNX_ALL = [
   "model_quantized.onnx", "model.onnx",
@@ -47,24 +51,26 @@ export interface ModelStatus {
  */
 async function getModelStatus(base: string, modelKey: string): Promise<ModelStatus> {
   const missing: ModelStatus = { available: false, onnxFiles: [] };
+  // Try HF cache format first (models--org--model), then flat format (org/model)
+  const candidates = [hfCacheDir(modelKey), modelKey];
 
   const noCache = { cache: "no-cache" as RequestCache };
+  let dir = "";
 
   // 1. Check config.json and tokenizer.json exist
-  for (const file of ["config.json", "tokenizer.json"]) {
-    try {
-      const resp = await fetch(base + modelKey + "/" + file, {
-        method: "HEAD",
-        ...noCache,
-      });
-      if (!resp.ok) return missing;
-      const ct = resp.headers.get("Content-Type") || "";
-      // Reject SPA fallback (text/html)
-      if (ct.includes("text/html")) return missing;
-    } catch {
-      return missing;
+  for (const cand of candidates) {
+    let ok = true;
+    for (const file of ["config.json", "tokenizer.json"]) {
+      try {
+        const resp = await fetch(base + cand + "/" + file, { method: "HEAD", ...noCache });
+        if (!resp.ok) { ok = false; break; }
+        const ct = resp.headers.get("Content-Type") || "";
+        if (ct.includes("text/html")) { ok = false; break; }
+      } catch { ok = false; break; }
     }
+    if (ok) { dir = cand; break; }
   }
+  if (!dir) return missing;
 
   // 2. Probe ONLY the expected ONNX variant first.
   //    If found, skip probing the rest to avoid console noise.
@@ -74,7 +80,7 @@ async function getModelStatus(base: string, modelKey: string): Promise<ModelStat
   const variants = [ONNX_EXPECTED, ...ONNX_ALL.filter((v) => v !== ONNX_EXPECTED)];
   for (const variant of variants) {
     try {
-      const resp = await fetch(base + modelKey + "/onnx/" + variant, {
+      const resp = await fetch(base + dir + "/onnx/" + variant, {
         method: "HEAD",
         ...noCache,
       });
@@ -144,7 +150,7 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
           if (status.onnxFiles.length > 0) {
             const firstFile = status.onnxFiles[0];
             try {
-              const h = await fetch(CUSTOM + modelKey + "/onnx/" + firstFile, { method: "HEAD", cache: "no-cache" } as RequestInit);
+              const h = await fetch(CUSTOM + hfCacheDir(modelKey) + "/onnx/" + firstFile, { method: "HEAD", cache: "no-cache" } as RequestInit);
               const cl = h.headers.get("Content-Length");
               if (cl) {
                 const mb = parseInt(cl) / (1024 * 1024);
