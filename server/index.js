@@ -206,6 +206,10 @@ if (isFullServer && fs.existsSync(distPath)) {
 
 // ── Start ──────────────────────────────────────────────────
 
+// Graceful shutdown — checkpoint WAL
+process.on("SIGINT", () => { db.db.pragma("wal_checkpoint(RESTART)"); process.exit(0); });
+process.on("SIGTERM", () => { db.db.pragma("wal_checkpoint(RESTART)"); process.exit(0); });
+
 const PORT = parseInt(process.env.PORT || (isFullServer ? "5173" : "3001"), 10);
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[sync] http://0.0.0.0:${PORT} (${isFullServer ? "full" : "api-only"})`);

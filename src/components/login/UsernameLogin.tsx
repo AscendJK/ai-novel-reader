@@ -48,7 +48,7 @@ export function UsernameLogin({ onLogin, error, syncing }: Props) {
         </CardHeader>
         <CardContent className="space-y-4">
           <Input
-            id="sync-username" name="username" autocomplete="username" placeholder="输入用户名..."
+            id="sync-username" name="username" autoComplete="username" placeholder="输入用户名..."
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleLogin(false)}
