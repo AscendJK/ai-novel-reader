@@ -234,7 +234,7 @@ export function setupLocalModelLoader(): Promise<void> {
   if (!envReady) {
     envReady = import("@xenova/transformers")
       .then(({ env }) => {
-        env.localModelPath = (typeof window !== "undefined" ? window.location.origin : "") + BUILTIN;
+        env.localModelPath = BUILTIN;  // Must be relative path — absolute URL triggers remote block
         env.allowRemoteModels = false;
         env.useBrowserCache = false;
         console.log("[transformers] localModelPath set to:", env.localModelPath);
