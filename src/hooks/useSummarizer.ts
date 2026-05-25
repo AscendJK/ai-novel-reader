@@ -340,12 +340,9 @@ export function useSummarizer() {
       const provider = getActiveProvider();
       if (!provider) return null;
 
-      // Range summary uses TF-IDF (fast, small range, doesn't need BGE)
-      const rangeChapters = currentNovel.chapters.slice(fromChapter - 1, toChapter);
-      const rangeId = `${currentNovel.id}-range-${fromChapter}-${toChapter}`;
+      // Use full novel's BGE index, query with range context
       setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
-      await buildIndex(rangeId, rangeChapters, "tfidf");
-      const combinedText = await retrieveRelevant(rangeId, "核心情节 关键事件 人物变化 承上启下", 20);
+      const combinedText = await getRelevantText(`第${fromChapter}章到第${toChapter}章 核心情节 关键事件 人物变化`);
 
       const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
 
