@@ -17,8 +17,11 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
     pipelinePromise = (async () => {
       onProgress?.({ phase: "loading" });
       await setupLocalModelLoader();
-      const { pipeline } = await import("@xenova/transformers");
-      pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5");
+      const { pipeline, env } = await import("@xenova/transformers");
+      console.log("[bge] env before pipeline:", { localModelPath: env.localModelPath, allowRemoteModels: env.allowRemoteModels });
+      pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
+        local_files_only: true,
+      });
       return pipelineInstance;
     })();
   }
