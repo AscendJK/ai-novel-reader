@@ -44,7 +44,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       apiKey: existing?.apiKey || "",
       baseUrl: existing?.baseUrl || preset.baseUrl,
       model: existing?.model || preset.defaultModel,
-      customName: existing?.name || "",
+      customName: (existing?.name && !existing.name.startsWith("OpenAI 格式接口")) ? existing.name : "",
     });
   };
 
