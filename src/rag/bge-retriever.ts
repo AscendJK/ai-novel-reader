@@ -22,10 +22,15 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
 
       // Intercept to see what URLs Transformers.js requests
       const origFetch = (window as any).fetch;
+      const fetches: string[] = [];
       (window as any).fetch = async (url: string, ...args: any[]) => {
+        const u = String(url);
+        fetches.push(u);
         const resp = await origFetch(url, ...args);
-        if (!resp.ok && String(url).includes("models")) {
-          console.warn("[bge] fetch 404:", url, resp.status);
+        if (!resp.ok) {
+          console.warn("[bge] fetch failed:", u, resp.status, resp.headers.get("content-type")?.slice(0, 50));
+        } else {
+          console.log("[bge] fetch ok:", u, resp.status);
         }
         return resp;
       };
@@ -34,6 +39,9 @@ async function getPipeline(onProgress?: (p: BGEProgress) => void): Promise<any> 
         pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", {
           local_files_only: true,
         });
+      } catch (e) {
+        console.error("[bge] pipeline error, all fetches:", fetches);
+        throw e;
       } finally {
         (window as any).fetch = origFetch;
       }
