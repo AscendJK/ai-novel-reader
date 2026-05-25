@@ -75,7 +75,9 @@ export class BGERetriever {
         this.vectors = data.vectors;
         this.chunks = data.chunks;
         this.dim = data.dim;
-        // Promote to memory cache
+        // Promote to memory cache and mark as loaded for bookshelf
+        if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
+        (window as any).__ragCacheLoaded.add(memCacheKey);
         const size = this.vectors.length * this.dim * 4;
         LRU_CACHE.set(memCacheKey, { vectors: this.vectors, chunks: this.chunks, dim: this.dim, size });
         cacheTotalSize += size;
