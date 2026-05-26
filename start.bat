@@ -36,8 +36,8 @@ if %NODE_VER% GEQ 24 (
     echo         Select "Desktop development with C++" workload.
     echo       After installing both, restart terminal and run this script again.
     echo.
-    set /p "continue=Continue anyway? (y/n): "
-    if /i not "%continue%"=="y" exit /b 0
+    set /p "yn=Continue anyway? (y/n): "
+    if /i not "%yn%"=="y" exit /b 0
     echo.
 )
 
