@@ -6,7 +6,7 @@
 
 ## 快速开始
 
-**前置条件：** [Node.js](https://nodejs.org) v18+
+**前置条件：** [Node.js](https://nodejs.org) v18~22 LTS（不建议 v24+，`better-sqlite3` 可能缺少预编译二进制导致安装失败）
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git

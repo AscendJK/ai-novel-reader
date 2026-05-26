@@ -4,7 +4,7 @@ A browser-based AI-powered novel reading tool. Upload TXT/EPUB files, configure 
 
 ## Quick Start
 
-**Prerequisites:** [Node.js](https://nodejs.org) v18+
+**Prerequisites:** [Node.js](https://nodejs.org) v18~22 LTS (v24+ may fail due to missing prebuilt binaries for `better-sqlite3`)
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git
