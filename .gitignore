@@ -35,10 +35,14 @@ npm-debug.log*
 *.sqlite
 
 # User-added model files (not in Git)
-public/models/custom/Xenova/
-
-# Keep directory structure
+public/models/custom/Xenova/*
 !public/models/custom/Xenova/.gitkeep
+!public/models/custom/Xenova/*/
+public/models/custom/Xenova/*/onnx/
+public/models/custom/Xenova/*/config.json
+public/models/custom/Xenova/*/tokenizer.json
+public/models/custom/Xenova/*/tokenizer_config.json
+!public/models/custom/Xenova/*/.gitkeep
 
 # Temp files
 *.tmp
