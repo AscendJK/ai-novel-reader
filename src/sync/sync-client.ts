@@ -8,6 +8,7 @@ type ChangeCallback = (data: SyncData) => Promise<void>;
 export class SyncClient {
   private username: string | null = null;
   private clientId: string | null = null;
+  private token: string | null = null;
   private activeCount = 0;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -19,9 +20,16 @@ export class SyncClient {
   constructor() {
     this.username = localStorage.getItem("sync-username");
     this.clientId = localStorage.getItem("sync-clientId");
+    this.token = localStorage.getItem("sync-token");
+    // If we have username/clientId but no token (pre-auth migration), clear stale session
+    if ((this.username || this.clientId) && !this.token) {
+      this.username = null; this.clientId = null;
+      localStorage.removeItem("sync-username");
+      localStorage.removeItem("sync-clientId");
+    }
   }
 
-  get isLoggedIn() { return !!this.username && !!this.clientId; }
+  get isLoggedIn() { return !!this.username && !!this.clientId && !!this.token; }
   get user() { return this.username; }
   get cid() { return this.clientId; }
   get connectionCount() { return this.activeCount; }
@@ -49,9 +57,11 @@ export class SyncClient {
 
       this.username = username;
       this.clientId = result.clientId;
+      this.token = result.token;
       this.activeCount = result.activeCount;
       localStorage.setItem("sync-username", username);
       localStorage.setItem("sync-clientId", result.clientId);
+      if (result.token) localStorage.setItem("sync-token", result.token);
 
       return { success: true, isNew: result.isNew, activeCount: result.activeCount };
     } catch (e) {
@@ -89,15 +99,17 @@ export class SyncClient {
       fetch("/api/sync/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, clientId: this.clientId }),
+        body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token }),
       }).catch(() => {});
     }
     this.stop();
     this.username = null;
     this.clientId = null;
+    this.token = null;
     this.activeCount = 0;
     localStorage.removeItem("sync-username");
     localStorage.removeItem("sync-clientId");
+    localStorage.removeItem("sync-token");
   }
 
   // ── Full sync round ──
@@ -167,9 +179,11 @@ export class SyncClient {
     this.stop();
     this.username = null;
     this.clientId = null;
+    this.token = null;
     this.activeCount = 0;
     localStorage.removeItem("sync-username");
     localStorage.removeItem("sync-clientId");
+    localStorage.removeItem("sync-token");
     if (this.onKicked) this.onKicked();
   }
 }

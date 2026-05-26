@@ -14,9 +14,15 @@ interface APIState {
   loadFromDB: () => Promise<void>;
 }
 
+function userKeys() {
+  const user = localStorage.getItem("sync-username") || "_anonymous";
+  return { providers: `api-providers:${user}`, active: `api-active-provider:${user}` };
+}
+
 function persist(providers: ProviderConfig[], activeId: string | null) {
-  db.settings.put({ key: "api-providers", value: providers }).catch(() => {});
-  db.settings.put({ key: "api-active-provider", value: activeId }).catch(() => {});
+  const k = userKeys();
+  db.settings.put({ key: k.providers, value: providers }).catch(() => {});
+  db.settings.put({ key: k.active, value: activeId }).catch(() => {});
 }
 
 export const useAPIStore = create<APIState>((set, get) => ({
@@ -26,9 +32,10 @@ export const useAPIStore = create<APIState>((set, get) => ({
 
   loadFromDB: async () => {
     try {
+      const k = userKeys();
       const [providersRecord, activeRecord] = await Promise.all([
-        db.settings.get("api-providers"),
-        db.settings.get("api-active-provider"),
+        db.settings.get(k.providers),
+        db.settings.get(k.active),
       ]);
       const providers = (providersRecord?.value as ProviderConfig[]) || [];
       const activeId = (activeRecord?.value as string | null) ?? null;

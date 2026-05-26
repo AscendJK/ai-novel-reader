@@ -9,6 +9,16 @@ const CHUNK_SIZE = 500;
 const OVERLAP = 100;
 
 const buildProgress = new Map(); // key: "novelId-engine" → { status, current, total }
+const WORKER_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+// Periodically prune completed/errored entries from buildProgress
+setInterval(() => {
+  for (const [key, val] of buildProgress) {
+    if (val.status === "ready" || val.status === "error") {
+      buildProgress.delete(key);
+    }
+  }
+}, 60_000);
 
 // Build queue: serial processing
 const queue = [];
@@ -131,23 +141,31 @@ async function _doBuild(novelId, engine, key) {
   db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)")
     .run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
-  // Encode in Worker Thread
+  // Encode in Worker Thread with timeout
   const t0 = Date.now();
   const vectors = await new Promise((resolve, reject) => {
     const workerPath = path.join(__dirname, "rag-worker.mjs");
     const worker = new Worker(workerPath, {
       workerData: { chunks, batchSize: BATCH_SIZE },
     });
+
+    const timeout = setTimeout(() => {
+      worker.terminate();
+      reject(new Error("编码超时（超过 10 分钟）"));
+    }, WORKER_TIMEOUT_MS);
+
     worker.on("message", (msg) => {
       if (msg.type === "progress") {
         buildProgress.set(key, { status: "encoding", current: msg.current, total: msg.total });
       } else if (msg.type === "done") {
+        clearTimeout(timeout);
         resolve(msg.vectors.map((row) => new Float32Array(row)));
       } else if (msg.type === "error") {
+        clearTimeout(timeout);
         reject(new Error(msg.error));
       }
     });
-    worker.on("error", reject);
+    worker.on("error", (e) => { clearTimeout(timeout); reject(e); });
   });
 
   const dim = vectors[0]?.length || 0;

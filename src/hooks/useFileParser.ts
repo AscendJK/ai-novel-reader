@@ -5,6 +5,7 @@ import { createNovel } from "@/parsers/utils";
 import { saveNovel } from "@/db/repositories";
 import { useNovelStore } from "@/stores/novel-store";
 import { useBuildStore } from "@/stores/build-store";
+import { authHeaders } from "@/lib/auth-headers";
 import type { Novel } from "@/parsers/types";
 
 export function useFileParser() {
@@ -45,11 +46,10 @@ export function useFileParser() {
       setProgress(90);
       await saveNovel(novel);
 
-      // Upload to server + auto-join + trigger RAG build (fire-and-forget)
-      const user = localStorage.getItem("sync-username") || "";
-      fetch(`/api/novels?username=${encodeURIComponent(user)}`, {
+      // Upload to server + auto-join (fire-and-forget)
+      fetch(`/api/novels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           novel: {
             id: novel.id, title: novel.title, author: novel.author,
@@ -70,9 +70,8 @@ export function useFileParser() {
         if (!nid) return;
 
         // Auto-join
-        if (user) fetch(`/api/novels/${nid}/join`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: user }),
+        fetch(`/api/novels/${nid}/join`, {
+          method: "POST", headers: authHeaders(),
         }).catch(() => {});
 
       }).catch(() => {});

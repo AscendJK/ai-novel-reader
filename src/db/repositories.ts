@@ -61,17 +61,18 @@ export async function loadNovel(novelId: string): Promise<Novel | null> {
 export async function loadAllNovelMeta(): Promise<NovelMeta[]> {
   try {
     const records = await db.novels.orderBy("createdAt").reverse().toArray();
-    const result: NovelMeta[] = [];
-    for (const r of records) {
-      const count = await db.chapters.where("novelId").equals(r.id).count();
-      result.push({
-        id: r.id, title: r.title, author: r.author,
-        fileName: r.fileName, fileFormat: r.fileFormat,
-        totalChars: r.totalChars, chapterCount: count,
-        createdAt: r.createdAt, updatedAt: r.updatedAt,
-      });
+    // Single bulk query instead of N+1 per-novel queries
+    const allChapters = await db.chapters.toArray();
+    const countMap = new Map<string, number>();
+    for (const ch of allChapters) {
+      countMap.set(ch.novelId, (countMap.get(ch.novelId) || 0) + 1);
     }
-    return result;
+    return records.map((r) => ({
+      id: r.id, title: r.title, author: r.author,
+      fileName: r.fileName, fileFormat: r.fileFormat,
+      totalChars: r.totalChars, chapterCount: countMap.get(r.id) || 0,
+      createdAt: r.createdAt, updatedAt: r.updatedAt,
+    }));
   } catch (e) {
     console.error("loadAllNovelMeta failed:", e);
     return [];
@@ -91,7 +92,8 @@ export async function loadAllNovels(): Promise<Novel[]> {
         createdAt: record.createdAt, updatedAt: record.updatedAt,
         chapters: chapterRecords.map((ch) => ({
           id: ch.id, novelId: ch.novelId, index: ch.index,
-          title: ch.title, content: ch.content, startOffset: 0, endOffset: ch.content.length,
+          title: ch.title, content: ch.content,
+          startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? ch.content.length,
         })),
       });
     }

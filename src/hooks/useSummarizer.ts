@@ -13,6 +13,7 @@ import { useRAGStore } from "@/stores/rag-store";
 import { syncClient } from "@/sync/sync-client";
 import { addDebugEntry, ragLog } from "@/components/common/DebugPanel";
 import { useBuildStore } from "@/stores/build-store";
+import { authHeaders } from "@/lib/auth-headers";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -55,7 +56,7 @@ export function useSummarizer() {
     const engine = useRAGStore.getState().engine;
     if (engine !== "bge-small-zh") return;
     setCurrentTask("正在检查索引状态...");
-    fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`)
+    fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`, { headers: authHeaders() })
       .then(r => r.json())
       .then(async (st) => {
         if (st.status === "ready") {
@@ -93,7 +94,7 @@ export function useSummarizer() {
         let engine = prefEngine;
         if (engine === "bge-small-zh") {
           try {
-            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`);
+            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`, { headers: authHeaders() });
             const st = await sr.json();
             if (st.status === "ready") {
               // Index exists on server, trigger download via bge-retriever init
@@ -149,7 +150,7 @@ export function useSummarizer() {
       const data = result.data as { summaries: { chapterTitle: string; content: string; tokens: number }[] };
       for (const s of data.summaries) {
         const summary: SummaryItem = {
-          id: Math.random().toString(36).slice(2) + Date.now().toString(36), novelId: currentNovel.id, chapterId,
+          id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
           chapterTitle: s.chapterTitle, content: s.content,
           tokensUsed: s.tokens, createdAt: Date.now(), type: "chapter",
         };
@@ -166,7 +167,7 @@ export function useSummarizer() {
       if (!currentNovel || !result.success || !result.data) return;
       const data = result.data as { content: string; usedFallback?: boolean };
       const summary: SummaryItem = {
-        id: Math.random().toString(36).slice(2) + Date.now().toString(36), novelId: currentNovel.id, chapterId,
+        id: crypto.randomUUID(), novelId: currentNovel.id, chapterId,
         chapterTitle: title + (data.usedFallback ? "（精简版）" : ""),
         content: data.content, tokensUsed: result.tokensUsed || 0, createdAt: Date.now(), type,
       };
@@ -367,7 +368,7 @@ ${combinedText}`;
         });
 
         return {
-          id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+          id: crypto.randomUUID(),
           title: `第${fromChapter}-${toChapter}章 范围总结`,
           content: response.content,
           tokensUsed: response.tokensUsed.total,

@@ -16,7 +16,7 @@ interface SummaryState {
   isGenerating: boolean;
   generateProgress: { current: number; total: number } | null;
   addSummary: (summary: SummaryItem) => void;
-  setSummaries: (summaries: SummaryItem[]) => void;
+  setSummaries: (summaries: SummaryItem[] | ((prev: SummaryItem[]) => SummaryItem[])) => void;
   setGenerating: (generating: boolean) => void;
   setProgress: (progress: { current: number; total: number } | null) => void;
   getSummariesByChapter: (chapterId: string) => SummaryItem[];
@@ -42,7 +42,9 @@ export const useSummaryStore = create<SummaryState>((set, get) => ({
       return { summaries: [...filtered, summary] };
     }),
 
-  setSummaries: (summaries) => set({ summaries }),
+  setSummaries: (summaries) => set((s) => ({
+    summaries: typeof summaries === "function" ? summaries(s.summaries) : summaries,
+  })),
 
   setGenerating: (generating) => set({ isGenerating: generating }),
 

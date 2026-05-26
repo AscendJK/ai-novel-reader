@@ -21,6 +21,7 @@ import { db } from "@/db/database";
 import { syncClient } from "@/sync/sync-client";
 import { gatherChanges, applyServerData } from "@/sync/sync-bridge";
 import type { SyncData } from "@/sync/types";
+import { authHeaders } from "@/lib/auth-headers";
 
 export function AppLayout() {
   const { theme, debugMode } = useUIStore();
@@ -30,15 +31,31 @@ export function AppLayout() {
   const [syncReady, setSyncReady] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSyncing, setLoginSyncing] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const syncStarted = useRef(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
 
   const kickedRef = useRef(false);
   const handleKicked = useCallback(() => {
     if (kickedRef.current) return;
     kickedRef.current = true;
     alert("该账号已在另一设备登录，当前会话已下线。");
-    localStorage.clear();
-    db.delete().then(() => window.location.reload()).catch(() => window.location.reload());
+    localStorage.removeItem("sync-username");
+    localStorage.removeItem("sync-clientId");
+    localStorage.removeItem("sync-token");
+    db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
+      await db.novels.clear();
+      await db.chapters.clear();
+      await db.summaries.clear();
+      await db.notes.clear();
+      await db.settings.clear();
+    }).then(() => window.location.reload()).catch(() => window.location.reload());
   }, []);
 
   useEffect(() => {
@@ -104,6 +121,16 @@ export function AppLayout() {
     setLoginError(null);
 
     // Clear stale local data from any previous user (truncate tables, not delete DB)
+    // Preserve ALL users' API settings (stored locally, never synced for security)
+    const savedApiSettings: Array<{ key: string; value: unknown }> = [];
+    try {
+      const allSettings = await db.settings.toArray();
+      for (const s of allSettings) {
+        if (s.key.startsWith("api-providers:") || s.key.startsWith("api-active-provider:")) {
+          savedApiSettings.push(s);
+        }
+      }
+    } catch { /* ignore */ }
     try {
       await db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
         await db.novels.clear();
@@ -113,11 +140,23 @@ export function AppLayout() {
         await db.settings.clear();
       });
     } catch (e) { console.error("clear tables failed:", e); }
-    const syncUser = localStorage.getItem("sync-username");
-    const syncCid = localStorage.getItem("sync-clientId");
-    localStorage.clear();
-    if (syncUser) localStorage.setItem("sync-username", syncUser);
-    if (syncCid) localStorage.setItem("sync-clientId", syncCid);
+    // Restore all saved API settings after clearing
+    try {
+      for (const s of savedApiSettings) {
+        await db.settings.put(s).catch(() => {});
+      }
+    } catch { /* ignore */ }
+    // Clear only app-specific localStorage keys, preserve sync session
+    const keepKeys = ["sync-username", "sync-clientId", "sync-token"];
+    const kept: Record<string, string> = {};
+    keepKeys.forEach((k) => { const v = localStorage.getItem(k); if (v) kept[k] = v; });
+    // Remove all novel-reader keys
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) toRemove.push(k);
+    }
+    toRemove.forEach((k) => { if (!keepKeys.includes(k)) localStorage.removeItem(k); });
 
     // Login
     const mode = isJoin ? "join" : "create";
@@ -169,21 +208,38 @@ export function AppLayout() {
 
     setSyncReady(true);
     setLoginSyncing(false);
+    // Always start with debug mode off after login
+    useUIStore.getState().setDebugMode(false);
   };
 
-  // Download joined novels that are missing from local IndexedDB
+  // Download joined novels that are missing from local IndexedDB, and clean up deleted ones
   const syncJoinedNovels = async () => {
     try {
       const username = localStorage.getItem("sync-username");
       if (!username) return;
-      const resp = await fetch(`/api/novels?username=${encodeURIComponent(username)}`);
+      const resp = await fetch(`/api/novels?username=${encodeURIComponent(username)}`, { headers: authHeaders() });
       if (!resp.ok) return;
       const list = await resp.json();
+
+      // Server-side novel IDs that still exist
+      const serverNovelIds = new Set(list.map((n: any) => n.id));
+
+      // Clean up local novels that were deleted from the server
+      const currentNovelId = useNovelStore.getState().currentNovel?.id;
+      const localNovels = await db.novels.toArray();
+      for (const local of localNovels) {
+        if (serverNovelIds.has(local.id)) continue;
+        if (local.id === currentNovelId) continue; // don't remove while user is reading
+        await db.deleteNovel(local.id).catch(() => {});
+        useNovelStore.getState().removeNovel(local.id);
+      }
+
+      // Download joined novels missing from local
       for (const sn of list) {
         if (!sn.joined) continue;
         const existing = await db.novels.get(sn.id);
         if (existing) continue;
-        const chResp = await fetch(`/api/novels/${sn.id}/chapters?username=${encodeURIComponent(username)}`);
+        const chResp = await fetch(`/api/novels/${sn.id}/chapters`, { headers: authHeaders() });
         if (!chResp.ok) continue;
         const chapters = await chResp.json();
         await db.transaction("rw", db.novels, db.chapters, async () => {
@@ -242,7 +298,7 @@ export function AppLayout() {
           </div>
         )}
       </main>
-      {debugMode && <DebugPanel />}
+      {debugMode && !isMobile && <DebugPanel />}
       <BuildProgressBox />
     </div>
   );

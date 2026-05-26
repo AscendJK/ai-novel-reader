@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
@@ -50,6 +50,9 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const [characterGraphData, setCharacterGraphData] = useState<GraphData | null>(null);
 
   const { currentNovel, selectedChapterId } = useNovelStore();
+  // Ref for latest selectedChapterId to avoid stale closures in callbacks
+  const selectedChapterRef = useRef(selectedChapterId);
+  selectedChapterRef.current = selectedChapterId;
   const { getSummariesByNovel, isGenerating, generateProgress } = useSummaryStore();
   const {
     isRunning, currentTask, error,
@@ -72,7 +75,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       ? currentNovel.chapters.find((c) => c.id === selectedChapterId)?.title || "当前章节"
       : "全书笔记";
     const note: NoteItem = {
-      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      id: crypto.randomUUID(),
       novelId: currentNovel.id,
       chapterId,
       chapterTitle,
@@ -109,7 +112,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     const finalChapterId = isBook ? "__book__" : (chapterId || "__book__");
     const chTitle = isBook ? "全书笔记" : currentNovel.chapters.find((c) => c.id === chapterId)?.title || title;
     const note: NoteItem = {
-      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      id: crypto.randomUUID(),
       novelId: currentNovel.id,
       chapterId: finalChapterId,
       chapterTitle: chTitle,
@@ -163,13 +166,13 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const handleAsk = async () => {
     if (!customQuestion.trim()) return;
     const q = customQuestion.trim(); setCustomQuestion("");
-    const um = { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "user" as const, content: q };
+    const um = { id: crypto.randomUUID(), role: "user" as const, content: q };
     setQaMessages((p) => [...p, um]);
     setQaLoading(true); setQaError(null);
     try {
       const hist = useSummaryStore.getState().summaries.map((m: any) => ({ role: m.role, content: m.content }));
       const r = await askCustomQuestion(q, hist);
-      if (r) setQaMessages((p) => [...p, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
+      if (r) setQaMessages((p) => [...p, { id: crypto.randomUUID(), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
     } catch (e) { setQaError(e instanceof Error ? e.message : "failed"); }
     finally { setQaLoading(false); }
   };
@@ -276,7 +279,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
                       {m.role === "assistant" && (
                         <div className="flex gap-1 mt-0.5">
                           <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
-                            onClick={() => handleBookmarkAI("AI 回答", m.content, selectedChapterId || "", "chapter")}>
+                            onClick={() => handleBookmarkAI("AI 回答", m.content, selectedChapterRef.current || "", "chapter")}>
                             <Bookmark className="h-2.5 w-2.5 mr-0.5" />收藏到本章
                           </Button>
                           <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"

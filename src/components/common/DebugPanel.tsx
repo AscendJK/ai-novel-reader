@@ -31,6 +31,8 @@ export function ragLog(msg: string) {
 }
 
 export function addDebugEntry(e: Omit<DebugEntry, "id" | "time">) {
+  // Only accumulate when debug panel is mounted (listeners exist)
+  if (listeners.size === 0) return;
   entries.unshift({ ...e, id: ++entryId, time: Date.now() });
   if (entries.length > 10) entries.pop();
   log(`检索: ${e.query.slice(0, 60)} → ${e.results.length}条 · ${e.engine} · ${e.duration?.toFixed(2) || "?"}s`);

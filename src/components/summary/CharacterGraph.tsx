@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 // @ts-ignore - d3-force types not installed
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import type { GraphData } from "@/hooks/useSummarizer";
@@ -30,17 +30,23 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [simData, setSimData] = useState<{ nodes: SimNode[]; edges: SimEdge[] } | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [tooltip, setTooltip] = useState<{ desc: string; x: number; y: number } | null>(null);
   const [ttScreen, setTTScreen] = useState<{ sx: number; sy: number }>({ sx: 0, sy: 0 });
 
-  // Reset zoom on expand/collapse
-  useEffect(() => { setZoom(1); setDragOffset({ x: 0, y: 0 }); }, [expanded]);
+  // Pinch-to-zoom state
+  const pinchStartDist = useRef(0);
+  const pinchStartZoom = useRef(1);
 
-  const handleZoom = (delta: number) => setZoom((z) => Math.max(0.3, Math.min(3, z + delta)));
+  // Reset on expand/collapse
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, [expanded]);
+
+  const handleZoom = useCallback((delta: number) => {
+    setZoom((z) => Math.max(0.3, Math.min(5, z + delta)));
+  }, []);
 
   useEffect(() => {
     if (!graphData.nodes.length) return;
@@ -79,10 +85,70 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
     setSimData({ nodes: finalNodes, edges: finalEdges });
   }, [graphData]);
 
-  // Reset pan on expand/collapse
+  // Mouse drag handlers for panning
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!expanded) return;
+    setDragging(true);
+    dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragging || !expanded) return;
+    setPan({
+      x: e.clientX - dragStart.current.x,
+      y: e.clientY - dragStart.current.y,
+    });
+  };
+
+  const handleMouseUp = () => setDragging(false);
+
+  // Mouse wheel zoom — use native listener to allow preventDefault
   useEffect(() => {
-    setDragOffset({ x: 0, y: 0 });
+    const el = containerRef.current;
+    if (!el || !expanded) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.15 : 0.15;
+      setZoom((z) => Math.max(0.3, Math.min(5, z + delta)));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
   }, [expanded]);
+
+  // Touch handlers for pinch-to-zoom
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!expanded) return;
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStartDist.current = Math.hypot(dx, dy);
+      pinchStartZoom.current = zoom;
+    } else if (e.touches.length === 1) {
+      setDragging(true);
+      dragStart.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
+    }
+  }, [expanded, zoom, pan]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!expanded) return;
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const scale = dist / pinchStartDist.current;
+      setZoom(Math.max(0.3, Math.min(5, pinchStartZoom.current * scale)));
+    } else if (e.touches.length === 1 && dragging) {
+      setPan({
+        x: e.touches[0].clientX - dragStart.current.x,
+        y: e.touches[0].clientY - dragStart.current.y,
+      });
+    }
+  }, [expanded, dragging]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length < 2) setDragging(false);
+  }, []);
 
   if (!graphData.nodes.length) {
     return <div className="text-xs text-muted-foreground text-center py-4">图谱数据为空，请重试</div>;
@@ -94,7 +160,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   // Compute tight bounds from actual node positions
   const nodesXs = simData.nodes.map((n) => n.x);
   const nodesYs = simData.nodes.map((n) => n.y);
-  const pad = 80;
+  const pad = expanded ? 80 : 50;
   const minX = Math.min(...nodesXs) - pad;
   const maxX = Math.max(...nodesXs) + pad;
   const minY = Math.min(...nodesYs) - pad;
@@ -103,32 +169,17 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const viewH = maxY - minY;
   const viewBoxStr = `${minX} ${minY} ${viewW} ${viewH}`;
 
-  const nodeCount = simData.nodes.length;
-  const viewSize = expanded ? Math.max(900, nodeCount * 160) : 280;
   const fontSize = expanded ? 13 : 9;
   const nodeRadius = expanded ? 24 : 14;
 
-  // Mouse drag handlers for panning
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!expanded) return;
-    setDragging(true);
-    dragStart.current = { x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y };
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging || !expanded) return;
-    setDragOffset({
-      x: e.clientX - dragStart.current.x,
-      y: e.clientY - dragStart.current.y,
-    });
-  };
-
-  const handleMouseUp = () => setDragging(false);
+  // Inline container height: dynamic based on aspect ratio, clamped to reasonable range
+  const aspectRatio = viewH > 0 ? viewW / viewH : 1;
+  const inlineHeight = expanded ? 0 : Math.max(140, Math.min(320, Math.round(280 / aspectRatio)));
 
   return (
     <>
       {/* Inline graph */}
-      <div className="relative border rounded-lg bg-muted/20 overflow-hidden" style={{ height: 200 }}>
+      <div className="relative border rounded-lg bg-muted/20 overflow-hidden" style={{ height: inlineHeight }}>
         <div className="absolute top-1 right-1 z-10 flex gap-1">
           {onRegenerate && (
             <Button variant="ghost" size="icon" className="h-6 w-6 bg-background/80" onClick={onRegenerate} title="重绘">
@@ -140,8 +191,8 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
           </Button>
         </div>
         <div className="w-full h-full flex items-center justify-center">
-          <svg viewBox={`${-viewSize / 2} ${-viewSize / 2} ${viewSize} ${viewSize}`}
-            className="w-full h-full">
+          <svg viewBox={viewBoxStr}
+            className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             {simData.nodes.map((n) => (
               <g key={n.id}>
                 {n.description && (
@@ -202,22 +253,26 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
           <div
             ref={containerRef}
             className="flex-1 overflow-auto cursor-grab active:cursor-grabbing"
+            style={{ touchAction: "none" }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
             <div
               className="min-w-full min-h-full flex items-center justify-center p-8"
               style={{
-                transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: "center center",
               }}
             >
               <svg
                 viewBox={viewBoxStr}
-                width={viewW * zoom}
-                height={viewH * zoom}
-                style={{ maxWidth: viewW * zoom, maxHeight: viewH * zoom }}
+                style={{ width: "100%", height: "100%", maxWidth: viewW + 120, maxHeight: viewH + 120 }}
+                preserveAspectRatio="xMidYMid meet"
               >
                 {simData.edges.map((e, i) => {
                   if (!e.source || !e.target) return null;
@@ -253,7 +308,7 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                   </g>
                 ))}
                 {/* Legend */}
-                <g transform={`translate(${viewSize / 2 - 150}, ${-viewSize / 2 + 10})`}>
+                <g transform={`translate(${maxX - 160}, ${minY + 10})`}>
                   {Object.entries(GROUP_COLORS).slice(0, -1).map(([group, color], i) => (
                     <g key={group} transform={`translate(0, ${i * 18})`}>
                       <circle cx={0} cy={0} r={4} fill={color} />

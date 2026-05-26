@@ -284,8 +284,12 @@ export function upsertNote(n) {
   `).run(n);
 }
 
-export function deleteNote(noteId) {
-  db.prepare("DELETE FROM notes WHERE id = ?").run(noteId);
+export function deleteNote(noteId, username) {
+  if (username) {
+    db.prepare("DELETE FROM notes WHERE id = ? AND username = ?").run(noteId, username);
+  } else {
+    db.prepare("DELETE FROM notes WHERE id = ?").run(noteId);
+  }
 }
 
 export function deleteNotesByChapter(username, novelId, chapterId) {
@@ -305,7 +309,12 @@ export function setSetting(username, key, value) {
   try {
     const v = JSON.stringify(value);
     db.prepare("INSERT OR REPLACE INTO user_settings (username, key, value) VALUES (?, ?, ?)").run(username, key, v);
-  } catch { /* ignore corrupt data */ }
+  } catch (e) {
+    // Ignore JSON.stringify errors for corrupt data, but log DB errors
+    if (e.code && !e.code.startsWith("SQLITE_")) {
+      console.error("[db] setSetting error:", e);
+    }
+  }
 }
 
 // ── Sync: gather all user data for push (return camelCase for client) ──
@@ -325,13 +334,19 @@ export function gatherSyncData(username) {
 
   const progress = getProgress(username);
 
+  // Never return API key settings to clients
+  const SENSITIVE_KEYS = new Set(["api-providers", "api-active-provider"]);
   const settingRows = db.prepare("SELECT key, value FROM user_settings WHERE username = ?").all(username);
   const settings = {};
   for (const s of settingRows) {
+    if (SENSITIVE_KEYS.has(s.key)) continue;
     try { settings[s.key] = JSON.parse(s.value); } catch { settings[s.key] = s.value; }
   }
 
-  return { summaries, notes, settings, progress };
+  // Novel IDs the user has joined (novel deleted from server → ID disappears via CASCADE)
+  const joinedNovelIds = db.prepare("SELECT novel_id FROM user_novels WHERE username = ?").all(username).map(r => r.novel_id);
+
+  return { summaries, notes, settings, progress, joinedNovelIds };
 }
 
 // ── Sync: apply merged data from server ──

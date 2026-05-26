@@ -3,6 +3,7 @@ import { ragLog } from "@/components/common/DebugPanel";
 import { db } from "@/db/database";
 import { useRAGStore } from "@/stores/rag-store";
 import { useBuildStore } from "@/stores/build-store";
+import { authHeaders } from "@/lib/auth-headers";
 
 export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
 export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
@@ -49,7 +50,8 @@ export class BGERetriever {
   async init(
     novelId: string,
     _allChunks: Chunk[],
-    onProgress?: (p: BGEProgress) => void
+    onProgress?: (p: BGEProgress) => void,
+    signal?: AbortSignal
   ): Promise<void> {
     // Check LRU memory cache first
     const memCacheKey = `${novelId}-bge-small-zh`;
@@ -89,7 +91,7 @@ export class BGERetriever {
 
     // Check status first to avoid 404
     ragLog("检查服务器索引状态...");
-    const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+    const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
     const statusData = await statusCheck.json();
 
     if (statusData.status === "none") {
@@ -97,16 +99,18 @@ export class BGERetriever {
       useBuildStore.getState().start();
       await fetch(`/api/rag/${novelId}/build`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ engine: "bge-small-zh" }),
       });
 
       // Poll for progress
       let waited = 0;
       while (waited < 600_000) { // 10 min max
+        if (signal?.aborted) throw new Error("操作已取消");
         await new Promise((r) => setTimeout(r, 3000));
         waited += 3000;
-        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+        if (signal?.aborted) throw new Error("操作已取消");
+        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
         const status = await statusResp.json();
         ragLog(`服务器构建中: ${status.status} ${status.current ?? ""}/${status.total ?? ""}`);
 
@@ -123,7 +127,7 @@ export class BGERetriever {
       }
 
       // Fetch the built index
-      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
       if (!retryResp.ok) throw new Error("索引加载失败");
       const data = await retryResp.json();
       await this._loadFromServer(novelId, data, memCacheKey, onProgress);
@@ -131,8 +135,8 @@ export class BGERetriever {
     }
 
     if (statusData.status === "ready") {
-      const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
-      if (!resp.ok) throw new Error(`服务器错误: ${resp.status}`);
+      const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
+      if (!resp.ok) throw new Error("索引加载失败");
       const data = await resp.json();
       await this._loadFromServer(novelId, data, memCacheKey, onProgress);
       return;
@@ -142,13 +146,15 @@ export class BGERetriever {
     if (!useBuildStore.getState().open) useBuildStore.getState().start();
     let waited = 0;
     while (waited < 600_000) {
+      if (signal?.aborted) throw new Error("操作已取消");
       await new Promise((r) => setTimeout(r, 3000));
       waited += 3000;
-      const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+      if (signal?.aborted) throw new Error("操作已取消");
+      const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
       const st = await sr.json();
       if (st.status === "ready") {
         useBuildStore.getState().finish();
-        const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`);
+        const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
         if (!resp.ok) throw new Error("索引加载失败");
         const data = await resp.json();
         await this._loadFromServer(novelId, data, memCacheKey, onProgress);
@@ -219,7 +225,7 @@ export class BGERetriever {
     // Use the server for query encoding (single vector, fast)
     const resp = await fetch("/api/rag/encode", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ texts: [query] }),
     });
     if (!resp.ok) return [];

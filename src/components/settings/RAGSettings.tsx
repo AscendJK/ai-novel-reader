@@ -16,6 +16,7 @@ import {
 export function RAGSettings() {
   const { engine, customModelKey, setEngine, setCustomModel, clearCustomModel, savedCustomModels, setSavedCustomModels } = useRAGStore();
   const [customModels, setCustomModels] = useState<ModelEntry[]>([]);
+  const [isMobile] = useState(() => window.innerWidth < 768);
 
   // Restore previously scanned models from store on mount
   useEffect(() => {
@@ -414,21 +415,25 @@ export function RAGSettings() {
           </select>
         </div>
 
-        <Separator className="my-4" />
+        {!isMobile && (
+          <>
+            <Separator className="my-4" />
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-sm">调试模式</p>
-            <p className="text-xs text-muted-foreground">开启后在右下角显示 RAG 检索详情面板</p>
-          </div>
-          <Button
-            variant={useUIStore.getState().debugMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => useUIStore.getState().setDebugMode(!useUIStore.getState().debugMode)}
-          >
-            {useUIStore.getState().debugMode ? "已开启" : "已关闭"}
-          </Button>
-        </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-sm">调试模式</p>
+                <p className="text-xs text-muted-foreground">开启后在右下角显示 RAG 检索详情面板</p>
+              </div>
+              <Button
+                variant={useUIStore.getState().debugMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => useUIStore.getState().setDebugMode(!useUIStore.getState().debugMode)}
+              >
+                {useUIStore.getState().debugMode ? "已开启" : "已关闭"}
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

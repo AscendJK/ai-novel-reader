@@ -19,9 +19,17 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("ErrorBoundary caught:", error.message, info.componentStack);
   }
+
+  private handleRetry = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  private handleReload = () => {
+    window.location.reload();
+  };
 
   render() {
     if (this.state.hasError) {
@@ -34,9 +42,14 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="text-sm text-muted-foreground text-center max-w-md">
             {this.state.error?.message || "应用发生未知错误"}
           </p>
-          <Button variant="outline" onClick={() => this.setState({ hasError: false, error: null })}>
-            重试
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={this.handleRetry}>
+              重试
+            </Button>
+            <Button variant="outline" onClick={this.handleReload}>
+              刷新页面
+            </Button>
+          </div>
         </div>
       );
     }

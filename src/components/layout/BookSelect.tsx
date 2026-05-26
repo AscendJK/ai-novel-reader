@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCharCount } from "@/lib/text-utils";
 import { useBuildStore } from "@/stores/build-store";
+import { authHeaders } from "@/lib/auth-headers";
 import type { NovelMeta } from "@/parsers/types";
 
 export function BookSelect() {
@@ -20,9 +21,15 @@ export function BookSelect() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const buildPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [batchParsing, setBatchParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Cleanup build polling on unmount
+  useEffect(() => {
+    return () => { if (buildPollRef.current) clearInterval(buildPollRef.current); };
+  }, []);
 
   useEffect(() => {
     loadAllNovelMeta().then((novels) => {
@@ -53,26 +60,31 @@ export function BookSelect() {
     if (!ids.length) return;
     let active = true;
     const poll = async () => {
-      const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=bge-small-zh`);
-      if (!active) return;
-      const statuses = await resp.json();
-      setBuildStatuses(statuses);
-      // Stop polling current build if it completed
-      const cur = buildingId ? statuses[buildingId] : null;
-      if (cur && (cur.status === "ready" || cur.status === "error")) {
-        setBuildingId(null);
-      }
+      try {
+        // Skip if not authenticated
+        if (!localStorage.getItem("sync-token")) return;
+        const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=bge-small-zh`, { headers: authHeaders() });
+        if (!active || !resp.ok) return;
+        const statuses = await resp.json();
+        setBuildStatuses(statuses);
+        const cur = buildingId ? statuses[buildingId] : null;
+        if (cur && (cur.status === "ready" || cur.status === "error")) {
+          setBuildingId(null);
+        }
+      } catch { /* server unreachable */ }
     };
     poll();
     const timer = setInterval(poll, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [savedNovels, buildingId]);
+  }, [savedNovels, buildingId, authHeaders]);
 
   const handleBuild = async (novelId: string) => {
+    // Clear any existing poll before starting a new one
+    if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
     setBuildingId(novelId);
     useBuildStore.getState().start();
     const resp = await fetch(`/api/rag/${novelId}/build`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: authHeaders(),
       body: JSON.stringify({ engine: "bge-small-zh" }),
     });
     const result = await resp.json();
@@ -89,13 +101,17 @@ export function BookSelect() {
       queuePosition: result.queuePosition,
     } as any);
     const bs = useBuildStore.getState();
-    const poll = setInterval(async () => {
+    buildPollRef.current = setInterval(async () => {
       try {
-        const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`);
+        const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
         const st = await sr.json();
-        if (st.status === "ready") { bs.finish(); clearInterval(poll); setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st })); }
-        else if (st.status === "error") { bs.fail(st.error || "失败"); clearInterval(poll); setBuildingId(null); }
-        else if (st.status === "queued") {
+        if (st.status === "ready") {
+          bs.finish(); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
+          setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st }));
+        } else if (st.status === "error") {
+          bs.fail(st.error || "失败"); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
+          setBuildingId(null);
+        } else if (st.status === "queued") {
           bs.setProgress({ status: "queued", queuePosition: st.queuePosition || "?", message: `排队中 (第 ${st.queuePosition || "?"} 位)...`, novelId, engine: "bge-small-zh" } as any);
         } else {
           const msg = st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
@@ -111,7 +127,7 @@ export function BookSelect() {
     try {
       const username = localStorage.getItem("sync-username");
       const url = username ? `/api/novels?username=${encodeURIComponent(username)}` : "/api/novels";
-      const r = await fetch(url);
+      const r = await fetch(url, { headers: authHeaders() });
       const list = await r.json();
       setServerNovels(list.map((n: any) => ({
         id: n.id, title: n.title, author: n.author,
@@ -130,8 +146,7 @@ export function BookSelect() {
     setJoiningId(novel.id);
     const username = localStorage.getItem("sync-username");
     try {
-      const uname = localStorage.getItem("sync-username") || "";
-      const chResp = await fetch(`/api/novels/${novel.id}/chapters?username=${encodeURIComponent(uname)}`);
+      const chResp = await fetch(`/api/novels/${novel.id}/chapters`, { headers: authHeaders() });
       const chapters = await chResp.json();
       await db.transaction("rw", db.novels, db.chapters, async () => {
         await db.novels.put({
@@ -149,12 +164,9 @@ export function BookSelect() {
         }
       });
       addNovel({ ...novel, chapters, chapterCount: chapters.length });
-      if (username) {
-        fetch(`/api/novels/${novel.id}/join`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username }),
-        }).catch(() => {});
-      }
+      fetch(`/api/novels/${novel.id}/join`, {
+        method: "POST", headers: authHeaders(),
+      }).catch(() => {});
       setSavedNovels((prev) => [{ ...novel, chapterCount: chapters.length }, ...prev]);
       setServerNovels((prev) => prev.map((n) => n.id === novel.id ? { ...n, joined: true } : n));
     } catch (e) { console.error("join failed:", e); }
@@ -265,13 +277,9 @@ export function BookSelect() {
   const handleDelete = async (e: React.MouseEvent, novelId: string, title: string) => {
     e.stopPropagation();
     if (!window.confirm(`从书架移除《${title}》？\n\n将删除你关于此书的所有数据：\n- AI 总结和分析\n- 人物关系图谱\n- 笔记\n- 阅读进度\n\n小说本身仍保留在服务器书库中。`)) return;
-    const username = localStorage.getItem("sync-username");
-    if (username) {
-      fetch(`/api/novels/${novelId}/leave`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
-      }).catch(() => {});
-    }
+    fetch(`/api/novels/${novelId}/leave`, {
+      method: "POST", headers: authHeaders(),
+    }).catch(() => {});
     await deleteNovel(novelId);
     setSavedNovels((prev) => prev.filter((n) => n.id !== novelId));
     setServerNovels((prev) => prev.map((n) => n.id === novelId ? { ...n, joined: false } : n));

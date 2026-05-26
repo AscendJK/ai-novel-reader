@@ -21,30 +21,35 @@ npm install
 
 Open `http://localhost:5173`.
 
-Stop: `./stop.sh` or `stop.bat`
+- Mode 1: Hot reload, may refresh on mobile background switch
+- Mode 2: Build then serve, stable for mobile access
+
+Stop: `./stop.sh` or double-click `stop.bat`
 
 ## Usage
 
 ### 1. Login
 
-- **Create New**: Pick a username for a fresh reading space
+- **Create New**: Pick a username (2-30 chars) for a fresh reading space
 - **Join Existing**: Enter an existing username to restore all data
 
-> One active session per username. Logout only clears browser data — server data persists.
+> One active session per username. Logging in from a new device kicks the old one. Logout only clears browser data — server data persists, just log back in to restore.
 
 ### 2. Configure AI
 
 Settings → choose provider (OpenAI, Anthropic, DeepSeek, or up to 5 custom OpenAI-compatible APIs) → enter API key and model name.
 
-API keys are stored only in your browser.
+- API keys are stored only in your browser's IndexedDB
+- API settings are isolated per user — different users on the same browser don't interfere
+- Settings survive logout, user switching, and browser restarts
 
 ### 3. Upload Novels
 
-Drag TXT/EPUB files onto the bookshelf. Supports GBK/Big5/UTF-8 encoding detection and smart chapter recognition. Uploaded novels appear in the shared library.
+Drag TXT/EPUB files onto the bookshelf, or use "Import from Folder" for batch upload. Supports GBK/Big5/UTF-8 encoding detection and smart chapter recognition. Uploaded novels appear in the shared library.
 
 ### 4. Read & Analyze
 
-Click a novel to enter reading view. Left sidebar navigates chapters; bottom bar provides prev/next; `←` `→` keys switch chapters. Aa button adjusts font size and weight. Dark mode supported.
+Click a novel to enter reading view. Left sidebar navigates chapters; bottom bar provides prev/next; `←` `→` keys switch chapters. Aa button adjusts font size and weight. Dark mode supported. Mobile-responsive with immersive reading mode.
 
 The AI analysis panel (top-right) provides:
 
@@ -65,14 +70,17 @@ Two retrieval engines included: **TF-IDF** (zero-config, instant) and **BGE Smal
 - Build BGE index per novel via the "Build" button on the bookshelf card
 - Built index downloads to browser cache (~1-3 MB per novel)
 - Falls back to TF-IDF automatically when BGE is unavailable
+- Settings page allows engine switching and cache limit adjustment (100-500 MB)
 
 ### 6. Multi-Device Sync
 
-Same username syncs: reading progress, AI summaries, notes, API config. Theme and font settings are per-device.
+Same username syncs: reading progress, AI summaries, notes.
+
+> Theme, font, and API config are per-device / per-user, not synced.
 
 ### 7. Library
 
-The Library browses all novels on the server. Click "Add to Shelf" to start reading. Removing from shelf only clears your data — the novel stays in the library.
+The Library at the bottom of the bookshelf browses all novels on the server. Click "Add to Shelf" to start reading. Removing from shelf only clears your data — the novel stays in the library.
 
 ### 8. Admin Panel
 
@@ -83,6 +91,27 @@ admin.bat        # Windows double-click
 
 Auto-starts server and opens admin page for viewing/deleting users and novels.
 
+## Architecture
+
+```
+React 19 + TypeScript + Vite
+Express + better-sqlite3
+├─ Multi-agent engine: summary / characters / timeline / graph
+├─ BGE Small ZH semantic retrieval (Worker Thread encoding)
+├─ d3-force character graph (mouse wheel + pinch-to-zoom)
+├─ IndexedDB browser cache + SQLite server persistence
+└─ Username system + Session Token auth + Server-side sync
+```
+
+## Security
+
+- **Session Token authentication**: Server issues tokens on login, all API requests verified via `Authorization: Bearer <token>`
+- **Single-session enforcement**: Logging in from a new device kicks the previous session
+- **API key local isolation**: Stored per-user in IndexedDB, never uploaded or synced
+- **CORS restriction**: Only localhost and LAN IPs (192.168.x.x / 10.x.x.x / 172.16-31.x.x) allowed
+- **Rate limiting**: RAG build, encode, and other expensive endpoints are rate-limited per IP
+- **Input validation**: Username length limits, request body size limits, text length limits
+
 ## Notes
 
 - BGE index for very long novels (5000+ chapters) may take 5-30 min; normal reading is unaffected during build
@@ -90,6 +119,16 @@ Auto-starts server and opens admin page for viewing/deleting users and novels.
 - Simultaneous builds are queued (max 10 tasks)
 - For LAN/local use only — do not expose to the internet
 - API keys stored in browser IndexedDB, never uploaded
+- Debug panel defaults to off, hidden on mobile
+
+## Browser Support
+
+| Browser | Status |
+|---------|--------|
+| Chrome / Edge 86+ | Full support |
+| Firefox 120+ | Folder import requires manual file selection |
+| Safari 15+ | Basic functionality |
+| Mobile Chrome / Safari | Responsive layout |
 
 ## License
 

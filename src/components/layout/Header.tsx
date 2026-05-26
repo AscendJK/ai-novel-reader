@@ -15,12 +15,41 @@ export function Header({ inBook, bookTitle, onBack, onSettings }: HeaderProps) {
   const { theme, toggleTheme } = useUIStore();
   const username = syncClient.user;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (!window.confirm("确定退出登录？\n\n退出后将清除本地数据并返回登录界面。")) return;
+    // Capture username before logout clears it
+    const currentUser = syncClient.user;
     syncClient.logout();
-    // Clear all local data
-    localStorage.clear();
-    db.delete().then(() => window.location.reload());
+    // Clear only app-specific keys, not all localStorage
+    const keysToRemove = [
+      "sync-username", "sync-clientId", "sync-token",
+      "novel-reader-positions-v2", "novel-reader-last-opened",
+      "novel-reader-theme", "novel-reader-debug",
+    ];
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    // Preserve ALL users' API settings (local-only, never synced)
+    const savedApiSettings: Array<{ key: string; value: unknown }> = [];
+    try {
+      const allSettings = await db.settings.toArray();
+      for (const s of allSettings) {
+        if (s.key.startsWith("api-providers:") || s.key.startsWith("api-active-provider:")) {
+          savedApiSettings.push(s);
+        }
+      }
+    } catch { /* ignore */ }
+    db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
+      await db.novels.clear();
+      await db.chapters.clear();
+      await db.summaries.clear();
+      await db.notes.clear();
+      await db.settings.clear();
+    }).then(async () => {
+      // Restore all saved API settings
+      for (const s of savedApiSettings) {
+        await db.settings.put(s).catch(() => {});
+      }
+      window.location.reload();
+    }).catch(() => window.location.reload());
   };
 
   return (

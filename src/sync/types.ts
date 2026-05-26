@@ -6,6 +6,7 @@ export interface SyncData {
     readingPositions: Record<string, { chapterId: string; chapterIndex: number }>;
     lastOpened: Record<string, number>;
   };
+  joinedNovelIds?: string[];
 }
 
 export interface PushPayload {
@@ -16,6 +17,7 @@ export interface PushPayload {
 
 export interface RegisterResult {
   clientId: string;
+  token: string;
   activeCount: number;
   data: (SyncData & { username: string; lastSyncAt: number }) | null;
   isNew: boolean;

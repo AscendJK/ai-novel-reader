@@ -62,14 +62,18 @@ function toast(msg, ok) {
   setTimeout(() => t.classList.remove("show"), 2000);
 }
 
+function authH() {
+  return { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
+}
+
 async function get(path) {
-  const r = await fetch(API + path + (path.includes("?") ? "&" : "?") + "token=" + token);
+  const r = await fetch(API + path, { headers: authH() });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
 async function del(path) {
-  const r = await fetch(API + path + (path.includes("?") ? "&" : "?") + "token=" + token, { method: "DELETE" });
+  const r = await fetch(API + path, { method: "DELETE", headers: authH() });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -105,42 +109,47 @@ async function loadOverview() {
 // Users
 async function loadUsers() {
   const users = await get("/users");
-  document.getElementById("content").innerHTML = `
-    <table><thead><tr><th>用户名</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead>
-    <tbody>${users.map(u => `
-      <tr>
-        <td>${h(u.username)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>
-        <td><button class="danger" onclick="delUser('${h(u.username)}')">删除</button></td>
-      </tr>`).join("")}</tbody></table>
-  `;
+  const tbody = document.createElement("tbody");
+  for (const u of users) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${h(u.username)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "danger"; btn.textContent = "删除";
+    btn.addEventListener("click", () => delUser(u.username));
+    td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
+  }
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>用户名</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 
 async function delUser(name) {
   if (!confirm(`确认删除用户 "${name}" 及其所有数据？此操作不可恢复。`)) return;
   try { await del("/users/" + encodeURIComponent(name)); toast("已删除", true); loadUsers(); }
-  catch(e) { toast(e.message, false); }
+  catch(e) { toast("删除失败", false); }
 }
 
 // Novels
 async function loadNovels() {
   const novels = await get("/novels");
-  document.getElementById("content").innerHTML = `
-    <table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>BGE 构建</th><th>上传</th><th>操作</th></tr></thead>
-    <tbody>${novels.map(n => `
-      <tr>
-        <td>${h(n.title)}</td><td>${h(n.author||"-")}</td>
-        <td><span class="badge">${(n.fileFormat||"?").toUpperCase()}</span></td>
-        <td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td>
-        <td>${ragBadge(n)}</td><td>${fmt(n.createdAt)}</td>
-        <td><button class="danger" onclick="delNovel('${n.id}')">删除</button></td>
-      </tr>`).join("")}</tbody></table>
-  `;
+  const tbody = document.createElement("tbody");
+  for (const n of novels) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${h(n.title)}</td><td>${h(n.author||"-")}</td><td><span class="badge">${h((n.fileFormat||"?").toUpperCase())}</span></td><td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td><td>${ragBadge(n)}</td><td>${fmt(n.createdAt)}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "danger"; btn.textContent = "删除";
+    btn.addEventListener("click", () => delNovel(n.id));
+    td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
+  }
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>BGE 构建</th><th>上传</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 
 async function delNovel(id) {
   if (!confirm("确认彻底删除该小说及其所有相关数据？此操作不可恢复。")) return;
-  try { await del("/novels/" + id); toast("已删除", true); loadNovels(); }
-  catch(e) { toast(e.message, false); }
+  try { await del("/novels/" + encodeURIComponent(id)); toast("已删除", true); loadNovels(); }
+  catch(e) { toast("删除失败", false); }
 }
 
 // Tab switching

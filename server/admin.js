@@ -18,7 +18,8 @@ const ADMIN_TOKEN = getOrCreateToken();
 console.log("[admin] Token:", ADMIN_TOKEN.slice(0, 4) + "..." + ADMIN_TOKEN.slice(-4));
 
 function auth(req, res) {
-  const t = req.query.token || req.body?.token;
+  const authH = req.headers.authorization;
+  const t = authH?.startsWith("Bearer ") ? authH.slice(7) : (req.query.token || req.body?.token);
   if (t !== ADMIN_TOKEN) { res.status(403).json({ error: "无效 token" }); return false; }
   return true;
 }

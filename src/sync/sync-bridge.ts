@@ -6,13 +6,14 @@ export async function gatherChanges(): Promise<Partial<SyncData>> {
   const summaries = await db.summaries.toArray();
   const notes = await db.notes.toArray();
 
-  // Gather settings (API, graph, RAG)
+  // Gather settings (graph, RAG) — never sync API keys
   const settings: Record<string, unknown> = {};
   try {
     const allSettings = await db.settings.toArray();
     for (const s of allSettings) {
-      if (s.key.startsWith("character-graph-") ||
-          s.key === "api-providers" || s.key === "api-active-provider") {
+      // Skip sensitive API key settings — these stay local only
+      if (s.key.startsWith("api-providers:") || s.key.startsWith("api-active-provider:")) continue;
+      if (s.key.startsWith("character-graph-")) {
         settings[s.key] = s.value;
       }
     }
