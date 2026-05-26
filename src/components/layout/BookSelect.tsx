@@ -49,6 +49,7 @@ export function BookSelect() {
 
   // Poll build statuses for bookshelf novels + check IndexedDB cache
   useEffect(() => {
+    if (engine === "tfidf") { setBuildStatuses({}); return; }
     const ids = savedNovels.map((n) => n.id);
     // Check which indices are cached in IndexedDB
     ids.forEach(async (nid) => {
@@ -461,14 +462,14 @@ export function BookSelect() {
                         </Button>
                       </div>
 
-                      {/* Build status indicator */}
-                      {(() => {
+                      {/* Build status indicator — hidden for TF-IDF (no index needed) */}
+                      {engine !== "tfidf" && (() => {
                         const st = buildStatuses[novel.id] || { status: "none" };
                         const chunkCount = st.chunkCount || st.chunk_count || 0;
                         const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
                         const memKey = novel.id + "-" + engine;
                         const loadedInMem = (window as any).__ragCacheLoaded?.has(memKey);
-                        const el = engine === "tfidf" ? "TF-IDF" : engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
+                        const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
                         if (st.status === "ready") {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
