@@ -47,25 +47,35 @@ export function BookSelect() {
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
 
-  // Poll build statuses for bookshelf novels + check IndexedDB cache
+  // Scan ALL IndexedDB ragCache entries once on mount (engine-independent)
+  useEffect(() => {
+    const ids = savedNovels.map((n) => n.id);
+    if (!ids.length) return;
+    (async () => {
+      try {
+        const all = await db.ragCache.toArray();
+        const novelIdSet = new Set(ids);
+        if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
+        for (const entry of all) {
+          // entry.novelId is composite key "novelId-engine"
+          const dashIdx = entry.novelId.lastIndexOf("-");
+          const nid = dashIdx > 0 ? entry.novelId.slice(0, dashIdx) : entry.novelId;
+          if (novelIdSet.has(nid) && entry.vectors?.length) {
+            (window as any).__ragCachedKeys.add(entry.novelId);
+          }
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [savedNovels]);
+
+  // Poll build statuses for the current engine
   useEffect(() => {
     if (engine === "tfidf") { setBuildStatuses({}); return; }
     const ids = savedNovels.map((n) => n.id);
-    // Check which indices are cached in IndexedDB
-    ids.forEach(async (nid) => {
-      try {
-        const c = await db.ragCache.get(nid + "-" + engine);
-        if (c?.vectors?.length) {
-          if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
-          (window as any).__ragCacheLoaded.add(nid + "-" + engine);
-        }
-      } catch { /* ignore */ }
-    });
     if (!ids.length) return;
     let active = true;
     const poll = async () => {
       try {
-        // Skip if not authenticated
         if (!localStorage.getItem("sync-token")) return;
         const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
         if (!active || !resp.ok) return;
@@ -468,13 +478,13 @@ export function BookSelect() {
                         const chunkCount = st.chunkCount || st.chunk_count || 0;
                         const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
                         const memKey = novel.id + "-" + engine;
-                        const loadedInMem = (window as any).__ragCacheLoaded?.has(memKey);
+                        const cachedInBrowser = (window as any).__ragCachedKeys?.has(memKey);
                         const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
                         if (st.status === "ready") {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                              <Badge variant="outline" className={`text-[10px] ${loadedInMem ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
-                                {loadedInMem ? `${el} 已加载 ${estSize || ""}` : `${el} 就绪 ${estSize || ""}`}
+                              <Badge variant="outline" className={`text-[10px] ${cachedInBrowser ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
+                                {cachedInBrowser ? `${el} 已缓存 ${estSize || ""}` : `${el} 就绪 ${estSize || ""}`}
                               </Badge>
                             </div>
                           );

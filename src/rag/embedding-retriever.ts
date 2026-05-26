@@ -14,6 +14,9 @@ export interface EmbeddingRetrieverData { vectors: number[][]; chunks: Chunk[]; 
 const LRU_CACHE = new Map<string, { vectors: Float32Array[]; chunks: Chunk[]; dim: number; size: number }>();
 let cacheTotalSize = 0;
 
+const evictListeners: Set<(key: string) => void> = new Set();
+export function onLRUEvict(fn: (key: string) => void) { evictListeners.add(fn); return () => evictListeners.delete(fn); }
+
 function getMaxCacheMB() {
   try { return useRAGStore.getState().cacheSizeMB || 100; } catch { return 100; }
 }
@@ -27,6 +30,7 @@ function evictLRU() {
     cacheTotalSize -= entry.size;
     LRU_CACHE.delete(firstKey);
     ragLog(`LRU 淘汰: ${firstKey}, 释放 ${(entry.size / 1024 / 1024).toFixed(1)}MB`);
+    for (const fn of evictListeners) fn(firstKey);
   }
 }
 
@@ -85,8 +89,8 @@ export class EmbeddingRetriever {
         this.vectors = data.vectors;
         this.chunks = data.chunks;
         this.dim = data.dim;
-        if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
-        (window as any).__ragCacheLoaded.add(memCacheKey);
+        if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
+        (window as any).__ragCachedKeys.add(memCacheKey);
         const size = this.vectors.length * this.dim * 4;
         LRU_CACHE.set(memCacheKey, { vectors: this.vectors, chunks: this.chunks, dim: this.dim, size });
         cacheTotalSize += size;
@@ -200,8 +204,8 @@ export class EmbeddingRetriever {
 
     const size = vectors.length * data.dim * 4;
     ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
-    if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
-    (window as any).__ragCacheLoaded.add(memCacheKey);
+    if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
+    (window as any).__ragCachedKeys.add(memCacheKey);
 
     LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
     cacheTotalSize += size;

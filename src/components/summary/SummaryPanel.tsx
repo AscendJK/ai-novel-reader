@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useRAGStore } from "@/stores/rag-store";
-import { getEngineDisplayName } from "@/rag/engines";
+import { useBuildStore } from "@/stores/build-store";
+import { getEngineDisplayName, isEmbeddingEngine } from "@/rag/engines";
+import { authHeaders } from "@/lib/auth-headers";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
 import type { GraphData } from "@/hooks/useSummarizer";
@@ -68,6 +70,61 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   } = useSummarizer();
 
   const loading = isRunning || isGenerating || qaLoading;
+  const engine = useRAGStore((s) => s.engine);
+
+  // Check if current novel+engine has a built index
+  const [indexReady, setIndexReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!currentNovel || !isEmbeddingEngine(engine)) { setIndexReady(null); return; }
+    let cancelled = false;
+    fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(st => { if (!cancelled) setIndexReady(st.status === "ready"); })
+      .catch(() => { if (!cancelled) setIndexReady(null); });
+    return () => { cancelled = true; };
+  }, [currentNovel?.id, engine]);
+
+  const handleBuildFromPanel = async () => {
+    if (!currentNovel) return;
+    useBuildStore.getState().start();
+    try {
+      const resp = await fetch(`/api/rag/${currentNovel.id}/build`, {
+        method: "POST", headers: authHeaders(),
+        body: JSON.stringify({ engine }),
+      });
+      const result = await resp.json();
+      if (result.status === "busy") {
+        useBuildStore.getState().fail("服务器繁忙");
+        return;
+      }
+      useBuildStore.getState().setProgress({
+        message: result.status === "queued" ? "排队中..." : "构建中...",
+        novelId: currentNovel.id, engine,
+        status: result.status === "queued" ? "queued" : "building",
+      });
+      // Poll until done
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
+          const st = await sr.json();
+          if (st.status === "ready") {
+            clearInterval(poll);
+            useBuildStore.getState().finish();
+            setIndexReady(true);
+          } else if (st.status === "error") {
+            clearInterval(poll);
+            useBuildStore.getState().fail(st.error || "构建失败");
+          } else {
+            useBuildStore.getState().setProgress({
+              status: "building",
+              message: st.status === "loading" ? "加载模型..." : `编码中 (${st.current ?? 0}/${st.total ?? "?"})`,
+              current: st.current || 0, total: st.total || 0,
+            });
+          }
+        } catch { /* keep polling */ }
+      }, 3000);
+    } catch { useBuildStore.getState().fail("请求失败"); }
+  };
 
   const handleSaveNote = async () => {
     if (!noteContent.trim() || !currentNovel) return;
@@ -209,17 +266,27 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
 
       {/* Engine indicator — show actual engine used, or current setting */}
       {(() => {
-        const engine = ragEngineUsed || useRAGStore.getState().engine;
-        const isEmbedding = engine !== "tfidf";
+        const displayEngine = ragEngineUsed || engine;
+        const isEmb = isEmbeddingEngine(displayEngine);
         return (
           <div className="mx-2.5 mt-2 text-[10px] text-muted-foreground text-center shrink-0">
             检索引擎:{" "}
-            <span className={isEmbedding ? "text-green-400" : "text-yellow-400"}>
-              {getEngineDisplayName(engine)}
+            <span className={isEmb ? "text-green-400" : "text-yellow-400"}>
+              {getEngineDisplayName(displayEngine)}
             </span>
           </div>
         );
       })()}
+
+      {/* Index not built warning */}
+      {isEmbeddingEngine(engine) && indexReady === false && (
+        <div className="mx-2.5 mt-1.5 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 shrink-0">
+          <p className="mb-1">该引擎索引未构建，当前使用 TF-IDF 回退检索</p>
+          <Button variant="outline" size="sm" className="h-5 text-[10px] px-2" onClick={handleBuildFromPanel}>
+            立即构建
+          </Button>
+        </div>
+      )}
 
       {/* Error banner */}
       {(error || qaError) && (

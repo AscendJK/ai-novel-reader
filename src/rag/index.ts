@@ -1,5 +1,5 @@
 import { Retriever, type Chunk } from "./retriever";
-import { EmbeddingRetriever, type EmbeddingProgress } from "./embedding-retriever";
+import { EmbeddingRetriever, onLRUEvict, type EmbeddingProgress } from "./embedding-retriever";
 import type { EngineId } from "./engines";
 import { isEmbeddingEngine } from "./engines";
 import { ragLog } from "@/components/common/DebugPanel";
@@ -16,6 +16,19 @@ interface IndexEntry {
 
 const indexCache = new Map<string, IndexEntry>();
 const buildingNow = new Set<string>();
+
+// When LRU evicts an entry, dispose the corresponding indexCache entry
+onLRUEvict((evictedKey) => {
+  for (const [nid, entry] of indexCache) {
+    const entryKey = `${nid}-${entry.engine}`;
+    if (entryKey === evictedKey && entry.embedding) {
+      entry.embedding.dispose();
+      indexCache.delete(nid);
+      ragLog(`indexCache 同步淘汰: ${evictedKey}`);
+      break;
+    }
+  }
+});
 
 export type { EmbeddingRetriever, EmbeddingProgress };
 
