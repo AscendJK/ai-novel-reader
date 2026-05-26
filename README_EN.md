@@ -6,7 +6,7 @@ A browser-based AI-powered novel reading tool. Upload TXT/EPUB files, configure 
 
 **Prerequisites:** [Node.js](https://nodejs.org) v18~22 LTS
 
-> **Node.js 24+ users**: `better-sqlite3` lacks prebuilt binaries for Node 24, so `npm install` will attempt to compile from source (requires Python 3.x and C++ build tools). We recommend **Node.js 22 LTS** to avoid compilation issues. See FAQ below.
+> **Node.js 24+ users**: `better-sqlite3` lacks prebuilt binaries for Node 24, so `npm install` will attempt to compile from source (requires Python 3.x and C++ build tools). We recommend **Node.js 22 LTS** to avoid compilation issues. To manage multiple Node versions, use [nvm](https://github.com/nvm-sh/nvm) (macOS/Linux) or [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) (Windows). See FAQ below.
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git
@@ -144,12 +144,23 @@ MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
 
 **Solutions (pick one)**:
 
-1. **Install Node.js 22 LTS** (recommended, easiest)
+1. **Use nvm to install Node.js 22 LTS** (recommended)
+   - Windows: Download and install [nvm-windows](https://github.com/coreybutler/nvm-windows/releases)
+   - macOS/Linux: Run `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash`
+   - After installing, restart terminal and run:
+     ```bash
+     nvm install 22       # Install Node 22 LTS
+     nvm use 22           # Switch to Node 22
+     ```
+   - Re-run `start.bat` or `./start.sh`
+   - To switch back for other projects: `nvm use 24`
+
+2. **Install Node.js 22 LTS directly** (without nvm)
    - Uninstall current Node.js
    - Download 22.x.x LTS from https://nodejs.org
    - Re-run `start.bat` or `./start.sh`
 
-2. **Install build tools** (for advanced users who need Node.js 24+)
+3. **Install build tools** (for advanced users who need Node.js 24+)
    - Install Python 3.x: https://www.python.org/downloads/ (check "Add Python to PATH")
    - Windows: Install Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ — select "Desktop development with C++"
    - macOS: Run `xcode-select --install` in terminal

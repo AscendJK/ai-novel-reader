@@ -8,7 +8,7 @@
 
 **前置条件：** [Node.js](https://nodejs.org) v18~22 LTS
 
-> **Node.js 24+ 用户注意**：`better-sqlite3` 在 Node 24 上缺少预编译二进制，`npm install` 会尝试从源码编译，需要 Python 3.x 和 C++ 构建工具。建议使用 **Node.js 22 LTS** 以避免编译问题。详见下方「常见问题」。
+> **Node.js 24+ 用户注意**：`better-sqlite3` 在 Node 24 上缺少预编译二进制，`npm install` 会尝试从源码编译，需要 Python 3.x 和 C++ 构建工具。建议使用 **Node.js 22 LTS** 以避免编译问题。如果需要同时使用多个 Node 版本，推荐用 [nvm](https://github.com/nvm-sh/nvm)（macOS/Linux）或 [nvm-windows](https://github.com/coreybutler/nvm-windows/releases)（Windows）管理版本。详见下方「常见问题」。
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git
@@ -161,12 +161,23 @@ MIT License
 
 **解决方案（任选其一）**：
 
-1. **安装 Node.js 22 LTS**（推荐，最简单）
+1. **用 nvm 安装 Node.js 22 LTS**（推荐）
+   - Windows：下载安装 [nvm-windows](https://github.com/coreybutler/nvm-windows/releases)
+   - macOS/Linux：终端运行 `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash`
+   - 安装后重启终端，执行：
+     ```bash
+     nvm install 22       # 安装 Node 22 LTS
+     nvm use 22           # 切换到 Node 22
+     ```
+   - 重新运行 `start.bat` 或 `./start.sh`
+   - 其他项目需要用 Node 24 时，`nvm use 24` 即可切换回来
+
+2. **直接安装 Node.js 22 LTS**（不用 nvm）
    - 卸载当前 Node.js
    - 从 https://nodejs.org 下载 22.x.x LTS 版本安装
    - 重新运行 `start.bat` 或 `./start.sh`
 
-2. **安装编译工具链**（适合高级用户）
+3. **安装编译工具链**（适合高级用户，不换 Node 版本）
    - 安装 Python 3.x：https://www.python.org/downloads/ （安装时勾选 "Add Python to PATH"）
    - Windows：安装 Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ ，选择"使用 C++ 的桌面开发"工作负载
    - macOS：终端运行 `xcode-select --install`
