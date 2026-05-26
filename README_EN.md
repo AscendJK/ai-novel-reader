@@ -87,12 +87,13 @@ Supports **any Transformers.js-compatible ONNX embedding model** for semantic re
 
 All Transformers.js-compatible ONNX embedding models (BGE, E5, MiniLM, GTE families) are supported:
 
-1. Download 3 files from the **Xenova conversion** page on [Hugging Face](https://huggingface.co): `config.json`, `tokenizer.json`, `onnx/model_quantized.onnx`
+1. Download 4 files from the **Xenova conversion** page on [Hugging Face](https://huggingface.co): `config.json`, `tokenizer.json`, `tokenizer_config.json`, `onnx/model_quantized.onnx`
 2. Place them in `public/models/custom/Xenova/your-model-name/`:
    ```
    public/models/custom/Xenova/your-model-name/
    ├── config.json
    ├── tokenizer.json
+   ├── tokenizer_config.json
    └── onnx/
        └── model_quantized.onnx
    ```

@@ -57,10 +57,10 @@ async function getModelStatus(base: string, modelKey: string): Promise<ModelStat
   const noCache = { cache: "no-cache" as RequestCache };
   let dir = "";
 
-  // 1. Check config.json and tokenizer.json exist
+  // 1. Check config.json, tokenizer.json, and tokenizer_config.json exist
   for (const cand of candidates) {
     let ok = true;
-    for (const file of ["config.json", "tokenizer.json"]) {
+    for (const file of ["config.json", "tokenizer.json", "tokenizer_config.json"]) {
       try {
         const resp = await fetch(base + cand + "/" + file, { method: "HEAD", ...noCache });
         if (!resp.ok) { ok = false; break; }

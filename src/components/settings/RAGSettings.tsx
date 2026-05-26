@@ -304,11 +304,12 @@ export function RAGSettings() {
               <div className="space-y-2">
                 <p className="font-medium">安装步骤</p>
 
-                <p className="font-medium text-foreground/80">第一步：下载 3 个文件</p>
+                <p className="font-medium text-foreground/80">第一步：下载 4 个文件</p>
                 <p>从 Xenova 转换版页面下载（见上方推荐列表的链接）：</p>
                 <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
                   <li><code className="px-1 bg-muted rounded text-xs">config.json</code></li>
                   <li><code className="px-1 bg-muted rounded text-xs">tokenizer.json</code></li>
+                  <li><code className="px-1 bg-muted rounded text-xs">tokenizer_config.json</code></li>
                   <li><code className="px-1 bg-muted rounded text-xs">onnx/model_quantized.onnx</code></li>
                 </ol>
                 <p className="text-muted-foreground">必须从 <strong>Xenova</strong> 页面下载（<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/模型名</code>），不是原版页面。</p>
@@ -317,9 +318,10 @@ export function RAGSettings() {
                 <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{`public/models/custom/Xenova/你的模型名/
   ├── config.json
   ├── tokenizer.json
+  ├── tokenizer_config.json
   └── onnx/
       └── model_quantized.onnx`}</pre>
-                <p className="text-muted-foreground">3 个文件必须按此目录结构放置，ONNX 文件必须在 <code className="px-1 bg-muted rounded text-xs">onnx/</code> 子文件夹中。</p>
+                <p className="text-muted-foreground">4 个文件必须按此目录结构放置，ONNX 文件必须在 <code className="px-1 bg-muted rounded text-xs">onnx/</code> 子文件夹中。</p>
 
                 <p className="font-medium text-foreground/80 mt-2">第三步：扫描使用</p>
                 <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">

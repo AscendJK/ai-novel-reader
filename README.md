@@ -97,12 +97,13 @@ npm install
 
 支持所有 Transformers.js 兼容的 ONNX 嵌入模型（BGE、E5、MiniLM、GTE 等系列）：
 
-1. 从 [Hugging Face](https://huggingface.co) 的 **Xenova 转换版**页面下载 3 个文件：`config.json`、`tokenizer.json`、`onnx/model_quantized.onnx`
+1. 从 [Hugging Face](https://huggingface.co) 的 **Xenova 转换版**页面下载 4 个文件：`config.json`、`tokenizer.json`、`tokenizer_config.json`、`onnx/model_quantized.onnx`
 2. 放到 `public/models/custom/Xenova/你的模型名/` 目录：
    ```
    public/models/custom/Xenova/你的模型名/
    ├── config.json
    ├── tokenizer.json
+   ├── tokenizer_config.json
    └── onnx/
        └── model_quantized.onnx
    ```
