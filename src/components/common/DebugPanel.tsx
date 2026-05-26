@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useRAGStore } from "@/stores/rag-store";
+import { getEngineDisplayName } from "@/rag/engines";
 import { getBGEMeta } from "@/rag/index";
 
 export interface DebugEntry {
@@ -147,7 +148,7 @@ export function DebugPanel() {
         <>
           {/* Status bar */}
           <div className="px-2 py-0.5 bg-gray-900/50 border-b border-gray-800 text-gray-500 flex gap-4 shrink-0">
-            <span>引擎: <span className={ragEngine === "bge-small-zh" ? "text-green-400" : "text-yellow-400"}>{ragEngine}</span></span>
+            <span>引擎: <span className={ragEngine !== "tfidf" ? "text-green-400" : "text-yellow-400"}>{getEngineDisplayName(ragEngine)}</span></span>
             {meta && <span>向量: {meta.chunkCount}片 · {meta.dim}维</span>}
             {currentNovel && !meta && <span className="text-yellow-400">索引未构建</span>}
             <span className="ml-auto">{entries.length} 次检索</span>

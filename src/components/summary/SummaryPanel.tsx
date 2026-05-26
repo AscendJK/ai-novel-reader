@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useNovelStore } from "@/stores/novel-store";
+import { useRAGStore } from "@/stores/rag-store";
+import { getEngineDisplayName } from "@/rag/engines";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
 import type { GraphData } from "@/hooks/useSummarizer";
@@ -205,14 +207,15 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
         </div>
       )}
 
-      {/* Engine indicator — always show default engine if not yet used */}
+      {/* Engine indicator — show actual engine used, or current setting */}
       {(() => {
-        const engine = ragEngineUsed || "tfidf"; // default until first retrieval
+        const engine = ragEngineUsed || useRAGStore.getState().engine;
+        const isEmbedding = engine !== "tfidf";
         return (
           <div className="mx-2.5 mt-2 text-[10px] text-muted-foreground text-center shrink-0">
             检索引擎:{" "}
-            <span className={engine === "bge-small-zh" ? "text-green-400" : "text-yellow-400"}>
-              {engine === "bge-small-zh" ? "BGE Small ZH" : "TF-IDF"}
+            <span className={isEmbedding ? "text-green-400" : "text-yellow-400"}>
+              {getEngineDisplayName(engine)}
             </span>
           </div>
         );

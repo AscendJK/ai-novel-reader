@@ -10,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCharCount } from "@/lib/text-utils";
 import { useBuildStore } from "@/stores/build-store";
+import { useRAGStore } from "@/stores/rag-store";
+import { getEngineDisplayName } from "@/rag/engines";
 import { authHeaders } from "@/lib/auth-headers";
 import type { NovelMeta } from "@/parsers/types";
 
@@ -41,6 +43,7 @@ export function BookSelect() {
 
   const [serverScanned, setServerScanned] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const engine = useRAGStore((s) => s.engine);
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
 
@@ -50,10 +53,10 @@ export function BookSelect() {
     // Check which indices are cached in IndexedDB
     ids.forEach(async (nid) => {
       try {
-        const c = await db.ragCache.get(nid + "-bge-small-zh");
+        const c = await db.ragCache.get(nid + "-" + engine);
         if (c?.vectors?.length) {
           if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
-          (window as any).__ragCacheLoaded.add(nid + "-bge-small-zh");
+          (window as any).__ragCacheLoaded.add(nid + "-" + engine);
         }
       } catch { /* ignore */ }
     });
@@ -63,7 +66,7 @@ export function BookSelect() {
       try {
         // Skip if not authenticated
         if (!localStorage.getItem("sync-token")) return;
-        const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=bge-small-zh`, { headers: authHeaders() });
+        const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
         if (!active || !resp.ok) return;
         const statuses = await resp.json();
         setBuildStatuses(statuses);
@@ -76,7 +79,7 @@ export function BookSelect() {
     poll();
     const timer = setInterval(poll, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [savedNovels, buildingId, authHeaders]);
+  }, [savedNovels, buildingId, authHeaders, engine]);
 
   const handleBuild = async (novelId: string) => {
     // Clear any existing poll before starting a new one
@@ -85,7 +88,7 @@ export function BookSelect() {
     useBuildStore.getState().start();
     const resp = await fetch(`/api/rag/${novelId}/build`, {
       method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ engine: "bge-small-zh" }),
+      body: JSON.stringify({ engine }),
     });
     const result = await resp.json();
     if (result.status === "busy") {
@@ -96,14 +99,14 @@ export function BookSelect() {
     }
     useBuildStore.getState().setProgress({
       message: result.status === "queued" ? `排队中 (第 ${result.queuePosition} 位)...` : "服务器构建中...",
-      novelId, engine: "bge-small-zh",
+      novelId, engine,
       status: result.status === "queued" ? "queued" : "building",
       queuePosition: result.queuePosition,
     } as any);
     const bs = useBuildStore.getState();
     buildPollRef.current = setInterval(async () => {
       try {
-        const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
+        const sr = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
         const st = await sr.json();
         if (st.status === "ready") {
           bs.finish(); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
@@ -112,10 +115,10 @@ export function BookSelect() {
           bs.fail(st.error || "失败"); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
           setBuildingId(null);
         } else if (st.status === "queued") {
-          bs.setProgress({ status: "queued", queuePosition: st.queuePosition || "?", message: `排队中 (第 ${st.queuePosition || "?"} 位)...`, novelId, engine: "bge-small-zh" } as any);
+          bs.setProgress({ status: "queued", queuePosition: st.queuePosition || "?", message: `排队中 (第 ${st.queuePosition || "?"} 位)...`, novelId, engine } as any);
         } else {
           const msg = st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
-          bs.setProgress({ status: "building", message: msg, current: st.current || 0, total: st.total || 0, novelId, engine: "bge-small-zh" });
+          bs.setProgress({ status: "building", message: msg, current: st.current || 0, total: st.total || 0, novelId, engine });
         }
       } catch { /* keep polling */ }
     }, 3000);
@@ -463,14 +466,14 @@ export function BookSelect() {
                         const st = buildStatuses[novel.id] || { status: "none" };
                         const chunkCount = st.chunkCount || st.chunk_count || 0;
                         const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
-                        // Check if in memory cache (loaded this session) or IndexedDB (from previous session)
-                        const memKey = novel.id + "-bge-small-zh";
+                        const memKey = novel.id + "-" + engine;
                         const loadedInMem = (window as any).__ragCacheLoaded?.has(memKey);
+                        const el = engine === "tfidf" ? "TF-IDF" : engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
                         if (st.status === "ready") {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                               <Badge variant="outline" className={`text-[10px] ${loadedInMem ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
-                                {loadedInMem ? `BGE 已加载 ${estSize || ""}` : `BGE 就绪 ${estSize || ""}`}
+                                {loadedInMem ? `${el} 已加载 ${estSize || ""}` : `${el} 就绪 ${estSize || ""}`}
                               </Badge>
                             </div>
                           );
@@ -478,7 +481,7 @@ export function BookSelect() {
                         if (st.status === "building" || st.status === "loading" || st.status === "encoding") return (
                           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                             <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />
-                            <span className="text-[10px] text-yellow-500">BGE 构建中...</span>
+                            <span className="text-[10px] text-yellow-500">{el} 构建中...</span>
                           </div>
                         );
                         if (st.status === "queued") {
@@ -492,13 +495,13 @@ export function BookSelect() {
                         }
                         if (st.status === "error") return (
                           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                            <span className="text-[10px] text-red-400">BGE 失败</span>
+                            <span className="text-[10px] text-red-400">{el} 失败</span>
                             <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }}>重试</Button>
                           </div>
                         );
                         return (
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
-                            <span className="text-[10px] text-muted-foreground">BGE 未构建</span>
+                            <span className="text-[10px] text-muted-foreground">{el} 未构建</span>
                             <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }} disabled={buildingId === novel.id}>
                               {buildingId === novel.id ? "触发中..." : "构建"}
                             </Button>
