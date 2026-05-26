@@ -47,25 +47,35 @@ Settings → choose provider (OpenAI, Anthropic, DeepSeek, or up to 5 custom Ope
 
 ### 3. Upload Novels
 
-Drag TXT/EPUB files onto the bookshelf, or use "Import from Folder" for batch upload. Supports GBK/Big5/UTF-8 encoding detection and smart chapter recognition. Uploaded novels appear in the shared library.
+Drag TXT/EPUB files onto the bookshelf, or use "Import from Folder" for batch upload. Supports GBK/Big5/UTF-8 encoding detection and smart chapter recognition.
 
-### 4. Read & Analyze
+Uploaded novels are automatically stored in the server library and are visible to all users. You need to manually add them to your bookshelf.
 
-Click a novel to enter reading view. Left sidebar navigates chapters; bottom bar provides prev/next; `←` `→` keys switch chapters. Aa button adjusts font size and weight. Dark mode supported. Mobile-responsive with immersive reading mode.
+### 4. Read
 
-The AI analysis panel (top-right) provides:
+Click any novel on the bookshelf to enter reading view:
+- Left sidebar navigates chapters, bottom bar for prev/next, keyboard `←` `→` for chapter switching
+- Aa button adjusts font size, weight, line height, paragraph spacing, and font family (system default / serif / monospace)
+- Dark / light mode toggle
+- Mobile-responsive with immersive reading mode (tap text area to hide UI)
+- Keyboard shortcut: `Shift + ?` to view all shortcuts
+
+### 5. AI Analysis
+
+Open the AI analysis panel (top-right) in reading view:
 
 | Feature | Description |
 |---------|-------------|
-| Chapter Summary | Core plot, key characters, foreshadowing |
+| Chapter Summary | Core plot, key characters, foreshadowing for current chapter |
 | Book Overview | Main storyline, themes, structure, reading advice |
-| Characters | Auto-identify roles + interactive force-directed graph with zoom/pan |
-| Timeline | 15-25 key events with causality annotations |
+| Characters | Role identification + family/faction/relationship graph (draggable, zoomable, fullscreen) |
+| Timeline | 15-25 key events with type annotations and causality |
 | Q&A | Multi-turn conversation with semantic text retrieval |
-| Range Summary | Custom chapter range analysis |
+| Range Summary | Custom chapter range analysis (e.g. chapters 5-15) |
 | Notes | Per-chapter and global notes, one-click bookmark AI responses |
+| Semantic Search | RAG-powered full-text semantic search with natural language queries |
 
-### 5. RAG Engine
+### 6. RAG Engine
 
 Supports **any Transformers.js-compatible ONNX embedding model** for semantic retrieval, with TF-IDF as a zero-config fallback.
 
@@ -99,17 +109,50 @@ All Transformers.js-compatible ONNX embedding models (BGE, E5, MiniLM, GTE famil
    ```
 3. Restart dev server → Settings page click "Scan" → select the discovered model
 
-### 6. Multi-Device Sync
+### 7. Multi-Device Sync
 
 Same username syncs: reading progress, AI summaries, notes.
 
 > Theme, font, and API config are per-device / per-user, not synced.
 
-### 7. Library
+### 8. Offline Mode
+
+Enable offline mode in Settings. When enabled, the browser stops communicating with the server — all data stays in local IndexedDB. Closing and reopening the browser still works normally. Useful when you're unsure if the server is online.
+
+- Logging out in offline mode clears local data, but server must be online to re-login
+- Service Worker caches all page resources — the app works even when the server is down
+- Prompts to update when a new version is available
+
+### 9. Export / Backup
+
+Settings page provides data export:
+- **Export All**: All novels, summaries, notes (excluding API keys) → JSON file
+- **Single Novel Export**: Dropdown to select novel → JSON or TXT format
+- **Import Backup**: Restore data from JSON file
+- **Storage Usage**: Shows browser used / available space with near-limit warnings
+
+### 10. Global Notes
+
+Click the "Notes" button in the header to view notes across all novels. Filter by novel or by source (user / AI).
+
+### 11. Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `←` / `→` | Previous / next chapter |
+| `+` / `-` | Increase / decrease font size |
+| `i` | Toggle immersive mode |
+| `t` | Toggle theme |
+| `Esc` | Close dialogs |
+| `Shift + ?` | Show shortcut help |
+
+Settings page also provides a shortcut reference card.
+
+### 12. Library
 
 The Library at the bottom of the bookshelf browses all novels on the server. Click "Add to Shelf" to start reading. Removing from shelf only clears your data — the novel stays in the library.
 
-### 8. Admin Panel
+### 13. Admin Panel
 
 ```bash
 ./admin.sh       # Linux / macOS
@@ -125,27 +168,32 @@ React 19 + TypeScript + Vite
 Express + better-sqlite3
 ├─ Multi-agent engine: summary / characters / timeline / graph
 ├─ Multi-engine semantic retrieval: BGE / E5 / MiniLM / GTE ONNX models (Worker Thread encoding)
-├─ d3-force character graph (mouse wheel + pinch-to-zoom)
+├─ d3-force character graph (mouse wheel + pinch-to-zoom on mobile)
 ├─ IndexedDB browser cache + SQLite server persistence
-└─ Username system + Session Token auth + Server-side sync
+├─ PWA Service Worker offline caching
+├─ Username system + Session Token auth + Server-side centralized sync
+└─ Periodic WAL checkpoint + automatic database backup (24h)
 ```
 
 ## Security
 
-- **Session Token authentication**: Server issues tokens on login, all API requests verified via `Authorization: Bearer <token>`
-- **Single-session enforcement**: Logging in from a new device kicks the previous session
-- **API key local isolation**: Stored per-user in IndexedDB, never uploaded or synced
+- **Session Token authentication**: Server issues tokens on login, sync endpoints (push/heartbeat) also verify tokens
+- **Single-session enforcement**: Logging in from a new device kicks the previous session; automatic re-registration after server restart
+- **API key local isolation**: Stored per-user in IndexedDB, never uploaded, never synced, preserved on kick
 - **CORS restriction**: Only localhost and LAN IPs (192.168.x.x / 10.x.x.x / 172.16-31.x.x) allowed
+- **CSP security policy**: `connect-src` restricted to same-origin only, preventing external data leaks
 - **Rate limiting**: RAG build, encode, and other expensive endpoints are rate-limited per IP
 - **Input validation**: Username length limits, request body size limits, text length limits
+- **Timestamp-based merge**: Sync uses timestamps to determine newer data, preventing overwrite of fresher content
+- **Sync mutex lock**: Prevents concurrent sync operations from causing data loss
 
 ## Notes
 
+- **LAN/local use only — do not expose to the public internet**. No HTTPS, no password auth, SQLite not suitable for public concurrency. Exposing this server risks API key theft, session hijacking, and data corruption
 - BGE index for very long novels (5000+ chapters) may take 5-30 min; normal reading is unaffected during build
 - Server model loading peaks at ~2GB RAM
 - Simultaneous builds are queued (max 10 tasks)
-- **LAN/local use only — do not expose to the public internet**. No HTTPS, no password auth, SQLite not suitable for public concurrency. Exposing this server risks API key theft, session hijacking, and data corruption
-- API keys stored in browser IndexedDB, never uploaded
+- API keys stored only in browser IndexedDB, never uploaded to server
 - Debug panel defaults to off, hidden on mobile
 
 ## Browser Support

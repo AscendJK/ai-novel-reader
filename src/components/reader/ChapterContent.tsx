@@ -1,12 +1,13 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useState } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useKeyboardShortcuts, type ShortcutBinding } from "@/hooks/useKeyboardShortcuts";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Type } from "lucide-react";
+import { Minus, Plus, Sparkles, ChevronLeft, ChevronRight, Type, AlignJustify } from "lucide-react";
 
 interface ChapterContentProps {
   summaryOpen: boolean;
@@ -26,7 +27,7 @@ const FONT_WEIGHTS = [
 export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immersive, onToggleImmersive }: ChapterContentProps) {
   const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
   const { getSummariesByNovel } = useSummaryStore();
-  const { fontSize, setFontSize, fontWeight, setFontWeight } = useUIStore();
+  const { fontSize, setFontSize, fontWeight, setFontWeight, lineHeight, setLineHeight, paragraphSpacing, setParagraphSpacing, fontFamily, setFontFamily } = useUIStore();
   const [showFontPanel, setShowFontPanel] = useState(false);
 
   const chapters = currentNovel?.chapters || [];
@@ -52,19 +53,14 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
   );
 
   // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Don't trigger when typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "ArrowLeft" && prevChapter) {
-        goToChapter(prevChapter.id);
-      } else if (e.key === "ArrowRight" && nextChapter) {
-        goToChapter(nextChapter.id);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [prevChapter, nextChapter, goToChapter]);
+  const readingShortcuts = useMemo<ShortcutBinding[]>(() => [
+    { key: "ArrowLeft", action: () => { if (prevChapter) goToChapter(prevChapter.id); }, description: "上一章", when: () => !!prevChapter },
+    { key: "ArrowRight", action: () => { if (nextChapter) goToChapter(nextChapter.id); }, description: "下一章", when: () => !!nextChapter },
+    { key: "+", action: () => setFontSize(Math.min(24, fontSize + 1)), description: "增大字号" },
+    { key: "-", action: () => setFontSize(Math.max(12, fontSize - 1)), description: "减小字号" },
+    { key: "i", action: onToggleImmersive, description: "切换沉浸模式" },
+  ], [prevChapter, nextChapter, goToChapter, fontSize, setFontSize, onToggleImmersive]);
+  useKeyboardShortcuts(readingShortcuts);
 
   // Cycle font weight
   const cycleFontWeight = () => {
@@ -114,7 +110,7 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
               <Type className="h-4 w-4" />
             </Button>
             {showFontPanel && (
-              <div className="absolute right-0 top-full mt-1 p-3 rounded-lg border bg-card shadow-lg z-20 flex flex-col gap-2 min-w-[120px]"
+              <div className="absolute right-0 top-full mt-1 p-3 rounded-lg border bg-card shadow-lg z-20 flex flex-col gap-2 min-w-[160px]"
                 onClick={(e) => e.stopPropagation()}>
                 {/* Font size */}
                 <div className="flex items-center justify-between gap-2">
@@ -132,6 +128,44 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
                   <span className="text-xs text-muted-foreground">粗细</span>
                   <Button variant="outline" size="sm" className="h-6 text-xs"
                     onClick={cycleFontWeight}>{currentWeightLabel}</Button>
+                </div>
+                {/* Line height */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">行距</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={lineHeight <= 1.2}
+                      onClick={() => setLineHeight(lineHeight - 0.1)}><Minus className="h-3 w-3" /></Button>
+                    <span className="text-xs w-7 text-center tabular-nums">{lineHeight.toFixed(1)}</span>
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={lineHeight >= 2.4}
+                      onClick={() => setLineHeight(lineHeight + 0.1)}><Plus className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+                {/* Paragraph spacing */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">段距</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={paragraphSpacing <= 0}
+                      onClick={() => setParagraphSpacing(paragraphSpacing - 2)}><Minus className="h-3 w-3" /></Button>
+                    <span className="text-xs w-7 text-center tabular-nums">{paragraphSpacing}</span>
+                    <Button variant="outline" size="icon" className="h-6 w-6" disabled={paragraphSpacing >= 20}
+                      onClick={() => setParagraphSpacing(paragraphSpacing + 2)}><Plus className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+                {/* Font family */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">字体</span>
+                  <div className="flex gap-1">
+                    {[
+                      { key: "system-ui", label: "默认" },
+                      { key: "SimSun, serif", label: "宋体" },
+                      { key: "KaiTi, serif", label: "楷体" },
+                      { key: "monospace", label: "等宽" },
+                    ].map((f) => (
+                      <Button key={f.key} variant={fontFamily === f.key ? "default" : "outline"}
+                        size="sm" className="h-6 text-[10px] px-1.5"
+                        onClick={() => setFontFamily(f.key)}>{f.label}</Button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -161,15 +195,16 @@ export function ChapterContent({ summaryOpen, onToggleSummary, hasSummary, immer
               className="prose prose-neutral dark:prose-invert max-w-none"
               style={{
                 fontSize: `${fontSize}px`,
-                lineHeight: 1.8,
+                lineHeight: lineHeight,
                 fontWeight,
+                fontFamily,
               }}
             >
               {chapter.content.split("\n").map((paragraph, i) => {
                 const trimmed = paragraph.trim();
                 if (!trimmed) return <br key={i} />;
                 return (
-                  <p key={i} className="mb-2 text-justify">
+                  <p key={i} className="text-justify" style={{ marginBottom: `${paragraphSpacing}px` }}>
                     {trimmed}
                   </p>
                 );

@@ -1,4 +1,5 @@
 import type { SyncData, RegisterResult, HeartbeatResult, PushResult } from "./types";
+import { useUIStore } from "@/stores/ui-store";
 
 const SYNC_INTERVAL = 30_000;
 const HEARTBEAT_INTERVAL = 15_000;
@@ -16,6 +17,8 @@ export class SyncClient {
   private applyData: ChangeCallback | null = null;
   private isAiRunning: () => boolean = () => false;
   private onKicked: (() => void) | null = null;
+  private reRegistering = false;
+  private syncing = false;
 
   constructor() {
     this.username = localStorage.getItem("sync-username");
@@ -119,16 +122,37 @@ export class SyncClient {
       console.warn("[sync] syncOnce skipped — not ready");
       return false;
     }
+    if (this.reRegistering || this.syncing) {
+      console.log("[sync] syncOnce skipped — busy");
+      return false;
+    }
+    this.syncing = true;
     try {
       const changes = await this.gatherChanges();
       console.log("[sync] pushing:", JSON.stringify({ s: changes.summaries?.length, n: changes.notes?.length, se: Object.keys(changes.settings||{}).length, p: Object.keys(changes.progress?.readingPositions||{}).length }));
       const resp = await fetch("/api/sync/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, clientId: this.clientId, changes }),
+        body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes }),
       });
       if (resp.status === 403) {
-        console.warn("[sync] kicked by server");
+        console.warn("[sync] 403 from push, attempting re-register...");
+        const reRegistered = await this.tryReRegister();
+        if (reRegistered) {
+          // Retry the push with new credentials
+          const retryResp = await fetch("/api/sync/push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes }),
+          });
+          if (retryResp.ok) {
+            const r: PushResult = await retryResp.json();
+            if (r.merged && r.data) await this.applyData(r.data);
+            return true;
+          }
+        }
+        // Re-register failed — this is a real kick (another device logged in)
+        console.warn("[sync] re-register failed, kicked");
         this.handleKicked();
         return false;
       }
@@ -144,24 +168,54 @@ export class SyncClient {
         console.error("[sync] push failed:", resp.status, errText);
       }
     } catch (e) { console.error("[sync] syncOnce error:", e); }
+    finally { this.syncing = false; }
     return false;
   }
 
   // ── private ──
 
+  private async tryReRegister(): Promise<boolean> {
+    if (!this.username) return false;
+    this.reRegistering = true;
+    try {
+      const reReg = await fetch("/api/sync/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: this.username, mode: "join" }),
+      });
+      if (reReg.ok) {
+        const result = await reReg.json();
+        this.clientId = result.clientId;
+        this.token = result.token;
+        this.activeCount = result.activeCount;
+        localStorage.setItem("sync-clientId", result.clientId);
+        if (result.token) localStorage.setItem("sync-token", result.token);
+        console.log("[sync] re-registered successfully");
+        return true;
+      }
+    } catch { /* re-register failed */ }
+    finally { this.reRegistering = false; }
+    return false;
+  }
+
   private async doHeartbeat() {
-    if (!this.username || !this.clientId) return;
+    if (!this.username || !this.clientId || useUIStore.getState().offlineMode) return;
+    if (this.reRegistering) return;
     try {
       const resp = await fetch("/api/sync/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, clientId: this.clientId }),
+        body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token }),
       });
       if (resp.ok) {
         const r: HeartbeatResult = await resp.json();
         if (r.activeCount === 0) {
-          console.warn("[sync] heartbeat indicates kicked");
-          this.handleKicked();
+          console.warn("[sync] heartbeat 0, attempting re-register...");
+          const ok = await this.tryReRegister();
+          if (!ok) {
+            console.warn("[sync] re-register failed, kicking");
+            this.handleKicked();
+          }
           return;
         }
         this.activeCount = r.activeCount;
@@ -171,7 +225,9 @@ export class SyncClient {
 
   private async doSync() {
     if (!this.username || !this.clientId || !this.gatherChanges || !this.applyData) return;
+    if (useUIStore.getState().offlineMode) return;
     if (this.isAiRunning()) return;
+    if (this.reRegistering) return;
     await this.syncOnce();
   }
 

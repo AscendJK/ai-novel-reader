@@ -14,6 +14,7 @@ import { syncClient } from "@/sync/sync-client";
 import { addDebugEntry, ragLog } from "@/components/common/DebugPanel";
 import { useBuildStore } from "@/stores/build-store";
 import { authHeaders } from "@/lib/auth-headers";
+import { setAiRunning } from "@/lib/ai-state";
 
 export interface GraphData {
   nodes: { id: string; group: string; description: string }[];
@@ -40,13 +41,13 @@ export function useSummarizer() {
   const startTask = useCallback((name: string) => {
     setCurrentTask(name);
     setIsRunning(true);
-    (window as any).__aiRunning = true;
+    setAiRunning(true);
     setError(null);
   }, []);
 
   const endTask = useCallback(() => {
     setIsRunning(false);
-    (window as any).__aiRunning = false;
+    setAiRunning(false);
     setCurrentTask("");
   }, []);
 

@@ -4,10 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const { chunks, batchSize, modelKey = "Xenova/bge-small-zh-v1.5" } = workerData;
+const { chunks, batchSize, modelKey = "Xenova/bge-small-zh-v1.5", modelBasePath } = workerData;
 
 env.allowRemoteModels = false;
-env.localModelPath = path.resolve(__dirname, "../public/models/");
+env.localModelPath = modelBasePath || path.resolve(__dirname, "../public/models/builtin/");
 
 async function run() {
   const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });

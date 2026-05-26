@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2, Search, Loader2 } from "lucide-react";
 import { useFileParser } from "@/hooks/useFileParser";
 import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
@@ -27,6 +27,7 @@ export function BookSelect() {
   const [dragOver, setDragOver] = useState(false);
   const [batchParsing, setBatchParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Cleanup build polling on unmount
   useEffect(() => {
@@ -41,9 +42,21 @@ export function BookSelect() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const filteredNovels = useMemo(() => {
+    if (!searchQuery.trim()) return savedNovels;
+    const q = searchQuery.toLowerCase();
+    return savedNovels.filter((n) =>
+      n.title.toLowerCase().includes(q) ||
+      (n.author?.toLowerCase().includes(q)) ||
+      n.fileName.toLowerCase().includes(q)
+    );
+  }, [savedNovels, searchQuery]);
+
   const [serverScanned, setServerScanned] = useState(false);
   const [scanning, setScanning] = useState(false);
   const engine = useRAGStore((s) => s.engine);
+  const cachedKeys = useRAGStore((s) => s.cachedKeys);
+  const addCachedKey = useRAGStore((s) => s.addCachedKey);
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
 
@@ -55,18 +68,16 @@ export function BookSelect() {
       try {
         const all = await db.ragCache.toArray();
         const novelIdSet = new Set(ids);
-        if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
         for (const entry of all) {
-          // entry.novelId is composite key "novelId-engine"
           const dashIdx = entry.novelId.lastIndexOf("-");
           const nid = dashIdx > 0 ? entry.novelId.slice(0, dashIdx) : entry.novelId;
           if (novelIdSet.has(nid) && entry.vectors?.length) {
-            (window as any).__ragCachedKeys.add(entry.novelId);
+            addCachedKey(entry.novelId);
           }
         }
       } catch { /* ignore */ }
     })();
-  }, [savedNovels]);
+  }, [savedNovels, addCachedKey]);
 
   // Poll build statuses for the current engine
   useEffect(() => {
@@ -341,6 +352,7 @@ export function BookSelect() {
               <input
                 ref={fileInputRef}
                 type="file"
+                id="novel-file-input" name="novel-file-input"
                 accept=".txt,.epub"
                 multiple
                 className="hidden"
@@ -360,6 +372,7 @@ export function BookSelect() {
               <input
                 ref={folderInputRef}
                 type="file"
+                id="novel-folder-input" name="novel-folder-input"
                 /* @ts-expect-error webkitdirectory */
                 webkitdirectory=""
                 className="hidden"
@@ -395,10 +408,21 @@ export function BookSelect() {
           <div className="space-y-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <BookOpen className="h-5 w-5" />
-              我的书架 ({savedNovels.length})
+              我的书架 ({searchQuery.trim() ? `${filteredNovels.length}/${savedNovels.length}` : savedNovels.length})
             </h2>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                id="bookshelf-search" name="bookshelf-search"
+                placeholder="搜索书名、作者、文件名..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-              {savedNovels.map((novel) => {
+              {filteredNovels.map((novel) => {
                 const pos = readingPositions[novel.id];
                 const readIndex = pos ? pos.chapterIndex : -1;
                 const progressPct = novel.chapterCount > 0 && readIndex >= 0
@@ -478,7 +502,7 @@ export function BookSelect() {
                         const chunkCount = st.chunkCount || st.chunk_count || 0;
                         const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
                         const memKey = novel.id + "-" + engine;
-                        const cachedInBrowser = (window as any).__ragCachedKeys?.has(memKey);
+                        const cachedInBrowser = cachedKeys.has(memKey);
                         const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
                         if (st.status === "ready") {
                           return (

@@ -34,7 +34,7 @@ const ENGINE_MODEL_MAP = {
 
 function resolveModelKey(engine) {
   if (ENGINE_MODEL_MAP[engine]) return ENGINE_MODEL_MAP[engine];
-  if (engine.includes("/")) return engine;
+  if (engine && engine.includes("/")) return engine;
   return "Xenova/bge-small-zh-v1.5";
 }
 
@@ -157,11 +157,14 @@ async function _doBuild(novelId, engine, key) {
 
   // Encode in Worker Thread with timeout
   const modelKey = resolveModelKey(engine);
+  const modelBasePath = ENGINE_MODEL_MAP[engine]
+    ? path.resolve(__dirname, "../public/models/builtin/")
+    : path.resolve(__dirname, "../public/models/custom/");
   const t0 = Date.now();
   const vectors = await new Promise((resolve, reject) => {
     const workerPath = path.join(__dirname, "rag-worker.mjs");
     const worker = new Worker(workerPath, {
-      workerData: { chunks, batchSize: BATCH_SIZE, modelKey },
+      workerData: { chunks, batchSize: BATCH_SIZE, modelKey, modelBasePath },
     });
 
     const timeout = setTimeout(() => {

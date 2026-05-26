@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Header } from "./Header";
 import { BookSelect } from "./BookSelect";
 import { ReadingPanel } from "@/components/reader/ReadingPanel";
@@ -6,6 +6,9 @@ import { ApiSettings } from "@/components/settings/ApiSettings";
 import { UsernameLogin } from "@/components/login/UsernameLogin";
 import { DebugPanel } from "@/components/common/DebugPanel";
 import { BuildProgress } from "@/components/common/BuildProgress";
+import { ShortcutHelp } from "@/components/common/ShortcutHelp";
+import { GlobalNotes } from "@/components/notes/GlobalNotes";
+import { useKeyboardShortcuts, type ShortcutBinding } from "@/hooks/useKeyboardShortcuts";
 import { useBuildStore } from "@/stores/build-store";
 import { useRAGStore } from "@/stores/rag-store";
 import { setupLocalModelLoader } from "@/rag/model-loader";
@@ -22,17 +25,27 @@ import { syncClient } from "@/sync/sync-client";
 import { gatherChanges, applyServerData } from "@/sync/sync-bridge";
 import type { SyncData } from "@/sync/types";
 import { authHeaders } from "@/lib/auth-headers";
+import { getAiRunning } from "@/lib/ai-state";
 
 export function AppLayout() {
-  const { theme, debugMode } = useUIStore();
+  const { theme, debugMode, offlineMode } = useUIStore();
   const { currentNovel, setCurrentNovel, addNovel } = useNovelStore();
   const { setSummaries } = useSummaryStore();
   const [showSettings, setShowSettings] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [syncReady, setSyncReady] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSyncing, setLoginSyncing] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const syncStarted = useRef(false);
+
+  const globalShortcuts = useMemo<ShortcutBinding[]>(() => [
+    { key: "t", action: () => useUIStore.getState().toggleTheme(), description: "切换主题" },
+    { key: "Escape", action: () => { setShowSettings(false); setShowNotes(false); setShowShortcutHelp(false); }, description: "关闭弹窗" },
+    { key: "?", shift: true, action: () => setShowShortcutHelp((v) => !v), description: "显示快捷键帮助" },
+  ], []);
+  useKeyboardShortcuts(globalShortcuts);
 
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 767px)");
@@ -42,20 +55,39 @@ export function AppLayout() {
   }, []);
 
   const kickedRef = useRef(false);
-  const handleKicked = useCallback(() => {
+  const handleKicked = useCallback(async () => {
     if (kickedRef.current) return;
     kickedRef.current = true;
     alert("该账号已在另一设备登录，当前会话已下线。");
     localStorage.removeItem("sync-username");
     localStorage.removeItem("sync-clientId");
     localStorage.removeItem("sync-token");
-    db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
-      await db.novels.clear();
-      await db.chapters.clear();
-      await db.summaries.clear();
-      await db.notes.clear();
-      await db.settings.clear();
-    }).then(() => window.location.reload()).catch(() => window.location.reload());
+    // Preserve API keys for all users before clearing
+    const savedApiSettings: Array<{ key: string; value: unknown }> = [];
+    try {
+      const allSettings = await db.settings.toArray();
+      for (const s of allSettings) {
+        if (s.key.startsWith("api-providers:") || s.key.startsWith("api-active-provider:")) {
+          savedApiSettings.push(s);
+        }
+      }
+    } catch { /* ignore */ }
+    try {
+      await db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
+        await db.novels.clear();
+        await db.chapters.clear();
+        await db.summaries.clear();
+        await db.notes.clear();
+        await db.settings.clear();
+      });
+    } catch { /* ignore */ }
+    // Restore API keys
+    try {
+      for (const s of savedApiSettings) {
+        await db.settings.put(s).catch(() => {});
+      }
+    } catch { /* ignore */ }
+    window.location.reload();
   }, []);
 
   useEffect(() => {
@@ -80,6 +112,11 @@ export function AppLayout() {
 
   // ── Sync integration (auto-login from stored session) ──
   useEffect(() => {
+    // Offline mode: skip sync, go straight to app if user data exists
+    if (offlineMode && localStorage.getItem("sync-username")) {
+      setSyncReady(true);
+      return;
+    }
     if (syncClient.isLoggedIn && !syncStarted.current) {
       syncStarted.current = true;
       syncClient.start({
@@ -99,15 +136,16 @@ export function AppLayout() {
           }
           syncJoinedNovels();
         },
-        isAiRunning: () => (window as any).__aiRunning === true,
+        isAiRunning: getAiRunning,
         onKicked: handleKicked,
       });
       setSyncReady(true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Register visibility change → refresh data from server
+  // Register visibility change → refresh data from server (skip in offline mode)
   useEffect(() => {
+    if (offlineMode) return;
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && syncClient.isLoggedIn) {
         syncClient.pushNow();
@@ -115,7 +153,7 @@ export function AppLayout() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [offlineMode]);
 
   const handleLogin = async (username: string, isJoin: boolean) => {
     setLoginError(null);
@@ -189,7 +227,7 @@ export function AppLayout() {
           }
           syncJoinedNovels();
         },
-        isAiRunning: () => (window as any).__aiRunning === true,
+        isAiRunning: getAiRunning,
         onKicked: handleKicked,
       });
     }
@@ -279,6 +317,7 @@ export function AppLayout() {
         bookTitle={currentNovel?.title}
         onBack={handleBackToLibrary}
         onSettings={() => setShowSettings(true)}
+        onNotes={() => setShowNotes(true)}
       />
       <main className="flex-1 overflow-hidden relative">
         {/* Reading — always mounted so panel state survives */}
@@ -291,8 +330,14 @@ export function AppLayout() {
             <ApiSettings onBack={() => setShowSettings(false)} />
           </div>
         )}
+        {/* Notes overlay */}
+        {showNotes && !currentNovel && (
+          <div className="h-full overflow-auto">
+            <GlobalNotes onBack={() => setShowNotes(false)} />
+          </div>
+        )}
         {/* Book select — key forces remount when sync completes */}
-        {!currentNovel && !showSettings && (
+        {!currentNovel && !showSettings && !showNotes && (
           <div className="h-full overflow-auto" key={String(syncReady)}>
             <BookSelect />
           </div>
@@ -300,6 +345,7 @@ export function AppLayout() {
       </main>
       {debugMode && !isMobile && <DebugPanel />}
       <BuildProgressBox />
+      {showShortcutHelp && <ShortcutHelp shortcuts={globalShortcuts} onClose={() => setShowShortcutHelp(false)} />}
     </div>
   );
 }
@@ -320,7 +366,7 @@ function BuildProgressBox() {
       onRetry={build.retry}
       onFallbackToTFIDF={build.fallbackToTFIDF}
       onDismiss={build.dismiss}
-      queuePosition={(build as any).queuePosition}
+      queuePosition={build.queuePosition}
     />
   );
 }

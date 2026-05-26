@@ -89,8 +89,7 @@ export class EmbeddingRetriever {
         this.vectors = data.vectors;
         this.chunks = data.chunks;
         this.dim = data.dim;
-        if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
-        (window as any).__ragCachedKeys.add(memCacheKey);
+        useRAGStore.getState().addCachedKey(memCacheKey);
         const size = this.vectors.length * this.dim * 4;
         LRU_CACHE.set(memCacheKey, { vectors: this.vectors, chunks: this.chunks, dim: this.dim, size });
         cacheTotalSize += size;
@@ -204,8 +203,7 @@ export class EmbeddingRetriever {
 
     const size = vectors.length * data.dim * 4;
     ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
-    if (!(window as any).__ragCachedKeys) (window as any).__ragCachedKeys = new Set<string>();
-    (window as any).__ragCachedKeys.add(memCacheKey);
+    useRAGStore.getState().addCachedKey(memCacheKey);
 
     LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
     cacheTotalSize += size;

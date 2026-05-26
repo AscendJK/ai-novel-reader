@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const DB_PATH = path.join(__dirname, "data", "novels.db");
 
 // Ensure data directory exists
@@ -266,8 +267,11 @@ export function getSummaries(username, novelId) {
 
 export function upsertSummary(s) {
   db.prepare(`
-    INSERT OR REPLACE INTO summaries (id, novel_id, chapter_id, chapter_title, username, content, tokens_used, created_at, type)
+    INSERT INTO summaries (id, novel_id, chapter_id, chapter_title, username, content, tokens_used, created_at, type)
     VALUES (@id, @novelId, @chapterId, @chapterTitle, @username, @content, @tokensUsed, @createdAt, @type)
+    ON CONFLICT(id) DO UPDATE SET
+      content = @content, tokens_used = @tokensUsed, type = @type
+    WHERE @createdAt >= created_at
   `).run(s);
 }
 
@@ -279,8 +283,11 @@ export function getNotes(username, novelId) {
 
 export function upsertNote(n) {
   db.prepare(`
-    INSERT OR REPLACE INTO notes (id, novel_id, chapter_id, chapter_title, username, content, source, source_label, created_at)
+    INSERT INTO notes (id, novel_id, chapter_id, chapter_title, username, content, source, source_label, created_at)
     VALUES (@id, @novelId, @chapterId, @chapterTitle, @username, @content, @source, @sourceLabel, @createdAt)
+    ON CONFLICT(id) DO UPDATE SET
+      content = @content, source = @source, source_label = @sourceLabel
+    WHERE @createdAt >= created_at
   `).run(n);
 }
 
@@ -334,12 +341,12 @@ export function gatherSyncData(username) {
 
   const progress = getProgress(username);
 
-  // Never return API key settings to clients
-  const SENSITIVE_KEYS = new Set(["api-providers", "api-active-provider"]);
+  // Never return API key settings to clients (prefix match for user-specific keys)
+  const SENSITIVE_PREFIXES = ["api-providers", "api-active-provider"];
   const settingRows = db.prepare("SELECT key, value FROM user_settings WHERE username = ?").all(username);
   const settings = {};
   for (const s of settingRows) {
-    if (SENSITIVE_KEYS.has(s.key)) continue;
+    if (SENSITIVE_PREFIXES.some((p) => s.key === p || s.key.startsWith(p + ":"))) continue;
     try { settings[s.key] = JSON.parse(s.value); } catch { settings[s.key] = s.value; }
   }
 
@@ -370,4 +377,34 @@ export function applySyncData(username, summaries, notes, settings, progress) {
       }
     }
   })();
+}
+
+// ── Backup & maintenance ────────────────────────────────────
+
+export function checkpointWAL() {
+  db.pragma("wal_checkpoint(TRUNCATE)");
+}
+
+export function createBackup() {
+  const backupDir = path.join(__dirname, "data", "backups");
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const backupPath = path.join(backupDir, `novels-${timestamp}.db`);
+  db.backup(backupPath);
+  console.log(`[backup] created: ${backupPath}`);
+  cleanOldBackups();
+}
+
+function cleanOldBackups() {
+  const backupDir = path.join(__dirname, "data", "backups");
+  if (!fs.existsSync(backupDir)) return;
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  for (const f of fs.readdirSync(backupDir)) {
+    if (!f.endsWith(".db")) continue;
+    const stat = fs.statSync(path.join(backupDir, f));
+    if (stat.mtimeMs < cutoff) {
+      fs.unlinkSync(path.join(backupDir, f));
+      console.log(`[backup] cleaned: ${f}`);
+    }
+  }
 }

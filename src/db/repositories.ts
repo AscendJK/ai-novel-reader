@@ -198,6 +198,11 @@ export async function loadNotes(novelId: string): Promise<NoteItem[]> {
   catch (e) { console.error("loadNotes failed:", e); return []; }
 }
 
+export async function loadAllNotes(): Promise<NoteItem[]> {
+  try { return db.notes.orderBy("createdAt").reverse().toArray(); }
+  catch (e) { console.error("loadAllNotes failed:", e); return []; }
+}
+
 export async function deleteNote(noteId: string): Promise<void> {
   try { await db.notes.delete(noteId); }
   catch (e) { console.error("deleteNote failed:", e); }

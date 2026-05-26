@@ -57,7 +57,12 @@ export function register(username, clientId, token) {
   connections.set(username, clientId);
   connectionLastSeen.set(username, Date.now());
   if (replaced) console.log(`[sync] session replaced for user: ${username}`);
-  return 1;
+  // Count actual active sessions for this user
+  let activeCount = 0;
+  for (const [, s] of sessions) {
+    if (s.username === username) activeCount++;
+  }
+  return activeCount || 1;
 }
 
 export function disconnect(username, clientId) {
@@ -78,8 +83,11 @@ export function isActive(username, clientId) {
   return c === clientId;
 }
 
-// Settings that contain sensitive data (API keys) — never sync these
-const SENSITIVE_SETTINGS = new Set(["api-providers", "api-active-provider"]);
+// Settings that contain sensitive data (API keys) — never sync these (prefix match for user-specific keys like "api-providers:user1")
+const SENSITIVE_PREFIXES = ["api-providers", "api-active-provider"];
+function isSensitiveKey(key) {
+  return SENSITIVE_PREFIXES.some((p) => key === p || key.startsWith(p + ":"));
+}
 
 // Merge changes into SQLite (last write wins by updatedAt/createdAt)
 export function mergeAndSave(username, changes) {
@@ -98,7 +106,7 @@ export function mergeAndSave(username, changes) {
     }
     if (changes.settings && Object.keys(changes.settings).length > 0) {
       for (const [key, value] of Object.entries(changes.settings)) {
-        if (value !== undefined && value !== null && !SENSITIVE_SETTINGS.has(key)) {
+        if (value !== undefined && value !== null && !isSensitiveKey(key)) {
           db.setSetting(username, key, value);
         }
       }

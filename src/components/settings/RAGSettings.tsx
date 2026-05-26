@@ -293,6 +293,7 @@ export function RAGSettings() {
             <p className="text-xs text-muted-foreground">{useRAGStore.getState().cacheSizeMB}MB，超过自动淘汰旧索引</p>
           </div>
           <select
+            id="rag-cache-size" name="rag-cache-size"
             className="text-xs border rounded px-2 py-1 bg-background"
             value={useRAGStore.getState().cacheSizeMB}
             onChange={(e) => useRAGStore.getState().setCacheSizeMB(parseInt(e.target.value))}

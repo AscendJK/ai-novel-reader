@@ -10,9 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProviderSelect } from "./ProviderSelect";
 import type { ProviderType, ProviderConfig } from "@/api/types";
-import { Key, Trash2, ArrowLeft, AlertTriangle, Plus } from "lucide-react";
+import { Key, Trash2, ArrowLeft, AlertTriangle, Plus, WifiOff, Wifi, Keyboard } from "lucide-react";
 import { db } from "@/db/database";
+import { useUIStore } from "@/stores/ui-store";
 import { RAGSettings } from "./RAGSettings";
+import { ExportPanel } from "./ExportPanel";
+import { ShortcutHelp } from "@/components/common/ShortcutHelp";
 
 const MODEL_OPTIONS: Record<string, string[]> = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
@@ -22,8 +25,10 @@ const MODEL_OPTIONS: Record<string, string[]> = {
 
 export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const { providers, addProvider, removeProvider, activeProviderId } = useAPIStore();
+  const { offlineMode, setOfflineMode } = useUIStore();
   const [editingType, setEditingType] = useState<string | null>(null);
   const [formData, setFormData] = useState({ apiKey: "", baseUrl: "", model: "", customName: "" });
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
 
   const isCompat = (t: string) => t.startsWith("openai-compat-");
   const compatProviders = providers.filter((p) => isCompat(p.type));
@@ -106,13 +111,13 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <Label>API Key</Label>
-          <Input type="password" placeholder="sk-..." value={formData.apiKey}
+          <Input id="api-key" name="api-key" type="password" placeholder="sk-..." value={formData.apiKey}
             onChange={(e) => setFormData((d) => ({ ...d, apiKey: e.target.value }))} />
         </div>
         {!isCompatProvider && type !== "openai-compat-0" && (
           <div className="space-y-2">
             <Label>模型</Label>
-            <Input placeholder="输入模型名称..." value={formData.model}
+            <Input id="model-fixed" name="model-fixed" placeholder="输入模型名称..." value={formData.model}
               onChange={(e) => setFormData((d) => ({ ...d, model: e.target.value }))}
               list={`model-suggest-${type}`} />
             <datalist id={`model-suggest-${type}`}>
@@ -124,17 +129,17 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
           <>
             <div className="space-y-2">
               <Label>厂商名称（可选）</Label>
-              <Input placeholder={`OpenAI 格式接口 ${parseInt((editingType || "").replace(COMPAT_PREFIX, ""), 10) + 1}`} value={formData.customName}
+              <Input id="compat-name" name="compat-name" placeholder={`OpenAI 格式接口 ${parseInt((editingType || "").replace(COMPAT_PREFIX, ""), 10) + 1}`} value={formData.customName}
                 onChange={(e) => setFormData((d) => ({ ...d, customName: e.target.value }))} />
             </div>
             <div className="space-y-2">
               <Label>API 地址 (Base URL)</Label>
-              <Input placeholder="https://api.example.com/v1" value={formData.baseUrl}
+              <Input id="compat-baseurl" name="compat-baseurl" placeholder="https://api.example.com/v1" value={formData.baseUrl}
                 onChange={(e) => setFormData((d) => ({ ...d, baseUrl: e.target.value }))} />
             </div>
             <div className="space-y-2">
               <Label>模型名称</Label>
-              <Input placeholder="gpt-4o / deepseek-chat / ..." value={formData.model}
+              <Input id="compat-model" name="compat-model" placeholder="gpt-4o / deepseek-chat / ..." value={formData.model}
                 onChange={(e) => setFormData((d) => ({ ...d, model: e.target.value }))} />
             </div>
           </>
@@ -234,10 +239,71 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       <RAGSettings />
       <Separator />
 
+      {/* Keyboard shortcuts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Keyboard className="h-4 w-4" /> 键盘快捷键
+          </CardTitle>
+          <CardDescription>阅读时可用的快捷键</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {[
+            ["← / →", "上一章 / 下一章"],
+            ["+ / −", "增大 / 减小字号"],
+            ["i", "切换沉浸模式"],
+            ["t", "切换主题"],
+            ["Esc", "关闭弹窗"],
+            ["Shift + ?", "显示快捷键帮助"],
+          ].map(([key, desc]) => (
+            <div key={key} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{desc}</span>
+              <kbd className="px-2 py-0.5 text-xs rounded border bg-muted font-mono">{key}</kbd>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowShortcutHelp(true)}>
+            查看全部快捷键
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Offline mode */}
+      <Card className={offlineMode ? "border-amber-500/50" : ""}>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            {offlineMode ? <WifiOff className="h-4 w-4 text-amber-500" /> : <Wifi className="h-4 w-4" />}
+            离线模式
+          </CardTitle>
+          <CardDescription>
+            {offlineMode
+              ? "已开启。浏览器不会与服务器通信，数据仅保存在本地。"
+              : "开启后浏览器停止与服务器同步，关闭浏览器再打开仍可使用本地数据。"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant={offlineMode ? "outline" : "default"}
+            size="sm"
+            onClick={() => {
+              if (!offlineMode && !window.confirm("开启离线模式后：\n\n• 服务器同步将停止\n• 嵌入引擎索引构建不可用\n• 关闭浏览器再打开仍可使用本地数据\n• 退出登录后需服务器在线才能重新登录\n\n确认开启？")) return;
+              setOfflineMode(!offlineMode);
+            }}
+          >
+            {offlineMode ? "关闭离线模式" : "开启离线模式"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       <div className="text-xs text-muted-foreground space-y-1">
         <p>你的 API Key 仅存储在浏览器 IndexedDB 中，仅在调用对应 API 时使用。</p>
         <p>所有 API 调用直接从浏览器发起，不经过任何第三方服务器。</p>
       </div>
+
+      <Separator />
+
+      <ExportPanel />
 
       <Separator />
 
@@ -260,6 +326,21 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
           </Button>
         </CardContent>
       </Card>
+      {showShortcutHelp && (
+        <ShortcutHelp
+          shortcuts={[
+            { key: "ArrowLeft", action: () => {}, description: "上一章" },
+            { key: "ArrowRight", action: () => {}, description: "下一章" },
+            { key: "+", action: () => {}, description: "增大字号" },
+            { key: "-", action: () => {}, description: "减小字号" },
+            { key: "i", action: () => {}, description: "切换沉浸模式" },
+            { key: "t", action: () => {}, description: "切换主题" },
+            { key: "Escape", action: () => {}, description: "关闭弹窗" },
+            { key: "?", shift: true, action: () => {}, description: "显示快捷键帮助" },
+          ]}
+          onClose={() => setShowShortcutHelp(false)}
+        />
+      )}
     </div>
   );
 }

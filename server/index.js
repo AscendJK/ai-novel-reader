@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as db from "./database.js";
 import { register, disconnect, heartbeat, isActive, mergeAndSave, createSession, validateSession, removeSession } from "./sync-handler.js";
+import { checkpointWAL, createBackup } from "./database.js";
 
 import { mountAdminRoutes } from "./admin.js";
 
@@ -205,7 +206,7 @@ async function getEncodePipeline(engine) {
   if (_cachedPipes.has(modelKey)) return _cachedPipes.get(modelKey);
   const { pipeline, env } = await import("@xenova/transformers");
   env.allowRemoteModels = false;
-  env.localModelPath = "./public/models/";
+  env.localModelPath = ENGINE_MODEL_MAP[engine] ? "./public/models/builtin/" : "./public/models/custom/";
   const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });
   _cachedPipes.set(modelKey, pipe);
   return pipe;
@@ -325,16 +326,17 @@ app.post("/api/sync/register", (req, res) => {
 
   const clientId = crypto.randomBytes(12).toString("hex");
   const token = createSession(trimmed);
-  register(trimmed, clientId, token);
+  const activeCount = register(trimmed, clientId, token);
   const data = db.gatherSyncData(trimmed);
 
-  res.json({ clientId, token, activeCount: 1, data, isNew: !exists });
+  res.json({ clientId, token, activeCount, data, isNew: !exists });
 });
 
 // POST /api/sync/heartbeat
 app.post("/api/sync/heartbeat", (req, res) => {
-  const { username, clientId } = req.body;
+  const { username, clientId, token } = req.body;
   if (!username || !clientId) return res.status(400).json({ error: "username and clientId required" });
+  if (token && !validateSession(token)) return res.status(401).json({ error: "session expired" });
   const activeCount = heartbeat(username, clientId);
   res.json({ activeCount });
 });
@@ -342,8 +344,9 @@ app.post("/api/sync/heartbeat", (req, res) => {
 // POST /api/sync/push
 app.post("/api/sync/push", (req, res) => {
   try {
-    const { username, clientId, changes } = req.body;
+    const { username, clientId, token, changes } = req.body;
     if (!username || !clientId) return res.status(400).json({ error: "username and clientId required" });
+    if (token && !validateSession(token)) return res.status(401).json({ error: "session expired" });
     if (!isActive(username, clientId)) return res.status(403).json({ error: "kicked" });
     if (!changes) return res.json({ merged: false, data: db.gatherSyncData(username) });
 
@@ -397,3 +400,12 @@ const PORT = parseInt(process.env.PORT || (isFullServer ? "5173" : "3001"), 10);
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[sync] http://0.0.0.0:${PORT} (${isFullServer ? "full" : "api-only"})`);
 });
+
+// ── Periodic maintenance ────────────────────────────────────
+
+// WAL checkpoint every 30 minutes
+setInterval(() => { try { checkpointWAL(); } catch (e) { console.error("[checkpoint] failed:", e); } }, 30 * 60 * 1000);
+
+// Backup: first run after 10s, then every 24 hours
+setTimeout(() => { try { createBackup(); } catch (e) { console.error("[backup] failed:", e); } }, 10_000);
+setInterval(() => { try { createBackup(); } catch (e) { console.error("[backup] failed:", e); } }, 24 * 60 * 60 * 1000);

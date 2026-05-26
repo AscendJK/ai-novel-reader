@@ -19,10 +19,25 @@ function userKeys() {
   return { providers: `api-providers:${user}`, active: `api-active-provider:${user}` };
 }
 
-function persist(providers: ProviderConfig[], activeId: string | null) {
+async function persist(providers: ProviderConfig[], activeId: string | null) {
   const k = userKeys();
-  db.settings.put({ key: k.providers, value: providers }).catch(() => {});
-  db.settings.put({ key: k.active, value: activeId }).catch(() => {});
+  try {
+    await Promise.all([
+      db.settings.put({ key: k.providers, value: providers }),
+      db.settings.put({ key: k.active, value: activeId }),
+    ]);
+  } catch (e) {
+    console.error("[api-store] persist failed, retrying:", e);
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      await Promise.all([
+        db.settings.put({ key: k.providers, value: providers }),
+        db.settings.put({ key: k.active, value: activeId }),
+      ]);
+    } catch (e2) {
+      console.error("[api-store] persist retry failed:", e2);
+    }
+  }
 }
 
 export const useAPIStore = create<APIState>((set, get) => ({

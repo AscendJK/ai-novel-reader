@@ -4,6 +4,7 @@ import type { EngineId } from "./engines";
 import { isEmbeddingEngine } from "./engines";
 import { ragLog } from "@/components/common/DebugPanel";
 import { db } from "@/db/database";
+import { useRAGStore } from "@/stores/rag-store";
 
 interface IndexEntry {
   novelId: string;
@@ -24,6 +25,7 @@ onLRUEvict((evictedKey) => {
     if (entryKey === evictedKey && entry.embedding) {
       entry.embedding.dispose();
       indexCache.delete(nid);
+      useRAGStore.getState().removeCachedKey(evictedKey);
       ragLog(`indexCache 同步淘汰: ${evictedKey}`);
       break;
     }
@@ -82,6 +84,7 @@ export async function buildIndex(
       if (cached && cached.dim > 0) {
         ragLog(`从缓存加载索引: ${cached.vectors.length}片段 · ${cached.dim}维`);
         const emb = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, engine);
+        useRAGStore.getState().addCachedKey(cacheKey);
         const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), embedding: emb, chunks, buildTime: Date.now() - t0 };
         indexCache.set(novelId, entry);
         return emb;

@@ -42,7 +42,7 @@ export async function applyServerData(data: SyncData): Promise<void> {
     await db.transaction("rw", db.summaries, async () => {
       for (const s of data.summaries as Array<{ id: string; createdAt?: number }>) {
         const existing = await db.summaries.get(s.id);
-        if (!existing || (s.createdAt || 0) >= (existing.createdAt || 0)) {
+        if (!existing || (s.createdAt || 0) > (existing.createdAt || 0)) {
           await db.summaries.put(s as any);
         }
       }
@@ -54,7 +54,7 @@ export async function applyServerData(data: SyncData): Promise<void> {
     await db.transaction("rw", db.notes, async () => {
       for (const n of data.notes as Array<{ id: string; createdAt?: number }>) {
         const existing = await db.notes.get(n.id);
-        if (!existing || (n.createdAt || 0) >= (existing.createdAt || 0)) {
+        if (!existing || (n.createdAt || 0) > (existing.createdAt || 0)) {
           await db.notes.put(n as any);
         }
       }
@@ -71,7 +71,7 @@ export async function applyServerData(data: SyncData): Promise<void> {
     // Reload API store so new providers appear without refresh
     try {
       const { useAPIStore } = await import("@/stores/api-store");
-      useAPIStore.getState().loadFromDB();
+      await useAPIStore.getState().loadFromDB();
     } catch { /* ok */ }
   }
 

@@ -23,8 +23,9 @@ import {
   Loader2, ChevronRight, ChevronDown,
   Sparkles, Users, Clock, RefreshCw, MessageSquare,
   BookOpen, Trash2, Maximize2, FileText, PlusCircle,
-  Bookmark, StickyNote,
+  Bookmark, StickyNote, Search,
 } from "lucide-react";
+import { retrieveRelevantWithDetails } from "@/rag/index";
 import ReactMarkdown from "react-markdown";
 import { CharacterGraph } from "./CharacterGraph";
 
@@ -49,6 +50,13 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const [savingNote, setSavingNote] = useState(false);
   const [expandedChapter, setExpandedChapter] = useState<string | null>(null);
   const [expandedBook, setExpandedBook] = useState<string | null>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ content: string; score: number }[]>([]);
+  const [searchEngine, setSearchEngine] = useState<string>("none");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Graph data
   const [characterGraphData, setCharacterGraphData] = useState<GraphData | null>(null);
@@ -126,6 +134,21 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     } catch { useBuildStore.getState().fail("请求失败"); }
   };
 
+  const handleSearch = async () => {
+    if (!searchQuery.trim() || !currentNovel) return;
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const detail = await retrieveRelevantWithDetails(currentNovel.id, searchQuery.trim(), 10);
+      setSearchResults(detail.results);
+      setSearchEngine(detail.engine);
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : "搜索失败");
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   const handleSaveNote = async () => {
     if (!noteContent.trim() || !currentNovel) return;
     setSavingNote(true);
@@ -193,7 +216,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   // Load graph + notes on novel switch, clear QA
   useEffect(() => {
     setQaMessages([]); setRangeResults([]); setCustomQuestion(""); setRangeFrom(""); setRangeTo("");
-    setNoteContent("");
+    setNoteContent(""); setSearchQuery(""); setSearchResults([]); setSearchEngine("none"); setSearchError(null);
     let cancelled = false;
     if (currentNovel) {
       loadSetting<GraphData>(`character-graph-${currentNovel.id}`).then((gd) => {
@@ -229,7 +252,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
     setQaMessages((p) => [...p, um]);
     setQaLoading(true); setQaError(null);
     try {
-      const hist = useSummaryStore.getState().summaries.map((m: any) => ({ role: m.role, content: m.content }));
+      const hist = qaMessages.map((m) => ({ role: m.role, content: m.content }));
       const r = await askCustomQuestion(q, hist);
       if (r) setQaMessages((p) => [...p, { id: crypto.randomUUID(), role: "assistant", content: r.answer, tokensUsed: r.tokensUsed }]);
     } catch (e) { setQaError(e instanceof Error ? e.message : "failed"); }
@@ -248,7 +271,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   };
 
   return (
-    <div className="md:w-72 w-full border-l md:border-l border-t md:border-t-0 bg-card h-full flex flex-col shrink-0">
+    <div className="md:w-80 w-full border-l md:border-l border-t md:border-t-0 bg-card h-full flex flex-col shrink-0">
       {/* Header */}
       <div className="p-2.5 border-b shrink-0">
         <h3 className="font-semibold text-xs flex items-center gap-1.5">
@@ -304,6 +327,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
             <TabsTrigger value="chapter" className="text-xs h-7 flex-1">本章分析</TabsTrigger>
             <TabsTrigger value="book" className="text-xs h-7 flex-1">全书分析</TabsTrigger>
             <TabsTrigger value="notes" className="text-xs h-7 flex-1">笔记</TabsTrigger>
+            <TabsTrigger value="search" className="text-xs h-7 flex-1">搜索</TabsTrigger>
           </TabsList>
         </div>
 
@@ -474,6 +498,76 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
                 </Card>
               )})}
             </div>
+          </TabsContent>
+
+          {/* ====== 搜索 Tab ====== */}
+          <TabsContent value="search" className="px-2.5 pt-2 pb-2 space-y-2 m-0">
+            {isEmbeddingEngine(engine) && indexReady === false ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-xs text-muted-foreground">嵌入引擎索引未构建，无法使用语义搜索</p>
+                <Button variant="outline" size="sm" className="h-6 text-xs" onClick={handleBuildFromPanel}>
+                  立即构建索引
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-1">
+                  <Input
+                    id="rag-search-input"
+                    name="rag-search-input"
+                    className="h-7 text-xs flex-1"
+                    placeholder="输入关键词或语义查询..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearch(); } }}
+                  />
+                  <Button size="sm" className="h-7 text-xs px-2" onClick={handleSearch} disabled={searchLoading || !searchQuery.trim()}>
+                    {searchLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                  </Button>
+                </div>
+
+                <div className="text-[10px] text-muted-foreground text-center">
+                  引擎: <span className={isEmbeddingEngine(searchEngine) ? "text-green-400" : "text-yellow-400"}>
+                    {getEngineDisplayName(searchEngine === "none" ? engine : searchEngine)}
+                  </span>
+                  {searchResults.length > 0 && <span className="ml-2">· {searchResults.length} 条结果</span>}
+                </div>
+
+                {searchError && (
+                  <p className="text-xs text-destructive text-center">{searchError}</p>
+                )}
+
+                {searchResults.length > 0 && (
+                  <div className="space-y-1.5">
+                    {searchResults.map((r, i) => (
+                      <Card key={i} className="shadow-none">
+                        <CardHeader className="p-1.5 pb-0.5">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline" className="text-[10px] font-normal">
+                              {r.score.toFixed(3)}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">#{i + 1}</span>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-1.5 pt-0">
+                          <p className="text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap break-all">
+                            {r.content}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {!searchLoading && searchResults.length === 0 && searchQuery && !searchError && (
+                  <p className="text-xs text-muted-foreground text-center py-4">未找到相关内容</p>
+                )}
+
+                {!searchQuery && searchResults.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4">输入查询进行语义搜索</p>
+                )}
+              </>
+            )}
           </TabsContent>
         </ScrollArea>
         </Tabs>

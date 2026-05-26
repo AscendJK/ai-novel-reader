@@ -33,16 +33,21 @@ interface RAGState {
   engine: EngineId;
   savedCustomModels: { key: string; name: string; size: string }[];
   cacheSizeMB: number;
+  cachedKeys: Set<string>;
   setEngine: (e: EngineId, name?: string, size?: string) => void;
   setSavedCustomModels: (models: { key: string; name: string; size: string }[]) => void;
   removeSavedModel: (key: string) => void;
   setCacheSizeMB: (size: number) => void;
+  addCachedKey: (key: string) => void;
+  removeCachedKey: (key: string) => void;
+  hasCachedKey: (key: string) => boolean;
 }
 
 export const useRAGStore = create<RAGState>((set, get) => ({
   engine: loadPref(),
   savedCustomModels: loadSavedModels(),
   cacheSizeMB: loadCacheSize(),
+  cachedKeys: new Set<string>(),
 
   setEngine: (engine, name, size) => {
     try { localStorage.setItem("novel-reader-rag-engine", engine); } catch { /* ignore */ }
@@ -75,4 +80,18 @@ export const useRAGStore = create<RAGState>((set, get) => ({
     try { localStorage.setItem("novel-reader-rag-cache-mb", String(clamped)); } catch { /* ignore */ }
     set({ cacheSizeMB: clamped });
   },
+
+  addCachedKey: (key) => {
+    const next = new Set(get().cachedKeys);
+    next.add(key);
+    set({ cachedKeys: next });
+  },
+
+  removeCachedKey: (key) => {
+    const next = new Set(get().cachedKeys);
+    next.delete(key);
+    set({ cachedKeys: next });
+  },
+
+  hasCachedKey: (key) => get().cachedKeys.has(key),
 }));

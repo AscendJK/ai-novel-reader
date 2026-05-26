@@ -70,19 +70,30 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
       .force("collide", forceCollide(55))
       .stop();
 
-    for (let i = 0; i < 500; i++) {
-      sim.tick();
-      if (sim.alpha() < 0.001) break;
-    }
-
-    const finalNodes = nodes.map((n) => ({ ...n }));
-    const finalEdges = edges.map((e) => ({
-      ...e,
-      source: finalNodes.find((fn) => fn.id === (e.source as SimNode).id)!,
-      target: finalNodes.find((fn) => fn.id === (e.target as SimNode).id)!,
-    }));
-
-    setSimData({ nodes: finalNodes, edges: finalEdges });
+    // Run simulation in chunks to avoid blocking the main thread
+    const maxIterations = 300;
+    const chunkSize = 50;
+    let iteration = 0;
+    const runChunk = () => {
+      const end = Math.min(iteration + chunkSize, maxIterations);
+      for (; iteration < end; iteration++) {
+        sim.tick();
+        if (sim.alpha() < 0.001) break;
+      }
+      if (iteration < maxIterations && sim.alpha() >= 0.001) {
+        requestAnimationFrame(runChunk);
+      } else {
+        // Simulation complete, update state
+        const finalNodes = nodes.map((n) => ({ ...n }));
+        const finalEdges = edges.map((e) => ({
+          ...e,
+          source: finalNodes.find((fn) => fn.id === (e.source as SimNode).id)!,
+          target: finalNodes.find((fn) => fn.id === (e.target as SimNode).id)!,
+        }));
+        setSimData({ nodes: finalNodes, edges: finalEdges });
+      }
+    };
+    requestAnimationFrame(runChunk);
   }, [graphData]);
 
   // Mouse drag handlers for panning

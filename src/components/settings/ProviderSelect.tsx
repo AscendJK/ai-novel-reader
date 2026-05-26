@@ -14,7 +14,7 @@ export function ProviderSelect() {
       value={activeProviderId || undefined}
       onValueChange={(v) => setActiveProvider(v as ProviderType)}
     >
-      <SelectTrigger className="w-full">
+      <SelectTrigger id="active-provider" name="active-provider" className="w-full">
         <SelectValue placeholder="选择 API 提供商" />
       </SelectTrigger>
       <SelectContent>
