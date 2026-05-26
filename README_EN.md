@@ -140,7 +140,7 @@ MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
 
 ### npm install fails with better-sqlite3 compilation error
 
-**Cause**: `better-sqlite3` is a native module. Node.js 24+ has no prebuilt binaries, so it tries to compile from source, which requires Python and C++ build tools.
+**Cause**: `better-sqlite3` is a native module. Node.js 24+ has no prebuilt binaries. This project requires Node.js 18-22 LTS.
 
 **Solutions (pick one)**:
 
@@ -159,10 +159,3 @@ MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
    - Uninstall current Node.js
    - Download 22.x.x LTS from https://nodejs.org
    - Re-run `start.bat` or `./start.sh`
-
-3. **Install build tools** (for advanced users who need Node.js 24+)
-   - Install Python 3.x: https://www.python.org/downloads/ (check "Add Python to PATH")
-   - Windows: Install Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ — select "Desktop development with C++"
-   - macOS: Run `xcode-select --install` in terminal
-   - Linux: `sudo apt install build-essential` (Ubuntu) or `sudo dnf groupinstall "Development Tools"` (Fedora)
-   - Restart terminal and re-run `start.bat` or `./start.sh`

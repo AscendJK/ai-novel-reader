@@ -17,28 +17,21 @@ REM Check Node.js version
 for /f "tokens=1 delims=." %%v in ('node -v') do set "NODE_VER=%%v"
 set "NODE_VER=%NODE_VER:v=%"
 if %NODE_VER% GEQ 24 (
-    echo [WARNING] Node.js version %NODE_VER% detected.
+    echo [ERROR] Node.js version %NODE_VER% is not supported.
     echo.
-    echo   better-sqlite3 requires native compilation on Node.js 24+.
-    echo   npm install may fail if Python and C++ build tools are not installed.
+    echo   better-sqlite3 has no prebuilt binaries for Node.js 24+.
+    echo   This project requires Node.js 18-22 LTS.
     echo.
-    echo   Recommended solutions ^(choose one^):
+    echo   Fix: Install Node.js 22 LTS
+    echo   1. Uninstall current Node.js
+    echo   2. Download 22.x.x LTS from https://nodejs.org
+    echo   3. Run this script again
     echo.
-    echo   [1] Install Node.js 22 LTS ^(easiest, recommended^)
-    echo       Download: https://nodejs.org ^(select 22.x.x LTS^)
-    echo       Uninstall current Node.js first, then install 22 LTS.
+    echo   Tip: Use nvm to manage multiple Node versions:
+    echo   https://github.com/coreybutler/nvm-windows/releases
     echo.
-    echo   [2] Install build tools ^(if you must use Node.js 24+^)
-    echo       - Python 3.x: https://www.python.org/downloads/
-    echo         Check "Add Python to PATH" during installation.
-    echo       - Visual Studio Build Tools:
-    echo         https://visualstudio.microsoft.com/visual-cpp-build-tools/
-    echo         Select "Desktop development with C++" workload.
-    echo       After installing both, restart terminal and run this script again.
-    echo.
-    set /p "yn=Continue anyway? (y/n): "
-    if /i not "%yn%"=="y" exit /b 0
-    echo.
+    pause
+    exit /b 1
 )
 
 REM Install dependencies if needed
@@ -50,11 +43,7 @@ if not exist "node_modules\" (
         echo [ERROR] Failed to install dependencies.
         echo.
         echo   This is likely because better-sqlite3 could not compile.
-        echo   Please try one of the following:
-        echo.
-        echo   1. Install Node.js 22 LTS: https://nodejs.org ^(recommended^)
-        echo   2. Install Python 3.x + Visual Studio Build Tools
-        echo      See details above or visit: https://github.com/WiseLibs/better-sqlite3/blob/master/docs/compilation.md
+        echo   Please install Node.js 22 LTS: https://nodejs.org
         echo.
         pause
         exit /b 1

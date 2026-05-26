@@ -157,7 +157,7 @@ MIT License
 
 ### npm install 失败，提示 better-sqlite3 编译错误
 
-**原因**：`better-sqlite3` 是原生模块，Node.js 24+ 没有预编译二进制，需要从源码编译，依赖 Python 和 C++ 构建工具。
+**原因**：`better-sqlite3` 是原生模块，Node.js 24+ 没有预编译二进制。本项目要求 Node.js 18-22 LTS。
 
 **解决方案（任选其一）**：
 
@@ -176,10 +176,3 @@ MIT License
    - 卸载当前 Node.js
    - 从 https://nodejs.org 下载 22.x.x LTS 版本安装
    - 重新运行 `start.bat` 或 `./start.sh`
-
-3. **安装编译工具链**（适合高级用户，不换 Node 版本）
-   - 安装 Python 3.x：https://www.python.org/downloads/ （安装时勾选 "Add Python to PATH"）
-   - Windows：安装 Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ ，选择"使用 C++ 的桌面开发"工作负载
-   - macOS：终端运行 `xcode-select --install`
-   - Linux：`sudo apt install build-essential`（Ubuntu）或 `sudo dnf groupinstall "Development Tools"`（Fedora）
-   - 安装完成后重启终端，重新运行 `start.bat` 或 `./start.sh`
