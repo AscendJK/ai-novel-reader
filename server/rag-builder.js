@@ -85,12 +85,13 @@ function processQueue() {
 
   _doBuild(task.novelId, task.engine, task.key)
     .catch(e => {
-      console.error(`[rag] build failed for ${task.key}:`, e.message || e);
+      const errMsg = e?.stack || e?.message || String(e);
+      console.error(`[rag] build failed for ${task.key}:`, errMsg);
       try {
         db.db.prepare("UPDATE rag_indices SET status = 'error', error_msg = ? WHERE novel_id = ? AND engine = ?")
-          .run(String(e.message || e), task.novelId, task.engine);
+          .run(String(e?.message || e), task.novelId, task.engine);
       } catch (dbErr) { console.error("[rag] DB error:", dbErr); }
-      buildProgress.set(task.key, { status: "error", error: String(e.message || e) });
+      buildProgress.set(task.key, { status: "error", error: String(e?.message || e) });
     })
     .finally(() => {
       running = false;
