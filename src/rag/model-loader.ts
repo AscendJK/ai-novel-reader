@@ -25,6 +25,14 @@ const ONNX_ALL = [
   "model_q4f16.onnx", "model_bnb4.onnx",
 ];
 
+/** Known embedding model architectures supported by Transformers.js */
+const EMBEDDING_MODEL_TYPES = new Set([
+  "bert", "distilbert", "albert", "roberta", "xlm-roberta",
+  "nomic_bert", "mpnet", "mobilebert", "squeezebert",
+  "electra", "deberta", "deberta-v2", "gpt2", "llama",
+  "mistral", "qwen2", "phi", "gemma",
+]);
+
 export interface ModelEntry {
   modelKey: string;
   name: string;
@@ -32,6 +40,8 @@ export interface ModelEntry {
   size: string;
   onnxFiles: string[];
   renameWarning?: string;
+  modelType?: string;
+  typeWarning?: string;
 }
 
 // ── model status check ─────────────────────────────────────────────
@@ -43,6 +53,10 @@ export interface ModelStatus {
   onnxFiles: string[];
   /** Warning if file exists but Transformers.js won't load it */
   renameWarning?: string;
+  /** model_type from config.json (e.g. "bert", "xlm-roberta") */
+  modelType?: string;
+  /** Warning if model_type is not a known embedding architecture */
+  typeWarning?: string;
 }
 
 /**
@@ -102,7 +116,21 @@ async function getModelStatus(base: string, modelKey: string): Promise<ModelStat
     ? undefined
     : `Transformers.js 只加载 "${ONNX_EXPECTED}"，当前文件为 "${found[0]}"。请重命名。`;
 
-  return { available: true, onnxFiles: found, renameWarning };
+  // 4. Read config.json to get model_type
+  let modelType: string | undefined;
+  let typeWarning: string | undefined;
+  try {
+    const configResp = await fetch(base + dir + "/config.json", { ...noCache });
+    if (configResp.ok) {
+      const config = await configResp.json();
+      modelType = config.model_type;
+      if (modelType && !EMBEDDING_MODEL_TYPES.has(modelType)) {
+        typeWarning = `model_type "${modelType}" 可能不是嵌入模型，加载时可能失败`;
+      }
+    }
+  } catch { /* config read failed, not critical */ }
+
+  return { available: true, onnxFiles: found, renameWarning, modelType, typeWarning };
 }
 
 // ── public API ──────────────────────────────────────────────────────
@@ -162,6 +190,8 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
             modelKey, name: sub, source: "custom", size,
             onnxFiles: status.onnxFiles,
             renameWarning: status.renameWarning,
+            modelType: status.modelType,
+            typeWarning: status.typeWarning,
           });
         }
       }

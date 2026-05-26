@@ -76,6 +76,8 @@ export function RAGSettings() {
     detail?: string;
     onnxFiles?: string[];
     renameWarning?: string;
+    modelType?: string;
+    typeWarning?: string;
   }[] = [
     {
       key: "tfidf",
@@ -92,6 +94,8 @@ export function RAGSettings() {
       detail: ENGINES["bge-small-zh"]?.description || "",
       onnxFiles: bgeStatus.onnxFiles,
       renameWarning: bgeWarning || undefined,
+      modelType: bgeStatus.modelType,
+      typeWarning: bgeStatus.typeWarning,
     },
     ...customModels.map((m) => ({
       key: m.modelKey,
@@ -101,6 +105,8 @@ export function RAGSettings() {
       detail: ENGINES[m.modelKey]?.description || "用户自定义模型",
       onnxFiles: m.onnxFiles,
       renameWarning: m.renameWarning,
+      modelType: m.modelType,
+      typeWarning: m.typeWarning,
     })),
   ];
 
@@ -151,6 +157,7 @@ export function RAGSettings() {
                         <span className="text-sm font-medium">{m.name}</span>
                         <Badge variant="outline" className="text-xs">{m.size}</Badge>
                         <Badge variant="secondary" className="text-xs">{m.source === "builtin" ? "内置" : "自定义"}</Badge>
+                        {m.modelType && <Badge variant="outline" className="text-xs font-mono">{m.modelType}</Badge>}
                         {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
                         {m.source === "builtin" && m.key === "bge-small-zh" && (
                           <Star className="h-3 w-3 text-amber-500" aria-label="推荐" />
@@ -196,6 +203,15 @@ export function RAGSettings() {
                               >
                                 复制
                               </button>
+                            </p>
+                          </div>
+                        )}
+
+                        {m.typeWarning && (
+                          <div className="mt-1 p-2 rounded bg-red-50 dark:bg-red-950/30 text-xs">
+                            <p className="text-red-700 dark:text-red-400 flex items-start gap-1">
+                              <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                              {m.typeWarning}
                             </p>
                           </div>
                         )}
