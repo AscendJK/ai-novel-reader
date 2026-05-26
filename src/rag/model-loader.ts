@@ -159,14 +159,18 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
     if (status.available) {
       let size = "?";
       if (status.onnxFiles.length > 0) {
-        try {
-          const h = await fetch(CUSTOM + hfCacheDir(modelKey) + "/onnx/" + status.onnxFiles[0], { method: "HEAD", cache: "no-cache" } as RequestInit);
-          const cl = h.headers.get("Content-Length");
-          if (cl) {
-            const mb = parseInt(cl) / (1024 * 1024);
-            size = mb >= 1 ? `~${Math.round(mb)} MB` : `~${Math.round(mb * 1024)} KB`;
-          }
-        } catch { /* can't get size */ }
+        // Try both flat and HF cache directory formats for size check
+        for (const prefix of [modelKey, hfCacheDir(modelKey)]) {
+          try {
+            const h = await fetch(CUSTOM + prefix + "/onnx/" + status.onnxFiles[0], { method: "HEAD", cache: "no-cache" } as RequestInit);
+            const cl = h.headers.get("Content-Length");
+            if (cl) {
+              const mb = parseInt(cl) / (1024 * 1024);
+              size = mb >= 1 ? `~${Math.round(mb)} MB` : `~${Math.round(mb * 1024)} KB`;
+              break;
+            }
+          } catch { /* try next format */ }
+        }
       }
       const name = modelKey.split("/").pop() || modelKey;
       results.push({
@@ -201,9 +205,14 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
   } catch { /* directory listing unavailable */ }
 
   // Fallback: probe known model paths (recommended + previously saved)
+  let savedKeys: string[] = [];
+  try {
+    const stored = localStorage.getItem("novel-reader-rag-custom-models");
+    if (stored) savedKeys = JSON.parse(stored).map((m: any) => m.key);
+  } catch { /* ignore */ }
   const knownKeys = [
     ...RECOMMENDED_MODELS.map(m => m.modelKey),
-    ...loadSavedModels().map(m => m.key),
+    ...savedKeys,
   ];
   for (const key of knownKeys) await probe(key);
 
