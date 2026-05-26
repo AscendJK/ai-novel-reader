@@ -6,7 +6,9 @@
 
 ## 快速开始
 
-**前置条件：** [Node.js](https://nodejs.org) v18~22 LTS（不建议 v24+，`better-sqlite3` 可能缺少预编译二进制导致安装失败）
+**前置条件：** [Node.js](https://nodejs.org) v18~22 LTS
+
+> **Node.js 24+ 用户注意**：`better-sqlite3` 在 Node 24 上缺少预编译二进制，`npm install` 会尝试从源码编译，需要 Python 3.x 和 C++ 构建工具。建议使用 **Node.js 22 LTS** 以避免编译问题。详见下方「常见问题」。
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git
@@ -150,3 +152,23 @@ Express + better-sqlite3
 MIT License
 
 内置 BGE Small ZH v1.5 模型来自北京智源人工智能研究院（BAAI），MIT 协议。
+
+## 常见问题
+
+### npm install 失败，提示 better-sqlite3 编译错误
+
+**原因**：`better-sqlite3` 是原生模块，Node.js 24+ 没有预编译二进制，需要从源码编译，依赖 Python 和 C++ 构建工具。
+
+**解决方案（任选其一）**：
+
+1. **安装 Node.js 22 LTS**（推荐，最简单）
+   - 卸载当前 Node.js
+   - 从 https://nodejs.org 下载 22.x.x LTS 版本安装
+   - 重新运行 `start.bat` 或 `./start.sh`
+
+2. **安装编译工具链**（适合高级用户）
+   - 安装 Python 3.x：https://www.python.org/downloads/ （安装时勾选 "Add Python to PATH"）
+   - Windows：安装 Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ ，选择"使用 C++ 的桌面开发"工作负载
+   - macOS：终端运行 `xcode-select --install`
+   - Linux：`sudo apt install build-essential`（Ubuntu）或 `sudo dnf groupinstall "Development Tools"`（Fedora）
+   - 安装完成后重启终端，重新运行 `start.bat` 或 `./start.sh`

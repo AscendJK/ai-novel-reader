@@ -12,11 +12,48 @@ if ! command -v node &>/dev/null; then
   exit 1
 fi
 
+# Check Node.js version
+NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
+if [ "$NODE_MAJOR" -ge 24 ]; then
+  echo "[WARNING] Node.js version $(node -v) detected."
+  echo ""
+  echo "  better-sqlite3 requires native compilation on Node.js 24+."
+  echo "  npm install may fail if Python and C++ build tools are not installed."
+  echo ""
+  echo "  Recommended solutions:"
+  echo ""
+  echo "  1. Install Node.js 22 LTS (easiest, recommended)"
+  echo "     https://nodejs.org (select 22.x.x LTS)"
+  echo ""
+  echo "  2. Install build tools (if you must use Node.js 24+)"
+  echo "     - Python 3.x: https://www.python.org/downloads/"
+  echo "     - C++ compiler:"
+  echo "       macOS:   xcode-select --install"
+  echo "       Ubuntu:  sudo apt install build-essential"
+  echo "       Fedora:  sudo dnf groupinstall 'Development Tools'"
+  echo ""
+  read -r -p "  Continue anyway? (y/n): " yn
+  if [[ ! "$yn" =~ ^[Yy] ]]; then exit 0; fi
+  echo ""
+fi
+
 # Install deps if needed
 if [ ! -d "node_modules" ]; then
   echo "First run: installing dependencies..."
   echo ""
-  npm install
+  if ! npm install; then
+    echo ""
+    echo "[ERROR] Failed to install dependencies."
+    echo ""
+    echo "  This is likely because better-sqlite3 could not compile."
+    echo "  Please try one of the following:"
+    echo ""
+    echo "  1. Install Node.js 22 LTS: https://nodejs.org (recommended)"
+    echo "  2. Install Python 3.x and a C++ compiler"
+    echo "     See: https://github.com/WiseLibs/better-sqlite3/blob/master/docs/compilation.md"
+    echo ""
+    exit 1
+  fi
   echo ""
 fi
 

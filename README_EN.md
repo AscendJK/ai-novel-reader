@@ -4,7 +4,9 @@ A browser-based AI-powered novel reading tool. Upload TXT/EPUB files, configure 
 
 ## Quick Start
 
-**Prerequisites:** [Node.js](https://nodejs.org) v18~22 LTS (v24+ may fail due to missing prebuilt binaries for `better-sqlite3`)
+**Prerequisites:** [Node.js](https://nodejs.org) v18~22 LTS
+
+> **Node.js 24+ users**: `better-sqlite3` lacks prebuilt binaries for Node 24, so `npm install` will attempt to compile from source (requires Python 3.x and C++ build tools). We recommend **Node.js 22 LTS** to avoid compilation issues. See FAQ below.
 
 ```bash
 git clone https://github.com/AscendJK/ai-novel-reader.git
@@ -133,3 +135,23 @@ Express + better-sqlite3
 ## License
 
 MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
+
+## FAQ
+
+### npm install fails with better-sqlite3 compilation error
+
+**Cause**: `better-sqlite3` is a native module. Node.js 24+ has no prebuilt binaries, so it tries to compile from source, which requires Python and C++ build tools.
+
+**Solutions (pick one)**:
+
+1. **Install Node.js 22 LTS** (recommended, easiest)
+   - Uninstall current Node.js
+   - Download 22.x.x LTS from https://nodejs.org
+   - Re-run `start.bat` or `./start.sh`
+
+2. **Install build tools** (for advanced users who need Node.js 24+)
+   - Install Python 3.x: https://www.python.org/downloads/ (check "Add Python to PATH")
+   - Windows: Install Visual Studio Build Tools https://visualstudio.microsoft.com/visual-cpp-build-tools/ — select "Desktop development with C++"
+   - macOS: Run `xcode-select --install` in terminal
+   - Linux: `sudo apt install build-essential` (Ubuntu) or `sudo dnf groupinstall "Development Tools"` (Fedora)
+   - Restart terminal and re-run `start.bat` or `./start.sh`
