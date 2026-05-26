@@ -205,7 +205,7 @@ async function getEncodePipeline(engine) {
   if (_cachedPipes.has(modelKey)) return _cachedPipes.get(modelKey);
   const { pipeline, env } = await import("@xenova/transformers");
   env.allowRemoteModels = false;
-  env.localModelPath = ["./public/models/custom/", "./public/models/builtin/"];
+  env.localModelPath = "./public/models/";
   const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });
   _cachedPipes.set(modelKey, pipe);
   return pipe;

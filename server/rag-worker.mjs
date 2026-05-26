@@ -7,10 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { chunks, batchSize, modelKey = "Xenova/bge-small-zh-v1.5" } = workerData;
 
 env.allowRemoteModels = false;
-env.localModelPath = [
-  path.resolve(__dirname, "../public/models/custom/"),
-  path.resolve(__dirname, "../public/models/builtin/"),
-];
+env.localModelPath = path.resolve(__dirname, "../public/models/");
 
 async function run() {
   const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });
