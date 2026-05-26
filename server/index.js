@@ -374,6 +374,20 @@ app.get("/admin", (_req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
+// ── Models directory listing (for custom model scanning) ──────
+
+const publicDir = path.join(__dirname, "..", "public");
+app.get("/models/*/", (req, res) => {
+  const dir = path.join(publicDir, req.path);
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+    res.json(dirs);
+  } catch {
+    res.status(404).json([]);
+  }
+});
+
 // ── Production static serving ───────────────────────────────
 
 const isFullServer = process.argv.includes("--full");

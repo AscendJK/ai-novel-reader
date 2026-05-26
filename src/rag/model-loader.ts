@@ -150,56 +150,64 @@ export async function getBuiltinModelWarning(modelKey: string): Promise<string |
 /** Scan custom/ directory for user-added models */
 export async function scanCustomModels(): Promise<ModelEntry[]> {
   const results: ModelEntry[] = [];
+  const scanned = new Set<string>();
 
-  // Vite plugin serves /models/custom/ as JSON array of sub-directory names
+  async function probe(modelKey: string) {
+    if (scanned.has(modelKey)) return;
+    scanned.add(modelKey);
+    const status = await getModelStatus(CUSTOM, modelKey);
+    if (status.available) {
+      let size = "?";
+      if (status.onnxFiles.length > 0) {
+        try {
+          const h = await fetch(CUSTOM + hfCacheDir(modelKey) + "/onnx/" + status.onnxFiles[0], { method: "HEAD", cache: "no-cache" } as RequestInit);
+          const cl = h.headers.get("Content-Length");
+          if (cl) {
+            const mb = parseInt(cl) / (1024 * 1024);
+            size = mb >= 1 ? `~${Math.round(mb)} MB` : `~${Math.round(mb * 1024)} KB`;
+          }
+        } catch { /* can't get size */ }
+      }
+      const name = modelKey.split("/").pop() || modelKey;
+      results.push({
+        modelKey, name, source: "custom", size,
+        onnxFiles: status.onnxFiles,
+        renameWarning: status.renameWarning,
+        modelType: status.modelType,
+        typeWarning: status.typeWarning,
+      });
+    }
+  }
+
+  // Try directory listing (works in dev with Vite plugin, or prod with Express endpoint)
   try {
     const resp = await fetch(CUSTOM, { cache: "no-cache" } as RequestInit);
-    if (!resp.ok) return results;
     const ct = resp.headers.get("Content-Type") || "";
-    // Only parse JSON responses (not SPA fallback HTML)
-    if (!ct.includes("json")) return results;
-    const topDirs: string[] = await resp.json();
-    if (!Array.isArray(topDirs)) return results;
-
-    for (const dir of topDirs) {
-      const subResp = await fetch(CUSTOM + dir + "/", { cache: "no-cache" } as RequestInit);
-      if (!subResp.ok) continue;
-      const subCt = subResp.headers.get("Content-Type") || "";
-      if (!subCt.includes("json")) continue;
-      const subDirs: string[] = await subResp.json();
-      if (!Array.isArray(subDirs)) continue;
-
-      for (const sub of subDirs) {
-        const modelKey = `${dir}/${sub}`;
-        const status = await getModelStatus(CUSTOM, modelKey);
-        if (status.available) {
-          // Get size of first ONNX file
-          let size = "?";
-          if (status.onnxFiles.length > 0) {
-            const firstFile = status.onnxFiles[0];
-            try {
-              const h = await fetch(CUSTOM + hfCacheDir(modelKey) + "/onnx/" + firstFile, { method: "HEAD", cache: "no-cache" } as RequestInit);
-              const cl = h.headers.get("Content-Length");
-              if (cl) {
-                const mb = parseInt(cl) / (1024 * 1024);
-                size = mb >= 1 ? `~${Math.round(mb)} MB` : `~${Math.round(mb * 1024)} KB`;
-              }
-            } catch { /* can't get size */ }
+    if (resp.ok && ct.includes("json")) {
+      const topDirs: string[] = await resp.json();
+      if (Array.isArray(topDirs)) {
+        for (const dir of topDirs) {
+          const subResp = await fetch(CUSTOM + dir + "/", { cache: "no-cache" } as RequestInit);
+          const subCt = subResp.headers.get("Content-Type") || "";
+          if (subResp.ok && subCt.includes("json")) {
+            const subDirs: string[] = await subResp.json();
+            if (Array.isArray(subDirs)) {
+              for (const sub of subDirs) await probe(`${dir}/${sub}`);
+            }
           }
-          results.push({
-            modelKey, name: sub, source: "custom", size,
-            onnxFiles: status.onnxFiles,
-            renameWarning: status.renameWarning,
-            modelType: status.modelType,
-            typeWarning: status.typeWarning,
-          });
         }
       }
     }
-  } catch {
-    /* can't scan */
-  }
+  } catch { /* directory listing unavailable */ }
 
+  // Fallback: probe known model paths (recommended + previously saved)
+  const knownKeys = [
+    ...RECOMMENDED_MODELS.map(m => m.modelKey),
+    ...loadSavedModels().map(m => m.key),
+  ];
+  for (const key of knownKeys) await probe(key);
+
+  console.log("[scan] found:", results.length, results.map(r => r.modelKey));
   return results;
 }
 
