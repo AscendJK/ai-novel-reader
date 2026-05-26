@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRAGStore } from "@/stores/rag-store";
 import { useUIStore } from "@/stores/ui-store";
 import { ENGINES, getEngineDisplayName } from "@/rag/engines";
-import { scanCustomModels, getBuiltinBGEStatus, RECOMMENDED_MODELS } from "@/rag/model-loader";
+import { scanCustomModels, getBuiltinBGEStatus, getBuiltinGTEStatus, RECOMMENDED_MODELS } from "@/rag/model-loader";
 import type { ModelEntry, ModelStatus } from "@/rag/model-loader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,7 @@ export function RAGSettings() {
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [bgeStatus, setBgeStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
+  const [gteStatus, setGteStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
   const loadedRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => { return () => { mountedRef.current = false; }; }, []);
@@ -46,6 +47,7 @@ export function RAGSettings() {
     loadedRef.current = true;
     let cancelled = false;
     getBuiltinBGEStatus().then((s) => { if (!cancelled) setBgeStatus(s); });
+    getBuiltinGTEStatus().then((s) => { if (!cancelled) setGteStatus(s); });
     return () => { cancelled = true; };
   }, []);
 
@@ -59,14 +61,18 @@ export function RAGSettings() {
       setSavedCustomModels(models.map((m) => ({ key: m.modelKey, name: m.name, size: m.size })));
     }
     const s = await getBuiltinBGEStatus();
+    const g = await getBuiltinGTEStatus();
     if (!mountedRef.current) return;
     setBgeStatus(s);
+    setGteStatus(g);
     setScanning(false);
     setScanMessage(models.length > 0 ? `发现 ${models.length} 个自定义模型` : "未发现自定义模型");
   };
 
   const bgeInstalled = bgeStatus.available;
   const bgeWarning = bgeStatus.renameWarning;
+  const gteInstalled = gteStatus.available;
+  const gteWarning = gteStatus.renameWarning;
 
   const availableModels: {
     key: string;
@@ -96,6 +102,17 @@ export function RAGSettings() {
       renameWarning: bgeWarning || undefined,
       modelType: bgeStatus.modelType,
       typeWarning: bgeStatus.typeWarning,
+    },
+    {
+      key: "gte-small",
+      name: "GTE Small",
+      size: "34MB",
+      source: "builtin",
+      detail: ENGINES["gte-small"]?.description || "",
+      onnxFiles: gteStatus.onnxFiles,
+      renameWarning: gteWarning || undefined,
+      modelType: gteStatus.modelType,
+      typeWarning: gteStatus.typeWarning,
     },
     ...customModels.map((m) => ({
       key: m.modelKey,
@@ -140,7 +157,7 @@ export function RAGSettings() {
           <div className="space-y-1.5">
             {availableModels.map((m) => {
               const isActive = engine === m.key;
-              const isBuiltinInstalled = m.source === "builtin" && (m.key === "tfidf" || bgeInstalled);
+              const isBuiltinInstalled = m.source === "builtin" && (m.key === "tfidf" || (m.key === "bge-small-zh" && bgeInstalled) || (m.key === "gte-small" && gteInstalled));
               const info = ENGINES[m.key];
               return (
                 <div key={m.key}>
@@ -159,7 +176,7 @@ export function RAGSettings() {
                         <Badge variant="secondary" className="text-xs">{m.source === "builtin" ? "内置" : "自定义"}</Badge>
                         {m.modelType && <Badge variant="outline" className="text-xs font-mono">{m.modelType}</Badge>}
                         {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
-                        {m.source === "builtin" && m.key === "bge-small-zh" && (
+                        {m.source === "builtin" && (m.key === "bge-small-zh" || m.key === "gte-small") && (
                           <Star className="h-3 w-3 text-amber-500" aria-label="推荐" />
                         )}
                       </div>
@@ -219,6 +236,12 @@ export function RAGSettings() {
                         {m.source === "builtin" && m.key === "bge-small-zh" && !bgeInstalled && (
                           <p className="text-xs text-destructive mt-0.5">
                             模型文件未找到。请将文件放入 public/models/builtin/Xenova/bge-small-zh-v1.5/
+                          </p>
+                        )}
+
+                        {m.source === "builtin" && m.key === "gte-small" && !gteInstalled && (
+                          <p className="text-xs text-destructive mt-0.5">
+                            模型文件未找到。请将文件放入 public/models/builtin/Xenova/gte-small/
                           </p>
                         )}
 

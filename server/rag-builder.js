@@ -28,6 +28,7 @@ let running = false;
 
 const ENGINE_MODEL_MAP = {
   "bge-small-zh": "Xenova/bge-small-zh-v1.5",
+  "gte-small": "Xenova/gte-small",
   "e5-small": "Xenova/multilingual-e5-small",
 };
 

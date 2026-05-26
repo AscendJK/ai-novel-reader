@@ -73,8 +73,8 @@ Supports **any Transformers.js-compatible ONNX embedding model** for semantic re
 |--------|------|-------------|
 | TF-IDF | 0 MB | Character-level search, instant, no build required |
 | BGE Small ZH (built-in) | ~26 MB | Chinese semantic search, recommended for Chinese novels |
+| GTE Small (built-in) | ~34 MB | Balanced Chinese + English, from Alibaba |
 | Multilingual E5 Small | ~120 MB | Chinese + English, multilingual use |
-| GTE Small | ~70 MB | Balanced Chinese + English |
 | All-MiniLM-L6-v2 | ~23 MB | English lightweight, smallest footprint |
 | Multilingual MiniLM L12 | ~120 MB | Deep multilingual understanding |
 

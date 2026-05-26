@@ -61,6 +61,23 @@ export const ENGINES: Record<string, EngineInfo> = {
       "中文成语、古文理解不如 BGE",
     ],
   },
+  "gte-small": {
+    id: "gte-small",
+    name: "GTE Small（内置·推荐）",
+    description: "阿里通义实验室出品，中英文均衡，检索评测表现优秀",
+    size: "约 34 MB",
+    modelKey: "Xenova/gte-small",
+    strengths: [
+      "中英文均衡，双语场景表现好",
+      "阿里出品，中文语料训练充分",
+      "384维向量，检索精度高",
+      "INT8量化仅34MB，体积适中",
+    ],
+    weaknesses: [
+      "中文古文理解不如 BGE",
+      "加载时间与 BGE 相近",
+    ],
+  },
   "Xenova/gte-small": {
     id: "Xenova/gte-small",
     name: "GTE Small",

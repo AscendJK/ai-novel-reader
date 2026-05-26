@@ -83,8 +83,8 @@ npm install
 |------|------|------|
 | TF-IDF | 0 MB | 纯字符级检索，瞬间可用，无需构建 |
 | BGE Small ZH（内置） | ~26 MB | 中文语义检索，精度高，推荐中文小说使用 |
+| GTE Small（内置） | ~34 MB | 中英文均衡，阿里通义实验室出品 |
 | Multilingual E5 Small | ~120 MB | 中英文兼顾，多语言场景 |
-| GTE Small | ~70 MB | 中英文均衡 |
 | All-MiniLM-L6-v2 | ~23 MB | 英文轻量，体积最小 |
 | Multilingual MiniLM L12 | ~120 MB | 多语言深度理解 |
 

@@ -203,9 +203,19 @@ export async function scanCustomModels(): Promise<ModelEntry[]> {
   return results;
 }
 
-/** Check builtin BGE status for the settings UI */
+/** Check a builtin model's status for the settings UI */
+export async function getBuiltinModelStatus(modelKey: string): Promise<ModelStatus> {
+  return getModelStatus(BUILTIN, modelKey);
+}
+
+/** Check builtin BGE status (backward compat) */
 export async function getBuiltinBGEStatus(): Promise<ModelStatus> {
-  return getModelStatus(BUILTIN, "Xenova/bge-small-zh-v1.5");
+  return getBuiltinModelStatus("Xenova/bge-small-zh-v1.5");
+}
+
+/** Check builtin GTE status */
+export async function getBuiltinGTEStatus(): Promise<ModelStatus> {
+  return getBuiltinModelStatus("Xenova/gte-small");
 }
 
 // ── recommended models ─────────────────────────────────────────────
@@ -246,13 +256,6 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     size: "~120 MB",
     reason: "50+语言深度语义理解，12层Transformer，多语言场景最强",
     url: "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2",
-  },
-  {
-    name: "GTE Small",
-    modelKey: "Xenova/gte-small",
-    size: "~70 MB",
-    reason: "阿里通义实验室出品，中英文均衡，检索评测表现优秀",
-    url: "https://huggingface.co/Xenova/gte-small",
   },
 ];
 
