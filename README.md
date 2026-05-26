@@ -176,3 +176,20 @@ MIT License
    - 卸载当前 Node.js
    - 从 https://nodejs.org 下载 22.x.x LTS 版本安装
    - 重新运行 `start.bat` 或 `./start.sh`
+
+### 如何重新安装依赖
+
+遇到依赖异常或切换 Node 版本后，可删除旧依赖重新安装：
+
+```bash
+# Windows CMD
+rmdir /s /q node_modules
+del package-lock.json
+start.bat
+
+# macOS / Linux
+rm -rf node_modules package-lock.json
+./start.sh
+```
+
+运行 `start.bat` / `./start.sh` 时会自动检测并重新安装依赖。

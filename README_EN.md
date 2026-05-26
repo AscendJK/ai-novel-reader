@@ -159,3 +159,20 @@ MIT License. Built-in BGE Small ZH v1.5 model from BAAI, MIT licensed.
    - Uninstall current Node.js
    - Download 22.x.x LTS from https://nodejs.org
    - Re-run `start.bat` or `./start.sh`
+
+### How to reinstall dependencies
+
+If dependencies are corrupted or after switching Node versions:
+
+```bash
+# Windows CMD
+rmdir /s /q node_modules
+del package-lock.json
+start.bat
+
+# macOS / Linux
+rm -rf node_modules package-lock.json
+./start.sh
+```
+
+`start.bat` / `./start.sh` will auto-detect and reinstall dependencies.
