@@ -77,17 +77,36 @@ npm install
 
 ### 6. RAG 检索引擎
 
-项目内置 **TF-IDF** 和 **BGE Small ZH** 两种检索引擎：
+项目支持**任意 Transformers.js 兼容的 ONNX 嵌入模型**作为语义检索引擎，同时内置 TF-IDF 作为零配置回退。
 
-| 引擎 | 说明 |
-|------|------|
-| TF-IDF | 纯字符级检索，瞬间可用，无需构建 |
-| BGE Small ZH | 中文语义向量检索，精度更高，需服务端构建索引 |
+| 引擎 | 大小 | 说明 |
+|------|------|------|
+| TF-IDF | 0 MB | 纯字符级检索，瞬间可用，无需构建 |
+| BGE Small ZH（内置） | ~26 MB | 中文语义检索，精度高，推荐中文小说使用 |
+| Multilingual E5 Small | ~120 MB | 中英文兼顾，多语言场景 |
+| GTE Small | ~70 MB | 中英文均衡 |
+| All-MiniLM-L6-v2 | ~23 MB | 英文轻量，体积最小 |
+| Multilingual MiniLM L12 | ~120 MB | 多语言深度理解 |
 
 - **每本书使用前需手动构建**：书架卡片点击"构建"按钮，服务端异步处理
 - 构建完成后自动下载到浏览器缓存（约 1-3 MB/本）
-- BGE 未就绪时自动降级为 TF-IDF，不影响使用
+- 未就绪时自动降级为 TF-IDF，不影响使用
 - 设置页可切换引擎和调整索引缓存上限（100-500 MB）
+
+#### 自定义模型安装
+
+支持所有 Transformers.js 兼容的 ONNX 嵌入模型（BGE、E5、MiniLM、GTE 等系列）：
+
+1. 从 [Hugging Face](https://huggingface.co) 的 **Xenova 转换版**页面下载 3 个文件：`config.json`、`tokenizer.json`、`onnx/model_quantized.onnx`
+2. 放到 `public/models/custom/Xenova/你的模型名/` 目录：
+   ```
+   public/models/custom/Xenova/你的模型名/
+   ├── config.json
+   ├── tokenizer.json
+   └── onnx/
+       └── model_quantized.onnx
+   ```
+3. 重启 dev server → 设置页点击"扫描" → 发现后点击选用
 
 ### 7. 多设备同步
 
@@ -114,7 +133,7 @@ admin.bat        # Windows 双击
 React 19 + TypeScript + Vite
 Express + better-sqlite3
 ├─ 多 Agent 引擎：总结 / 人物 / 时间线 / 图谱
-├─ BGE Small ZH 语义检索引擎（Worker Thread 编码）
+├─ 多引擎语义检索：BGE / E5 / MiniLM / GTE 等 ONNX 模型（Worker Thread 编码）
 ├─ d3-force 人物关系图谱（鼠标滚轮 + 移动端双指缩放）
 ├─ IndexedDB 浏览器缓存 + SQLite 服务端持久化
 └─ 用户名系统 + Session Token 认证 + 服务端中心化同步

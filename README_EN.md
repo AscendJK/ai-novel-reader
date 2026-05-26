@@ -67,12 +67,36 @@ The AI analysis panel (top-right) provides:
 
 ### 5. RAG Engine
 
-Two retrieval engines included: **TF-IDF** (zero-config, instant) and **BGE Small ZH** (semantic vector search, higher accuracy).
+Supports **any Transformers.js-compatible ONNX embedding model** for semantic retrieval, with TF-IDF as a zero-config fallback.
 
-- Build BGE index per novel via the "Build" button on the bookshelf card
+| Engine | Size | Description |
+|--------|------|-------------|
+| TF-IDF | 0 MB | Character-level search, instant, no build required |
+| BGE Small ZH (built-in) | ~26 MB | Chinese semantic search, recommended for Chinese novels |
+| Multilingual E5 Small | ~120 MB | Chinese + English, multilingual use |
+| GTE Small | ~70 MB | Balanced Chinese + English |
+| All-MiniLM-L6-v2 | ~23 MB | English lightweight, smallest footprint |
+| Multilingual MiniLM L12 | ~120 MB | Deep multilingual understanding |
+
+- Build index per novel via the "Build" button on the bookshelf card
 - Built index downloads to browser cache (~1-3 MB per novel)
-- Falls back to TF-IDF automatically when BGE is unavailable
+- Falls back to TF-IDF automatically when engine is unavailable
 - Settings page allows engine switching and cache limit adjustment (100-500 MB)
+
+#### Custom Model Installation
+
+All Transformers.js-compatible ONNX embedding models (BGE, E5, MiniLM, GTE families) are supported:
+
+1. Download 3 files from the **Xenova conversion** page on [Hugging Face](https://huggingface.co): `config.json`, `tokenizer.json`, `onnx/model_quantized.onnx`
+2. Place them in `public/models/custom/Xenova/your-model-name/`:
+   ```
+   public/models/custom/Xenova/your-model-name/
+   ├── config.json
+   ├── tokenizer.json
+   └── onnx/
+       └── model_quantized.onnx
+   ```
+3. Restart dev server → Settings page click "Scan" → select the discovered model
 
 ### 6. Multi-Device Sync
 
@@ -99,7 +123,7 @@ Auto-starts server and opens admin page for viewing/deleting users and novels.
 React 19 + TypeScript + Vite
 Express + better-sqlite3
 ├─ Multi-agent engine: summary / characters / timeline / graph
-├─ BGE Small ZH semantic retrieval (Worker Thread encoding)
+├─ Multi-engine semantic retrieval: BGE / E5 / MiniLM / GTE ONNX models (Worker Thread encoding)
 ├─ d3-force character graph (mouse wheel + pinch-to-zoom)
 ├─ IndexedDB browser cache + SQLite server persistence
 └─ Username system + Session Token auth + Server-side sync

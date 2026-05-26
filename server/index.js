@@ -186,14 +186,28 @@ app.post("/api/novels/:id/leave", (req, res) => {
 
 // ── RAG: Cached pipeline for test/encode endpoints ────────
 
-let _cachedPipe = null;
-async function getEncodePipeline() {
-  if (_cachedPipe) return _cachedPipe;
+const _cachedPipes = new Map(); // modelKey → pipeline
+
+const ENGINE_MODEL_MAP = {
+  "bge-small-zh": "Xenova/bge-small-zh-v1.5",
+  "e5-small": "Xenova/multilingual-e5-small",
+};
+
+function resolveModelKey(engine) {
+  if (ENGINE_MODEL_MAP[engine]) return ENGINE_MODEL_MAP[engine];
+  if (engine && engine.includes("/")) return engine;
+  return "Xenova/bge-small-zh-v1.5";
+}
+
+async function getEncodePipeline(engine) {
+  const modelKey = resolveModelKey(engine);
+  if (_cachedPipes.has(modelKey)) return _cachedPipes.get(modelKey);
   const { pipeline, env } = await import("@xenova/transformers");
   env.allowRemoteModels = false;
-  env.localModelPath = "./public/models/builtin/";
-  _cachedPipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
-  return _cachedPipe;
+  env.localModelPath = ["./public/models/custom/", "./public/models/builtin/"];
+  const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });
+  _cachedPipes.set(modelKey, pipe);
+  return pipe;
 }
 
 // ── RAG: Quick test endpoint ──────────────────────────────
@@ -201,11 +215,12 @@ async function getEncodePipeline() {
 app.get("/api/rag/test", rateLimit(5), async (req, res) => {
   if (!authNovel(req, res)) return;
   try {
+    const engine = req.query.engine || "bge-small-zh";
     const t0 = Date.now();
-    const pipe = await getEncodePipeline();
+    const pipe = await getEncodePipeline(engine);
     const result = await pipe(["测试文本"], { pooling: "mean", normalize: true });
     const arr = await result.tolist();
-    res.json({ ok: true, dim: arr[0]?.length, time: Date.now() - t0 });
+    res.json({ ok: true, dim: arr[0]?.length, time: Date.now() - t0, engine });
   } catch (e) {
     res.status(500).json({ error: "测试失败" });
   }
@@ -219,13 +234,13 @@ import { buildIndex as buildRagIndex, getProgress, getIndexData, getStatuses } f
 app.post("/api/rag/encode", rateLimit(30), async (req, res) => {
   if (!authNovel(req, res)) return;
   try {
-    const { texts } = req.body;
+    const { texts, engine } = req.body;
     if (!texts?.length) return res.status(400).json({ error: "texts required" });
     if (texts.length > 20) return res.status(400).json({ error: "单次最多编码 20 条文本" });
     if (texts.some((t) => typeof t !== "string" || t.length > 10000)) {
       return res.status(400).json({ error: "文本过长或格式错误" });
     }
-    const pipe = await getEncodePipeline();
+    const pipe = await getEncodePipeline(engine);
     const result = await pipe(texts, { pooling: "mean", normalize: true });
     const vectors = await result.tolist();
     res.json({ vectors });

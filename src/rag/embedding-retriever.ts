@@ -5,8 +5,11 @@ import { useRAGStore } from "@/stores/rag-store";
 import { useBuildStore } from "@/stores/build-store";
 import { authHeaders } from "@/lib/auth-headers";
 
-export interface BGEProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
-export interface BGERetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
+export type BGEProgress = EmbeddingProgress;
+export type BGERetrieverData = EmbeddingRetrieverData;
+
+export interface EmbeddingProgress { phase: "loading" | "encoding" | "done"; current?: number; total?: number; }
+export interface EmbeddingRetrieverData { vectors: number[][]; chunks: Chunk[]; dim: number; }
 
 const LRU_CACHE = new Map<string, { vectors: Float32Array[]; chunks: Chunk[]; dim: number; size: number }>();
 let cacheTotalSize = 0;
@@ -27,20 +30,25 @@ function evictLRU() {
   }
 }
 
-export class BGERetriever {
+export class EmbeddingRetriever {
   private vectors: Float32Array[] = [];
   private chunks: Chunk[] = [];
   private dim = 0;
+  private engine: string;
+
+  constructor(engine: string = "bge-small-zh") {
+    this.engine = engine;
+  }
 
   get chunkCount() { return this.chunks.length; }
   get vectorDim() { return this.dim; }
 
-  toData(): BGERetrieverData {
+  toData(): EmbeddingRetrieverData {
     return { vectors: this.vectors.map((v) => Array.from(v)), chunks: this.chunks, dim: this.dim };
   }
 
-  static fromData(data: BGERetrieverData): BGERetriever {
-    const r = new BGERetriever();
+  static fromData(data: EmbeddingRetrieverData, engine: string = "bge-small-zh"): EmbeddingRetriever {
+    const r = new EmbeddingRetriever(engine);
     r.vectors = data.vectors.map((v) => new Float32Array(v));
     r.chunks = data.chunks;
     r.dim = data.dim;
@@ -50,14 +58,14 @@ export class BGERetriever {
   async init(
     novelId: string,
     _allChunks: Chunk[],
-    onProgress?: (p: BGEProgress) => void,
+    onProgress?: (p: EmbeddingProgress) => void,
     signal?: AbortSignal
   ): Promise<void> {
+    const memCacheKey = `${novelId}-${this.engine}`;
+
     // Check LRU memory cache first
-    const memCacheKey = `${novelId}-bge-small-zh`;
     const memCached = LRU_CACHE.get(memCacheKey);
     if (memCached) {
-      // Refresh LRU position
       LRU_CACHE.delete(memCacheKey);
       LRU_CACHE.set(memCacheKey, memCached);
       this.vectors = memCached.vectors;
@@ -73,11 +81,10 @@ export class BGERetriever {
     try {
       const cached = await db.ragCache.get(memCacheKey);
       if (cached && cached.vectors?.length > 0) {
-        const data = BGERetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim });
+        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
         this.vectors = data.vectors;
         this.chunks = data.chunks;
         this.dim = data.dim;
-        // Promote to memory cache and mark as loaded for bookshelf
         if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
         (window as any).__ragCacheLoaded.add(memCacheKey);
         const size = this.vectors.length * this.dim * 4;
@@ -91,7 +98,7 @@ export class BGERetriever {
 
     // Check status first to avoid 404
     ragLog("检查服务器索引状态...");
-    const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
+    const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
     const statusData = await statusCheck.json();
 
     if (statusData.status === "none") {
@@ -99,18 +106,17 @@ export class BGERetriever {
       useBuildStore.getState().start();
       await fetch(`/api/rag/${novelId}/build`, {
         method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ engine: "bge-small-zh" }),
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ engine: this.engine }),
       });
 
-      // Poll for progress
       let waited = 0;
-      while (waited < 600_000) { // 10 min max
+      while (waited < 600_000) {
         if (signal?.aborted) throw new Error("操作已取消");
         await new Promise((r) => setTimeout(r, 3000));
         waited += 3000;
         if (signal?.aborted) throw new Error("操作已取消");
-        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
+        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
         const status = await statusResp.json();
         ragLog(`服务器构建中: ${status.status} ${status.current ?? ""}/${status.total ?? ""}`);
 
@@ -121,13 +127,12 @@ export class BGERetriever {
           message: `服务器处理中 (${status.current ?? 0}/${status.total ?? "?"})`,
           current: status.current || 0,
           total: status.total || _allChunks.length,
-          novelId, engine: "bge-small-zh",
+          novelId, engine: this.engine,
         });
         onProgress?.({ phase: "encoding", current: status.current || 0, total: status.total || _allChunks.length });
       }
 
-      // Fetch the built index
-      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
+      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
       if (!retryResp.ok) throw new Error("索引加载失败");
       const data = await retryResp.json();
       await this._loadFromServer(novelId, data, memCacheKey, onProgress);
@@ -135,14 +140,14 @@ export class BGERetriever {
     }
 
     if (statusData.status === "ready") {
-      const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
+      const resp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
       if (!resp.ok) throw new Error("索引加载失败");
       const data = await resp.json();
       await this._loadFromServer(novelId, data, memCacheKey, onProgress);
       return;
     }
 
-    // Still building — poll (don't reset progress if upload already started tracking)
+    // Still building — poll
     if (!useBuildStore.getState().open) useBuildStore.getState().start();
     let waited = 0;
     while (waited < 600_000) {
@@ -150,11 +155,11 @@ export class BGERetriever {
       await new Promise((r) => setTimeout(r, 3000));
       waited += 3000;
       if (signal?.aborted) throw new Error("操作已取消");
-      const sr = await fetch(`/api/rag/${novelId}/status?engine=bge-small-zh`, { headers: authHeaders() });
+      const sr = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
       const st = await sr.json();
       if (st.status === "ready") {
         useBuildStore.getState().finish();
-        const resp = await fetch(`/api/rag/${novelId}/index?engine=bge-small-zh`, { headers: authHeaders() });
+        const resp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
         if (!resp.ok) throw new Error("索引加载失败");
         const data = await resp.json();
         await this._loadFromServer(novelId, data, memCacheKey, onProgress);
@@ -169,7 +174,7 @@ export class BGERetriever {
       useBuildStore.getState().setProgress({
         message: msg,
         current: st.current || 0, total: st.total || _allChunks.length,
-        novelId, engine: "bge-small-zh",
+        novelId, engine: this.engine,
       });
       onProgress?.({ phase: "encoding", current: st.current || 0, total: st.total || _allChunks.length });
     }
@@ -179,12 +184,11 @@ export class BGERetriever {
     novelId: string,
     data: { chunks: Chunk[]; vectorsBase64: string; dim: number },
     memCacheKey: string,
-    onProgress?: (p: BGEProgress) => void
+    onProgress?: (p: EmbeddingProgress) => void
   ) {
     this.chunks = data.chunks.map((c: any) => typeof c === "string" ? { id: "", content: c } : c);
     this.dim = data.dim;
 
-    // Decode base64 → Float32Array[]
     const binary = Uint8Array.from(atob(data.vectorsBase64), (c) => c.charCodeAt(0));
     const flatVectors = new Float32Array(binary.buffer);
     const count = flatVectors.length / data.dim;
@@ -196,20 +200,17 @@ export class BGERetriever {
 
     const size = vectors.length * data.dim * 4;
     ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
-    // Mark as loaded so bookshelf can show status
     if (!(window as any).__ragCacheLoaded) (window as any).__ragCacheLoaded = new Set<string>();
     (window as any).__ragCacheLoaded.add(memCacheKey);
 
-    // Cache in memory (LRU)
     LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
     cacheTotalSize += size;
     evictLRU();
 
-    // Cache in IndexedDB
     try {
       await db.ragCache.put({
         novelId: memCacheKey,
-        engine: "bge-small-zh",
+        engine: this.engine,
         vectors: vectors.map((v) => Array.from(v)),
         chunks: this.chunks,
         dim: data.dim,
@@ -222,11 +223,10 @@ export class BGERetriever {
 
   async search(query: string, topK: number = 15): Promise<{ chunk: Chunk; score: number }[]> {
     if (this.vectors.length === 0) return [];
-    // Use the server for query encoding (single vector, fast)
     const resp = await fetch("/api/rag/encode", {
       method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ texts: [query] }),
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ texts: [query], engine: this.engine }),
     });
     if (!resp.ok) return [];
     const { vectors: [qArr] } = await resp.json();
@@ -247,3 +247,5 @@ export class BGERetriever {
     this.dim = 0;
   }
 }
+
+export { EmbeddingRetriever as BGERetriever };

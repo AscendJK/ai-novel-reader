@@ -24,6 +24,19 @@ setInterval(() => {
 const queue = [];
 let running = false;
 
+// ── Engine to model key mapping ──
+
+const ENGINE_MODEL_MAP = {
+  "bge-small-zh": "Xenova/bge-small-zh-v1.5",
+  "e5-small": "Xenova/multilingual-e5-small",
+};
+
+function resolveModelKey(engine) {
+  if (ENGINE_MODEL_MAP[engine]) return ENGINE_MODEL_MAP[engine];
+  if (engine.includes("/")) return engine;
+  return "Xenova/bge-small-zh-v1.5";
+}
+
 // ── Public API ──
 
 const MAX_QUEUE = 10;
@@ -91,7 +104,6 @@ export function getStatuses(novelIds, engine = "bge-small-zh") {
     const key = `${nid}-${engine}`;
     const mem = buildProgress.get(key);
     if (mem) {
-      // Refresh queue position
       const pos = queue.findIndex(t => t.key === key);
       result[nid] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
       continue;
@@ -120,7 +132,7 @@ export function getIndexData(novelId, engine = "bge-small-zh") {
 // ── Internal ──
 
 async function _doBuild(novelId, engine, key) {
-  console.log(`[rag] _doBuild: ${key}`);
+  console.log(`[rag] _doBuild: ${key} (modelKey: ${resolveModelKey(engine)})`);
   const chapters = db.db.prepare("SELECT title, content FROM chapters WHERE novel_id = ? ORDER BY index_num").all(novelId);
   console.log(`[rag] chapters: ${chapters.length}`);
   if (!chapters.length) throw new Error("No chapters found");
@@ -142,11 +154,12 @@ async function _doBuild(novelId, engine, key) {
     .run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
   // Encode in Worker Thread with timeout
+  const modelKey = resolveModelKey(engine);
   const t0 = Date.now();
   const vectors = await new Promise((resolve, reject) => {
     const workerPath = path.join(__dirname, "rag-worker.mjs");
     const worker = new Worker(workerPath, {
-      workerData: { chunks, batchSize: BATCH_SIZE },
+      workerData: { chunks, batchSize: BATCH_SIZE, modelKey },
     });
 
     const timeout = setTimeout(() => {
@@ -177,5 +190,5 @@ async function _doBuild(novelId, engine, key) {
     .run(Buffer.from(buf.buffer), dim, chunks.length, Date.now() - t0, novelId, engine);
 
   buildProgress.set(key, { status: "ready", current: chunks.length, total: chunks.length, chunkCount: chunks.length });
-  console.log(`[rag] done: ${key} ${chunks.length} chunks ${Date.now() - t0}ms`);
+  console.log(`[rag] done: ${key} ${chunks.length} chunks ${dim}d ${Date.now() - t0}ms`);
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRAGStore } from "@/stores/rag-store";
 import { useUIStore } from "@/stores/ui-store";
-import { ENGINES, type EngineId } from "@/rag/engines";
+import { ENGINES, getEngineDisplayName } from "@/rag/engines";
 import { scanCustomModels, getBuiltinBGEStatus, RECOMMENDED_MODELS } from "@/rag/model-loader";
 import type { ModelEntry, ModelStatus } from "@/rag/model-loader";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 export function RAGSettings() {
-  const { engine, customModelKey, setEngine, setCustomModel, clearCustomModel, savedCustomModels, setSavedCustomModels } = useRAGStore();
+  const { engine, setEngine, savedCustomModels, setSavedCustomModels } = useRAGStore();
   const [customModels, setCustomModels] = useState<ModelEntry[]>([]);
   const [isMobile] = useState(() => window.innerWidth < 768);
 
@@ -49,7 +49,6 @@ export function RAGSettings() {
     return () => { cancelled = true; };
   }, []);
 
-
   const handleScan = async () => {
     setScanning(true);
     setScanMessage(null);
@@ -66,7 +65,6 @@ export function RAGSettings() {
     setScanMessage(models.length > 0 ? `发现 ${models.length} 个自定义模型` : "未发现自定义模型");
   };
 
-  // Merge available models: built-in + scanned custom
   const bgeInstalled = bgeStatus.available;
   const bgeWarning = bgeStatus.renameWarning;
 
@@ -91,7 +89,7 @@ export function RAGSettings() {
       name: "BGE Small ZH",
       size: "26MB",
       source: "builtin",
-      detail: ENGINES["bge-small-zh"].description,
+      detail: ENGINES["bge-small-zh"]?.description || "",
       onnxFiles: bgeStatus.onnxFiles,
       renameWarning: bgeWarning || undefined,
     },
@@ -100,7 +98,7 @@ export function RAGSettings() {
       name: m.name,
       size: m.size,
       source: "custom" as const,
-      detail: `用户自定义模型 / User model`,
+      detail: ENGINES[m.modelKey]?.description || "用户自定义模型",
       onnxFiles: m.onnxFiles,
       renameWarning: m.renameWarning,
     })),
@@ -114,7 +112,7 @@ export function RAGSettings() {
           本地检索引擎
         </CardTitle>
         <CardDescription>
-          选择文本检索后端。切换后重新打开小说生效。
+          选择文本检索后端。支持任意 Transformers.js 兼容的 ONNX 嵌入模型。切换后重新打开小说生效。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -135,10 +133,9 @@ export function RAGSettings() {
 
           <div className="space-y-1.5">
             {availableModels.map((m) => {
-              const isActive =
-                (m.source === "builtin" && engine === m.key && !customModelKey) ||
-                (m.source === "custom" && customModelKey === m.key);
+              const isActive = engine === m.key;
               const isBuiltinInstalled = m.source === "builtin" && (m.key === "tfidf" || bgeInstalled);
+              const info = ENGINES[m.key];
               return (
                 <div key={m.key}>
                   <div
@@ -147,14 +144,7 @@ export function RAGSettings() {
                         ? "border-primary bg-primary/5"
                         : "hover:border-primary/50 hover:bg-accent/50"
                     }`}
-                    onClick={() => {
-                      if (m.source === "builtin") {
-                        clearCustomModel();
-                        setEngine(m.key as EngineId);
-                      } else {
-                        setCustomModel(m.key, m.name, m.size);
-                      }
-                    }}
+                    onClick={() => setEngine(m.key, m.source === "custom" ? m.name : undefined, m.source === "custom" ? m.size : undefined)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
@@ -184,7 +174,6 @@ export function RAGSettings() {
                       <div className="mt-1.5 pt-1.5 border-t border-border/50 hidden group-hover:block">
                         <p className="text-xs text-muted-foreground">{m.detail}</p>
 
-                        {/* Rename warning — show first */}
                         {m.renameWarning && (
                           <div className="mt-1 p-2 rounded bg-amber-50 dark:bg-amber-950/30 text-xs space-y-1">
                             <p className="text-amber-700 dark:text-amber-400 flex items-start gap-1">
@@ -211,39 +200,21 @@ export function RAGSettings() {
                           </div>
                         )}
 
-                        {/* Missing model */}
                         {m.source === "builtin" && m.key === "bge-small-zh" && !bgeInstalled && (
                           <p className="text-xs text-destructive mt-0.5">
                             模型文件未找到。请将文件放入 public/models/builtin/Xenova/bge-small-zh-v1.5/
                           </p>
                         )}
 
-                        {/* Show strengths/weaknesses when installed and no warning */}
-                        {m.source === "builtin" && m.key === "bge-small-zh" && bgeInstalled && !m.renameWarning && (
+                        {info && !m.renameWarning && (
                           <div className="mt-1.5 grid grid-cols-1 gap-0.5">
-                            {ENGINES["bge-small-zh"].strengths.map((s, i) => (
+                            {info.strengths.map((s, i) => (
                               <div key={i} className="flex items-start gap-1">
                                 <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
                                 <span className="text-xs text-foreground/75">{s}</span>
                               </div>
                             ))}
-                            {ENGINES["bge-small-zh"].weaknesses.map((w, i) => (
-                              <div key={i} className="flex items-start gap-1">
-                                <X className="h-3 w-3 text-destructive/60 shrink-0 mt-0.5" />
-                                <span className="text-xs text-muted-foreground">{w}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {m.key === "tfidf" && (
-                          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
-                            {ENGINES.tfidf.strengths.map((s, i) => (
-                              <div key={i} className="flex items-start gap-1">
-                                <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
-                                <span className="text-xs text-foreground/75">{s}</span>
-                              </div>
-                            ))}
-                            {ENGINES.tfidf.weaknesses.map((w, i) => (
+                            {info.weaknesses.map((w, i) => (
                               <div key={i} className="flex items-start gap-1">
                                 <X className="h-3 w-3 text-destructive/60 shrink-0 mt-0.5" />
                                 <span className="text-xs text-muted-foreground">{w}</span>
@@ -281,28 +252,36 @@ export function RAGSettings() {
           >
             <span className="flex items-center gap-1.5">
               <Star className="h-3.5 w-3.5" />
-              {showRec ? "收起推荐" : "推荐下载的模型"}
+              {showRec ? "收起推荐" : "推荐模型（点击下载）"}
             </span>
           </Button>
           {showRec && (
             <div className="mt-2 space-y-2">
-              {RECOMMENDED_MODELS.map((m) => (
-                <div key={m.modelKey} className="p-2.5 rounded border text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{m.name}</span>
-                    <Badge variant="outline" className="text-xs">{m.size}</Badge>
+              {RECOMMENDED_MODELS.map((m) => {
+                const isBuiltIn = m.modelKey === "Xenova/bge-small-zh-v1.5";
+                return (
+                  <div key={m.modelKey} className="p-2.5 rounded border text-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{m.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="text-xs">{m.size}</Badge>
+                        {isBuiltIn && <Badge variant="secondary" className="text-xs">内置</Badge>}
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground">{m.reason}</p>
+                    {!isBuiltIn && (
+                      <a
+                        href={m.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                      >
+                        在 Hugging Face 下载 <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    )}
                   </div>
-                  <p className="text-muted-foreground">{m.reason}</p>
-                  <a
-                    href={m.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
-                  >
-                    在 Hugging Face 下载 <ExternalLink className="h-2.5 w-2.5" />
-                  </a>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -317,13 +296,13 @@ export function RAGSettings() {
           >
             <span className="flex items-center gap-1.5">
               <FolderOpen className="h-3.5 w-3.5" />
-              {showHelp ? "收起说明" : "如何安装模型？ / How to install?"}
+              {showHelp ? "收起说明" : "如何安装自定义模型？"}
             </span>
           </Button>
           {showHelp && (
             <div className="mt-2 p-3 rounded bg-muted/50 text-xs space-y-3">
               <div className="space-y-2">
-                <p className="font-medium">中文安装说明</p>
+                <p className="font-medium">安装步骤</p>
 
                 <p className="font-medium text-foreground/80">第一步：下载 3 个文件</p>
                 <p>从 Xenova 转换版页面下载（见上方推荐列表的链接）：</p>
@@ -332,7 +311,7 @@ export function RAGSettings() {
                   <li><code className="px-1 bg-muted rounded text-xs">tokenizer.json</code></li>
                   <li><code className="px-1 bg-muted rounded text-xs">onnx/model_quantized.onnx</code></li>
                 </ol>
-                <p className="text-muted-foreground">注意：必须从 <strong>Xenova</strong> 页面下载（<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/模型名</code>），不是 BAAI/intfloat 原版页面。</p>
+                <p className="text-muted-foreground">必须从 <strong>Xenova</strong> 页面下载（<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/模型名</code>），不是原版页面。</p>
 
                 <p className="font-medium text-foreground/80 mt-2">第二步：放到正确位置</p>
                 <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{`public/models/custom/Xenova/你的模型名/
@@ -347,37 +326,12 @@ export function RAGSettings() {
                   <li>重启 dev server（<code className="px-1 bg-muted rounded text-xs">Ctrl+C</code> 后重新 <code className="px-1 bg-muted rounded text-xs">npm run dev</code>）</li>
                   <li>打开设置页 → 点击"扫描"按钮</li>
                   <li>发现模型后点击卡片即可选用</li>
-                  <li>文件名不标准时卡片显示 ⚠️ 及改名指引</li>
+                  <li>首次使用某引擎打开小说时，会自动构建索引</li>
                 </ol>
-              </div>
-              <Separator />
-              <div className="space-y-2">
-                <p className="font-medium">English Instructions</p>
 
-                <p className="font-medium text-foreground/80">Step 1: Download 3 files</p>
-                <p>From the Xenova model page on Hugging Face (see recommended list above):</p>
-                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
-                  <li><code className="px-1 bg-muted rounded text-xs">config.json</code></li>
-                  <li><code className="px-1 bg-muted rounded text-xs">tokenizer.json</code></li>
-                  <li><code className="px-1 bg-muted rounded text-xs">onnx/model_quantized.onnx</code></li>
-                </ol>
-                <p className="text-muted-foreground">Note: Download from the <strong>Xenova</strong> page (<code className="px-1 bg-muted rounded text-xs">huggingface.co/Xenova/model-name</code>), not the original author page.</p>
-
-                <p className="font-medium text-foreground/80 mt-2">Step 2: Place files correctly</p>
-                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{`public/models/custom/Xenova/your-model/
-  ├── config.json
-  ├── tokenizer.json
-  └── onnx/
-      └── model_quantized.onnx`}</pre>
-                <p className="text-muted-foreground">All 3 files must follow this directory structure. The ONNX file must be inside the <code className="px-1 bg-muted rounded text-xs">onnx/</code> subfolder.</p>
-
-                <p className="font-medium text-foreground/80 mt-2">Step 3: Scan & Use</p>
-                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
-                  <li>Restart dev server (<code className="px-1 bg-muted rounded text-xs">Ctrl+C</code> then <code className="px-1 bg-muted rounded text-xs">npm run dev</code>)</li>
-                  <li>Open Settings → click "Scan"</li>
-                  <li>Click a detected model card to select it</li>
-                  <li>Non-standard filenames show ⚠️ with rename instructions</li>
-                </ol>
+                <p className="text-muted-foreground mt-2">
+                  <strong>兼容模型：</strong>所有 Transformers.js 兼容的 ONNX 嵌入模型均可使用，包括 BGE、E5、MiniLM、GTE 等系列。
+                </p>
               </div>
             </div>
           )}

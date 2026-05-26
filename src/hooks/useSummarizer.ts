@@ -50,20 +50,20 @@ export function useSummarizer() {
     setCurrentTask("");
   }, []);
 
-  // On opening a novel, eagerly download BGE index if ready on server
+  // On opening a novel, eagerly download embedding index if ready on server
   useEffect(() => {
     if (!currentNovel) return;
     const engine = useRAGStore.getState().engine;
-    if (engine !== "bge-small-zh") return;
+    if (engine === "tfidf") return;
     setCurrentTask("正在检查索引状态...");
-    fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`, { headers: authHeaders() })
+    fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() })
       .then(r => r.json())
       .then(async (st) => {
         if (st.status === "ready") {
-          setCurrentTask("正在加载BGE索引...");
+          setCurrentTask("正在加载索引...");
           await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
           setRagEngineUsed(engine);
-          ragLog("BGE 索引已加载到浏览器");
+          ragLog("索引已加载到浏览器");
         }
         setCurrentTask("");
       })
@@ -82,7 +82,7 @@ export function useSummarizer() {
     abortRef.current?.abort();
   }, []);
 
-  // Pre-retrieve relevant text using local RAG. Falls back to TF-IDF if BGE not ready.
+  // Pre-retrieve relevant text using local RAG. Falls back to TF-IDF if embedding engine not ready.
   const [ragEngineUsed, setRagEngineUsed] = useState<string>("");
   const getRelevantText = useCallback(
     async (query: string): Promise<string> => {
@@ -90,20 +90,18 @@ export function useSummarizer() {
       await new Promise((r) => setTimeout(r, 0));
       const prefEngine = useRAGStore.getState().engine;
       try {
-        // Check if BGE index is ready on server; download if needed
         let engine = prefEngine;
-        if (engine === "bge-small-zh") {
+        if (engine !== "tfidf") {
           try {
-            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=bge-small-zh`, { headers: authHeaders() });
+            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
             const st = await sr.json();
             if (st.status === "ready") {
-              // Index exists on server, trigger download via bge-retriever init
-              ragLog("BGE 就绪, 加载索引...");
+              ragLog("索引就绪, 加载中...");
               try {
                 await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-              } catch { engine = "tfidf"; ragLog("BGE 加载失败, 降级 TF-IDF"); }
+              } catch { engine = "tfidf"; ragLog("索引加载失败, 降级 TF-IDF"); }
             } else {
-              ragLog("BGE 未就绪, 降级为 TF-IDF");
+              ragLog("索引未就绪, 降级为 TF-IDF");
               engine = "tfidf";
             }
           } catch { engine = "tfidf"; }

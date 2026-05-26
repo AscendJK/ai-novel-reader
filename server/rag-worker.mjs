@@ -1,14 +1,19 @@
-// BGE encoding Worker Thread
 import { parentPort, workerData } from "node:worker_threads";
 import { pipeline, env } from "@xenova/transformers";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const { chunks, batchSize } = workerData;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { chunks, batchSize, modelKey = "Xenova/bge-small-zh-v1.5" } = workerData;
 
 env.allowRemoteModels = false;
-env.localModelPath = "./public/models/builtin/";
+env.localModelPath = [
+  path.resolve(__dirname, "../public/models/custom/"),
+  path.resolve(__dirname, "../public/models/builtin/"),
+];
 
 async function run() {
-  const pipe = await pipeline("feature-extraction", "Xenova/bge-small-zh-v1.5", { local_files_only: true });
+  const pipe = await pipeline("feature-extraction", modelKey, { local_files_only: true });
   const totalBatches = Math.ceil(chunks.length / batchSize);
   const vectors = [];
   let dim = 0;

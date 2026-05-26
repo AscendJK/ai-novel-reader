@@ -1,6 +1,7 @@
 import { Retriever, type Chunk } from "./retriever";
-import { BGERetriever, type BGEProgress } from "./bge-retriever";
+import { EmbeddingRetriever, type EmbeddingProgress } from "./embedding-retriever";
 import type { EngineId } from "./engines";
+import { isEmbeddingEngine } from "./engines";
 import { ragLog } from "@/components/common/DebugPanel";
 import { db } from "@/db/database";
 
@@ -8,25 +9,27 @@ interface IndexEntry {
   novelId: string;
   engine: EngineId;
   retriever: Retriever;
-  bge?: BGERetriever;
+  embedding?: EmbeddingRetriever;
   chunks: Chunk[];
   buildTime?: number;
 }
 
 const indexCache = new Map<string, IndexEntry>();
-const buildingNow = new Set<string>(); // prevent concurrent builds
+const buildingNow = new Set<string>();
+
+export type { EmbeddingRetriever, EmbeddingProgress };
 
 export async function buildIndex(
   novelId: string,
   chapters: { title: string; content: string }[],
   engine: EngineId = "tfidf",
   onProgress?: (msg: string) => void
-): Promise<Retriever | BGERetriever> {
-  // Reuse if already built
+): Promise<Retriever | EmbeddingRetriever> {
   const existing = indexCache.get(novelId);
-  if (existing && existing.engine === engine) return engine === "bge-small-zh" ? existing.bge! : existing.retriever;
+  if (existing && existing.engine === engine) {
+    return isEmbeddingEngine(engine) ? existing.embedding! : existing.retriever;
+  }
 
-  // Prevent concurrent builds
   const buildKey = `${novelId}-${engine}`;
   if (buildingNow.has(buildKey)) {
     ragLog(`索引正在构建中, 跳过重复请求`);
@@ -34,11 +37,10 @@ export async function buildIndex(
   }
   buildingNow.add(buildKey);
   if (existing && existing.engine !== engine) {
-    existing.bge?.dispose();
+    existing.embedding?.dispose();
     indexCache.delete(novelId);
   }
 
-  // Chunk the text
   onProgress?.("正在分割文本...");
   const chunks: Chunk[] = [];
   const chunkSize = 500;
@@ -58,24 +60,25 @@ export async function buildIndex(
 
   const t0 = Date.now();
   ragLog(`开始构建索引: ${chunks.length}片段 · 引擎: ${engine}`);
-  if (engine === "bge-small-zh") {
+
+  if (isEmbeddingEngine(engine)) {
     // Check IndexedDB cache first
+    const cacheKey = `${novelId}-${engine}`;
     try {
-      const cached = await db.ragCache.get(novelId);
-      if (cached && cached.engine === "bge-small-zh" && cached.dim > 0) {
-        ragLog(`从缓存加载 BGE 索引: ${cached.vectors.length}片段 · ${cached.dim}维`);
-        const bge = BGERetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim });
-        const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
+      const cached = await db.ragCache.get(cacheKey);
+      if (cached && cached.dim > 0) {
+        ragLog(`从缓存加载索引: ${cached.vectors.length}片段 · ${cached.dim}维`);
+        const emb = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, engine);
+        const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), embedding: emb, chunks, buildTime: Date.now() - t0 };
         indexCache.set(novelId, entry);
-        return bge;
+        return emb;
       }
     } catch { /* cache miss */ }
 
-    // Build from scratch
     onProgress?.("正在加载嵌入模型...");
-    ragLog("加载 BGE Small ZH 模型...");
-    const bge = new BGERetriever();
-    await bge.init(novelId, chunks, (p: BGEProgress) => {
+    ragLog(`加载嵌入模型: ${engine}...`);
+    const emb = new EmbeddingRetriever(engine);
+    await emb.init(novelId, chunks, (p: EmbeddingProgress) => {
       if (p.phase === "encoding" && p.current != null && p.total != null) {
         onProgress?.(`正在编码文本 (${p.current}/${p.total})...`);
       } else if (p.phase === "done") {
@@ -85,21 +88,20 @@ export async function buildIndex(
     ragLog(`编码完成: ${chunks.length}片段 · ${(Date.now() - t0) / 1000}s`);
     buildingNow.delete(buildKey);
 
-    // Save to IndexedDB cache
     try {
       await db.ragCache.put({
-        novelId, engine: "bge-small-zh",
-        vectors: bge.toData().vectors,
-        chunks: bge.toData().chunks,
-        dim: bge.toData().dim,
+        novelId: cacheKey, engine,
+        vectors: emb.toData().vectors,
+        chunks: emb.toData().chunks,
+        dim: emb.toData().dim,
         createdAt: Date.now(),
       });
       ragLog("索引已缓存到 IndexedDB");
     } catch (e) { ragLog(`缓存索引失败: ${e}`); }
 
-    const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), bge, chunks, buildTime: Date.now() - t0 };
+    const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), embedding: emb, chunks, buildTime: Date.now() - t0 };
     indexCache.set(novelId, entry);
-    return bge;
+    return emb;
   } else {
     const retriever = new Retriever(chunks);
     buildingNow.delete(buildKey);
@@ -114,18 +116,20 @@ export function getRetriever(novelId: string): Retriever | undefined {
   return indexCache.get(novelId)?.retriever;
 }
 
-export function getBGEMeta(novelId: string) {
+export function getEmbeddingMeta(novelId: string) {
   const e = indexCache.get(novelId);
-  if (!e?.bge) return null;
-  return { chunkCount: e.bge.chunkCount, dim: e.bge.vectorDim, buildTime: e.buildTime };
+  if (!e?.embedding) return null;
+  return { chunkCount: e.embedding.chunkCount, dim: e.embedding.vectorDim, buildTime: e.buildTime };
 }
+
+export { getEmbeddingMeta as getBGEMeta };
 
 export function clearCache(novelId?: string) {
   if (novelId) {
-    indexCache.get(novelId)?.bge?.dispose();
+    indexCache.get(novelId)?.embedding?.dispose();
     indexCache.delete(novelId);
   } else {
-    for (const entry of indexCache.values()) entry.bge?.dispose();
+    for (const entry of indexCache.values()) entry.embedding?.dispose();
     indexCache.clear();
   }
 }
@@ -138,12 +142,11 @@ export async function retrieveRelevant(
   const entry = indexCache.get(novelId);
   if (!entry) return "";
 
-  if (entry.engine === "bge-small-zh" && entry.bge) {
-    const results = await entry.bge.search(query, topK);
+  if (isEmbeddingEngine(entry.engine) && entry.embedding) {
+    const results = await entry.embedding.search(query, topK);
     return results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n");
   }
 
-  // TF-IDF fallback
   const results = entry.retriever.search(query, topK);
   return results
     .map((r) => {
@@ -154,21 +157,20 @@ export async function retrieveRelevant(
     .join("\n\n---\n\n");
 }
 
-// For debug panel: get full retrieval details
 export async function retrieveRelevantWithDetails(
   novelId: string,
   query: string,
   topK: number = 15
 ): Promise<{ text: string; results: { content: string; score: number }[]; engine: string }> {
   const entry = indexCache.get(novelId);
-  if (!entry) return { text: "", results: [], engine: entry?.engine || "none" };
+  if (!entry) return { text: "", results: [], engine: "none" };
 
-  if (entry.engine === "bge-small-zh" && entry.bge) {
-    const results = await entry.bge.search(query, topK);
+  if (isEmbeddingEngine(entry.engine) && entry.embedding) {
+    const results = await entry.embedding.search(query, topK);
     return {
-      engine: "bge-small-zh",
-      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${typeof r.chunk === "string" ? r.chunk : r.chunk.content}`).join("\n\n---\n\n"),
-      results: results.map((r) => ({ content: typeof r.chunk === "string" ? r.chunk : r.chunk.content || "", score: r.score })),
+      engine: entry.engine,
+      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
+      results: results.map((r) => ({ content: r.chunk.content, score: r.score })),
     };
   }
 
