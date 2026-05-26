@@ -69,23 +69,26 @@ export function mountAdminRoutes(app) {
 
   app.get("/api/admin/novels", (req, res) => {
     if (!auth(req, res)) return;
-    const rows = db.db.prepare(`
+    const novels = db.db.prepare(`
       SELECT n.*,
-        (SELECT COUNT(*) FROM user_novels un WHERE un.novel_id = n.id) as join_count,
-        ri.status as rag_status, ri.chunk_count as rag_chunks, ri.build_time as rag_build_time
+        (SELECT COUNT(*) FROM user_novels un WHERE un.novel_id = n.id) as join_count
       FROM novels n
-      LEFT JOIN rag_indices ri ON n.id = ri.novel_id AND ri.engine = 'bge-small-zh'
       ORDER BY n.updated_at DESC
     `).all();
-    res.json(rows.map(n => ({
+    // Fetch all rag indices grouped by novel
+    const allIndices = db.db.prepare(`SELECT novel_id, engine, status, chunk_count, build_time FROM rag_indices`).all();
+    const indexMap = new Map();
+    for (const ri of allIndices) {
+      if (!indexMap.has(ri.novel_id)) indexMap.set(ri.novel_id, []);
+      indexMap.get(ri.novel_id).push({ engine: ri.engine, status: ri.status, chunkCount: ri.chunk_count, buildTime: ri.build_time });
+    }
+    res.json(novels.map(n => ({
       id: n.id, title: n.title, author: n.author,
       fileName: n.file_name, fileFormat: n.file_format,
       totalChars: n.total_chars, chapterCount: n.chapter_count,
       createdAt: n.created_at, updatedAt: n.updated_at,
       joinCount: n.join_count,
-      ragStatus: n.rag_status || "none",
-      ragChunks: n.rag_chunks || 0,
-      ragBuildTime: n.rag_build_time || 0,
+      ragIndices: indexMap.get(n.id) || [],
     })));
   });
 

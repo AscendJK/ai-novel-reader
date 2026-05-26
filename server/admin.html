@@ -83,13 +83,28 @@ function h(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").
 function fmt(ts) { return ts ? new Date(ts).toLocaleDateString("zh-CN") : "-"; }
 function fmtSize(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e4)+"万" : String(n); }
 function fmtTime(ms) { if (!ms) return "-"; const s = ms/1000; return s >= 60 ? Math.round(s/60)+"min" : Math.round(s)+"s"; }
-function ragBadge(n) {
-  const status = n.ragStatus || "none";
-  if (status === "ready") return `<span class="badge-status ready">就绪 ${fmtSize((n.ragChunks||0)*512*4)} ${fmtTime(n.ragBuildTime)}</span>`;
-  if (status === "building" || status === "loading" || status === "encoding") return '<span class="badge-status building">构建中</span>';
-  if (status === "queued") return '<span class="badge-status building">排队中</span>';
-  if (status === "error") return '<span class="badge-status error">失败</span>';
-  return '<span class="badge-status" style="color:#555">未构建</span>';
+function engineShort(engine) {
+  if (!engine) return "?";
+  if (engine === "tfidf") return "TF-IDF";
+  if (engine === "bge-small-zh") return "BGE";
+  if (engine === "gte-small") return "GTE";
+  if (engine.includes("e5")) return "E5";
+  if (engine.includes("MiniLM")) return "MiniLM";
+  const parts = engine.split("/");
+  return parts[parts.length - 1].replace(/^Xenova-/, "").slice(0, 15);
+}
+function ragBadges(n) {
+  const indices = n.ragIndices || [];
+  if (indices.length === 0) return '<span class="badge-status" style="color:#555">无</span>';
+  return indices.map(ri => {
+    const label = engineShort(ri.engine);
+    const status = ri.status || "none";
+    if (status === "ready") return `<span class="badge-status ready">${label} ${fmtSize((ri.chunkCount||0)*512*4)} ${fmtTime(ri.buildTime)}</span>`;
+    if (status === "building" || status === "loading" || status === "encoding") return `<span class="badge-status building">${label} 构建中</span>`;
+    if (status === "queued") return `<span class="badge-status building">${label} 排队</span>`;
+    if (status === "error") return `<span class="badge-status error">${label} 失败</span>`;
+    return `<span class="badge-status" style="color:#555">${label} 未构建</span>`;
+  }).join(" ");
 }
 
 // Overview
@@ -135,14 +150,14 @@ async function loadNovels() {
   const tbody = document.createElement("tbody");
   for (const n of novels) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${h(n.title)}</td><td>${h(n.author||"-")}</td><td><span class="badge">${h((n.fileFormat||"?").toUpperCase())}</span></td><td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td><td>${ragBadge(n)}</td><td>${fmt(n.createdAt)}</td>`;
+    tr.innerHTML = `<td>${h(n.title)}</td><td>${h(n.author||"-")}</td><td><span class="badge">${h((n.fileFormat||"?").toUpperCase())}</span></td><td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td><td>${ragBadges(n)}</td><td>${fmt(n.createdAt)}</td>`;
     const td = document.createElement("td");
     const btn = document.createElement("button");
     btn.className = "danger"; btn.textContent = "删除";
     btn.addEventListener("click", () => delNovel(n.id));
     td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
   }
-  document.getElementById("content").innerHTML = `<table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>BGE 构建</th><th>上传</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>索引构建</th><th>上传</th><th>操作</th></tr></thead></table>`;
   document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 
