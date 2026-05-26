@@ -119,7 +119,7 @@ Express + better-sqlite3
 - BGE index for very long novels (5000+ chapters) may take 5-30 min; normal reading is unaffected during build
 - Server model loading peaks at ~2GB RAM
 - Simultaneous builds are queued (max 10 tasks)
-- For LAN/local use only — do not expose to the internet
+- **LAN/local use only — do not expose to the public internet**. No HTTPS, no password auth, SQLite not suitable for public concurrency. Exposing this server risks API key theft, session hijacking, and data corruption
 - API keys stored in browser IndexedDB, never uploaded
 - Debug panel defaults to off, hidden on mobile
 
