@@ -287,7 +287,7 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
             variant={offlineMode ? "outline" : "default"}
             size="sm"
             onClick={() => {
-              if (!offlineMode && !window.confirm("开启离线模式后：\n\n• 服务器同步将停止\n• 嵌入引擎索引构建不可用\n• 关闭浏览器再打开仍可使用本地数据\n• 退出登录后需服务器在线才能重新登录\n\n确认开启？")) return;
+              if (!offlineMode && !window.confirm("开启离线模式后：\n\n• 服务器同步将停止\n• 已缓存的嵌入索引仍可使用，但无法构建新索引\n• 关闭浏览器再打开仍可使用本地数据\n• 退出登录后需服务器在线才能重新登录\n\n确认开启？")) return;
               setOfflineMode(!offlineMode);
             }}
           >
