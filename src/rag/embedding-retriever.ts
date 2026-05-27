@@ -4,6 +4,7 @@ import { db } from "@/db/database";
 import { useRAGStore } from "@/stores/rag-store";
 import { useBuildStore } from "@/stores/build-store";
 import { authHeaders } from "@/lib/auth-headers";
+import { encodeQuery } from "./client-encoder";
 
 export type BGEProgress = EmbeddingProgress;
 export type BGERetrieverData = EmbeddingRetrieverData;
@@ -225,27 +226,41 @@ export class EmbeddingRetriever {
 
   async search(query: string, topK: number = 15): Promise<{ chunk: Chunk; score: number }[]> {
     if (this.vectors.length === 0) return [];
+    let qVec: Float32Array | null = null;
+
+    // Try server-side encoding first
     try {
       const resp = await fetch("/api/rag/encode", {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ texts: [query], engine: this.engine }),
       });
-      if (!resp.ok) return [];
-      const { vectors: [qArr] } = await resp.json();
-      const qVec = new Float32Array(qArr);
-
-      const scores = this.vectors.map((v, i) => {
-        let dot = 0;
-        for (let j = 0; j < qVec.length; j++) dot += qVec[j] * v[j];
-        return { index: i, score: dot };
-      });
-      scores.sort((a, b) => b.score - a.score);
-      return scores.slice(0, topK).map((s) => ({ chunk: this.chunks[s.index], score: s.score }));
+      if (resp.ok) {
+        const { vectors: [qArr] } = await resp.json();
+        qVec = new Float32Array(qArr);
+      }
     } catch {
-      ragLog("向量编码服务不可用, 检索返回空");
+      // Server offline — try client-side
+    }
+
+    // Fall back to client-side encoding (offline)
+    if (!qVec) {
+      ragLog("服务器编码不可用, 尝试浏览器端编码...");
+      qVec = await encodeQuery(query, this.engine);
+    }
+
+    if (!qVec) {
+      ragLog("查询编码失败, 返回空");
       return [];
     }
+
+    const scores = this.vectors.map((v, i) => {
+      let dot = 0;
+      for (let j = 0; j < qVec!.length; j++) dot += qVec![j] * v[j];
+      return { index: i, score: dot };
+    });
+    scores.sort((a, b) => b.score - a.score);
+    return scores.slice(0, topK).map((s) => ({ chunk: this.chunks[s.index], score: s.score }));
   }
 
   dispose() {
