@@ -187,11 +187,15 @@ export async function retrieveRelevantWithDetails(
 
   if (isEmbeddingEngine(entry.engine) && entry.embedding) {
     const results = await entry.embedding.search(query, k);
-    return {
-      engine: entry.engine,
-      text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
-      results: results.map((r) => ({ content: r.chunk.content, score: r.score })),
-    };
+    if (results.length > 0) {
+      return {
+        engine: entry.engine,
+        text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
+        results: results.map((r) => ({ content: r.chunk.content, score: r.score })),
+      };
+    }
+    // Embedding search returned empty (server offline for encoding) — fall back to TF-IDF
+    ragLog("向量检索为空, 降级为 TF-IDF");
   }
 
   const results = entry.retriever.search(query, k);

@@ -225,22 +225,27 @@ export class EmbeddingRetriever {
 
   async search(query: string, topK: number = 15): Promise<{ chunk: Chunk; score: number }[]> {
     if (this.vectors.length === 0) return [];
-    const resp = await fetch("/api/rag/encode", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ texts: [query], engine: this.engine }),
-    });
-    if (!resp.ok) return [];
-    const { vectors: [qArr] } = await resp.json();
-    const qVec = new Float32Array(qArr);
+    try {
+      const resp = await fetch("/api/rag/encode", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ texts: [query], engine: this.engine }),
+      });
+      if (!resp.ok) return [];
+      const { vectors: [qArr] } = await resp.json();
+      const qVec = new Float32Array(qArr);
 
-    const scores = this.vectors.map((v, i) => {
-      let dot = 0;
-      for (let j = 0; j < qVec.length; j++) dot += qVec[j] * v[j];
-      return { index: i, score: dot };
-    });
-    scores.sort((a, b) => b.score - a.score);
-    return scores.slice(0, topK).map((s) => ({ chunk: this.chunks[s.index], score: s.score }));
+      const scores = this.vectors.map((v, i) => {
+        let dot = 0;
+        for (let j = 0; j < qVec.length; j++) dot += qVec[j] * v[j];
+        return { index: i, score: dot };
+      });
+      scores.sort((a, b) => b.score - a.score);
+      return scores.slice(0, topK).map((s) => ({ chunk: this.chunks[s.index], score: s.score }));
+    } catch {
+      ragLog("向量编码服务不可用, 检索返回空");
+      return [];
+    }
   }
 
   dispose() {
