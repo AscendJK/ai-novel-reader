@@ -35,6 +35,14 @@
   .badge-status.ready{background:#1a2a1a;color:#4a4}
   .badge-status.building{background:#2a2a1a;color:#aa4}
   .badge-status.error{background:#2a1a1a;color:#a44}
+  .form-group{margin-bottom:16px}
+  .form-group label{display:block;font-size:13px;color:#999;margin-bottom:6px}
+  .form-group input{padding:8px 12px;border-radius:6px;border:1px solid #2a2a30;background:#1a1a1f;color:#e0e0e0;font-size:14px;width:200px}
+  .form-group .hint{font-size:11px;color:#666;margin-top:4px}
+  button.primary{padding:6px 16px;border-radius:6px;border:1px solid #2a4a2a;background:#1a3a1a;color:#8c8;cursor:pointer;font-size:13px}
+  button.primary:hover{background:#2a4a2a}
+  .card{background:#1a1a1f;border:1px solid #2a2a30;border-radius:8px;padding:20px;margin-bottom:16px}
+  .card h3{font-size:14px;color:#e0e0e0;margin-bottom:12px}
   @media (max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -47,6 +55,7 @@
   <button class="tab active" data-tab="overview">概览</button>
   <button class="tab" data-tab="users">用户</button>
   <button class="tab" data-tab="novels">小说</button>
+  <button class="tab" data-tab="settings">设置</button>
 </div>
 <div class="content" id="content"></div>
 <div class="toast" id="toast"></div>
@@ -167,6 +176,65 @@ async function delNovel(id) {
   catch(e) { toast("删除失败", false); }
 }
 
+// Settings
+async function loadSettings() {
+  const s = await get("/settings");
+  const t = s.timeout;
+  const defaultMin = Math.round(t.minMs / 60000);
+  const defaultMax = Math.round(t.maxMs / 60000);
+  document.getElementById("content").innerHTML = `
+    <div class="card">
+      <h3>RAG 构建超时</h3>
+      <div class="form-group">
+        <label for="perChunkMs">每 chunk 编码时间估算（毫秒）</label>
+        <input type="number" id="perChunkMs" value="${t.perChunkMs}" min="50" max="10000" step="50">
+        <div class="hint">
+          超时 = chunk 数 × 此值。范围：${defaultMin}~${defaultMax} 分钟。<br>
+          默认 300ms。如果构建经常超时，可调大到 500 或 800。
+        </div>
+      </div>
+      <div class="form-group">
+        <label>当前超时估算</label>
+        <div id="timeoutPreview" style="color:#e0e0e0;font-size:14px;padding:8px 0"></div>
+      </div>
+      <button class="primary" onclick="saveTimeout()">保存</button>
+    </div>
+    <div class="card">
+      <h3>说明</h3>
+      <div style="color:#888;font-size:13px;line-height:1.8">
+        <p>超时是动态计算的：<code style="color:#89b">chunk数 × 每chunk时间</code>，最低 ${defaultMin} 分钟，最高 ${defaultMax} 分钟。</p>
+        <p>每 chunk 时间取决于 CPU 性能和模型大小。BGE Small ZH 通常 200-400ms/chunk，GTE Small 稍慢。</p>
+        <p>修改后立即生效，无需重启。</p>
+      </div>
+    </div>
+  `;
+  // Preview timeout for common chunk counts
+  updateTimeoutPreview(t.perChunkMs);
+  document.getElementById("perChunkMs").addEventListener("input", (e) => {
+    updateTimeoutPreview(parseInt(e.target.value, 10) || 300);
+  });
+}
+
+function updateTimeoutPreview(ms) {
+  const min = Math.round(Math.max(600000, 1000 * ms) / 60000);
+  const med = Math.round(Math.max(600000, 5000 * ms) / 60000);
+  const max = Math.round(Math.max(600000, 20000 * ms) / 60000);
+  document.getElementById("timeoutPreview").innerHTML =
+    `1000 chunks → ${min} 分钟 &nbsp;|&nbsp; 5000 chunks → ${med} 分钟 &nbsp;|&nbsp; 20000 chunks → ${max} 分钟`;
+}
+
+async function saveTimeout() {
+  const ms = parseInt(document.getElementById("perChunkMs").value, 10);
+  try {
+    await fetch(API + "/settings/timeout", {
+      method: "PUT", headers: authH(),
+      body: JSON.stringify({ perChunkMs: ms }),
+    });
+    toast("已保存", true);
+    loadSettings();
+  } catch(e) { toast("保存失败", false); }
+}
+
 // Tab switching
 document.querySelectorAll(".tab").forEach(t => {
   t.addEventListener("click", () => {
@@ -176,6 +244,7 @@ document.querySelectorAll(".tab").forEach(t => {
     if (tab === "overview") loadOverview();
     else if (tab === "users") loadUsers();
     else if (tab === "novels") loadNovels();
+    else if (tab === "settings") loadSettings();
   });
 });
 

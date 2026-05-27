@@ -18,20 +18,20 @@ if [ ! -d "node_modules" ]; then
   echo ""
 fi
 
-# Determine port: use prod if dist exists, else dev
+# Determine port: admin is served by Express (3001 in dev, 5173 in prod)
 if [ -f "dist/index.html" ]; then
-  PORT=5173
-  echo "Mode: Production (single port $PORT)"
-  nc_pid=$(lsof -ti:$PORT 2>/dev/null || true)
+  ADMIN_PORT=5173
+  echo "Mode: Production (single port $ADMIN_PORT)"
+  nc_pid=$(lsof -ti:$ADMIN_PORT 2>/dev/null || true)
   if [ -z "$nc_pid" ]; then
     echo "Starting server..."
     nohup node server/index.js --full > server/server.log 2>&1 &
     sleep 2
   else
-    echo "Server already running on port $PORT"
+    echo "Server already running on port $ADMIN_PORT"
   fi
 else
-  PORT=5173
+  ADMIN_PORT=3001
   echo "Mode: Development (Vite + Express)"
   # Start Express if not running
   ex_pid=$(lsof -ti:3001 2>/dev/null || true)
@@ -47,7 +47,7 @@ else
     nohup npx vite --host 0.0.0.0 --port 5173 > /dev/null 2>&1 &
     sleep 2
   fi
-  echo "Dev server already running on port $PORT"
+  echo "Express running on port $ADMIN_PORT"
 fi
 
 # Get admin token
@@ -57,7 +57,7 @@ if [ -f "server/data/.admin_token" ]; then
 fi
 
 # Open browser
-URL="http://localhost:$PORT/admin?token=$TOKEN"
+URL="http://localhost:$ADMIN_PORT/admin?token=$TOKEN"
 echo ""
 echo "Opening: $URL"
 echo ""

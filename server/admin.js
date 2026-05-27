@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as db from "./database.js";
+import { getTimeoutConfig, setPerChunkTimeout } from "./rag-builder.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, "data", ".admin_token");
@@ -96,6 +97,22 @@ export function mountAdminRoutes(app) {
     if (!auth(req, res)) return;
     db.deleteNovel(req.params.id);
     res.json({ ok: true });
+  });
+
+  // ── Settings ──
+
+  app.get("/api/admin/settings", (req, res) => {
+    if (!auth(req, res)) return;
+    const timeout = getTimeoutConfig();
+    res.json({ timeout });
+  });
+
+  app.put("/api/admin/settings/timeout", (req, res) => {
+    if (!auth(req, res)) return;
+    const { perChunkMs } = req.body;
+    if (perChunkMs == null) return res.status(400).json({ error: "缺少 perChunkMs 参数" });
+    const val = setPerChunkTimeout(perChunkMs);
+    res.json({ ok: true, perChunkMs: val });
   });
 
   // ── Token ──

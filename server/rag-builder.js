@@ -9,7 +9,19 @@ const CHUNK_SIZE = 500;
 const OVERLAP = 100;
 
 const buildProgress = new Map(); // key: "novelId-engine" → { status, current, total }
-const WORKER_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const MIN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes minimum
+const MAX_TIMEOUT_MS = 120 * 60 * 1000; // 120 minutes maximum
+// Configure via env or admin API: RAG_TIMEOUT_PER_CHUNK_MS (default 300ms, i.e. ~0.3s per chunk)
+let perChunkMs = Math.max(50, parseInt(process.env.RAG_TIMEOUT_PER_CHUNK_MS || "300", 10));
+
+export function getTimeoutConfig() {
+  return { perChunkMs, minMs: MIN_TIMEOUT_MS, maxMs: MAX_TIMEOUT_MS };
+}
+
+export function setPerChunkTimeout(ms) {
+  perChunkMs = Math.max(50, Math.min(10000, parseInt(ms, 10) || 300));
+  return perChunkMs;
+}
 
 // Periodically prune completed/errored entries from buildProgress
 setInterval(() => {
@@ -155,12 +167,14 @@ async function _doBuild(novelId, engine, key) {
   db.db.prepare("INSERT OR REPLACE INTO rag_indices (novel_id, engine, status, chunks_json, chunk_count) VALUES (?, ?, 'building', ?, ?)")
     .run(novelId, engine, JSON.stringify(chunks), chunks.length);
 
-  // Encode in Worker Thread with timeout
+  // Encode in Worker Thread with dynamic timeout (~0.3s per chunk, min 10min, max 60min)
   const modelKey = resolveModelKey(engine);
   const modelBasePath = ENGINE_MODEL_MAP[engine]
     ? path.resolve(__dirname, "../public/models/builtin/")
     : path.resolve(__dirname, "../public/models/custom/");
   const t0 = Date.now();
+  const workerTimeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, chunks.length * perChunkMs));
+  console.log(`[rag] building ${key}: ${chunks.length} chunks, timeout ${Math.round(workerTimeoutMs / 60000)}min`);
   const vectors = await new Promise((resolve, reject) => {
     const workerPath = path.join(__dirname, "rag-worker.mjs");
     const worker = new Worker(workerPath, {
@@ -169,8 +183,9 @@ async function _doBuild(novelId, engine, key) {
 
     const timeout = setTimeout(() => {
       worker.terminate();
-      reject(new Error("编码超时（超过 10 分钟）"));
-    }, WORKER_TIMEOUT_MS);
+      const mins = Math.round(workerTimeoutMs / 60000);
+      reject(new Error(`编码超时（超过 ${mins} 分钟）`));
+    }, workerTimeoutMs);
 
     worker.on("message", (msg) => {
       if (msg.type === "progress") {

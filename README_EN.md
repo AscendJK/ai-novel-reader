@@ -159,7 +159,9 @@ The Library at the bottom of the bookshelf browses all novels on the server. Cli
 admin.bat        # Windows double-click
 ```
 
-Auto-starts server and opens admin page for viewing/deleting users and novels.
+Auto-starts server and opens admin page for viewing/deleting users and novels, and adjusting RAG build timeout (up to 120 minutes).
+
+> **Note**: In production mode, the admin page is served directly by Express (not Vite). After first launch or upgrades, use `Ctrl + Shift + R` to hard-refresh, or open in incognito mode, to avoid the Service Worker showing the novel reader page instead of the admin panel.
 
 ## Architecture
 
