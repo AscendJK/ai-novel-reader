@@ -20,6 +20,14 @@ export default defineConfig({
             },
           },
           {
+            urlPattern: /\/models\/.*\.json$/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "model-json-cache",
+              expiration: { maxEntries: 50, maxAgeSeconds: 365 * 24 * 3600 },
+            },
+          },
+          {
             urlPattern: /\/api\/(?!sync\/)/,
             handler: "NetworkFirst",
             options: {
