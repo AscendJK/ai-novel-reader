@@ -10,6 +10,7 @@ import type { GraphData } from "@/hooks/useSummarizer";
 import { db } from "@/db/database";
 import { loadSetting, saveSetting, loadNotes, saveNote, deleteNote } from "@/db/repositories";
 import type { NoteItem } from "@/db/repositories";
+import { syncClient } from "@/sync/sync-client";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import {
   Loader2, ChevronRight, ChevronDown,
   Sparkles, Users, Clock, RefreshCw, MessageSquare,
   BookOpen, Trash2, Maximize2, FileText, PlusCircle,
-  Bookmark, StickyNote, Search,
+  Bookmark, StickyNote, Search, Pencil, X, Check,
 } from "lucide-react";
 import { retrieveRelevantWithDetails } from "@/rag/index";
 import ReactMarkdown from "react-markdown";
@@ -50,6 +51,8 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const [savingNote, setSavingNote] = useState(false);
   const [expandedChapter, setExpandedChapter] = useState<string | null>(null);
   const [expandedBook, setExpandedBook] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -165,24 +168,50 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       source: "user",
       sourceLabel: noteTab === "chapter" ? "用户笔记" : "全书笔记",
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     await saveNote(note);
     setNotes((prev) => [note, ...prev]);
     setNoteContent("");
     setSavingNote(false);
+    syncClient.pushNow();
   };
 
   const handleDeleteNote = async (noteId: string) => {
+    if (!confirm("确定删除这条笔记？")) return;
     await deleteNote(noteId);
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    syncClient.pushNow();
+  };
+
+  const handleEditNote = (note: NoteItem) => {
+    setEditingNoteId(note.id);
+    setEditingContent(note.content);
+  };
+
+  const handleSaveEditNote = async () => {
+    if (!editingNoteId || !editingContent.trim()) return;
+    const note = notes.find((n) => n.id === editingNoteId);
+    if (!note) return;
+    const updated: NoteItem = { ...note, content: editingContent.trim(), updatedAt: Date.now() };
+    await saveNote(updated);
+    setNotes((prev) => prev.map((n) => n.id === editingNoteId ? updated : n));
+    setEditingNoteId(null);
+    setEditingContent("");
+    syncClient.pushNow();
+  };
+
+  const handleCancelEdit = () => {
+    setEditingNoteId(null);
+    setEditingContent("");
   };
 
   const handleMoveToBook = async (note: NoteItem) => {
     if (!currentNovel) return;
-    const updated: NoteItem = { ...note, chapterId: "__book__", chapterTitle: "全书笔记", sourceLabel: "从章节移入" };
-    await deleteNote(note.id);
+    const updated: NoteItem = { ...note, chapterId: "__book__", chapterTitle: "全书笔记", sourceLabel: "从章节移入", updatedAt: Date.now() };
     await saveNote(updated);
     setNotes((prev) => prev.map((n) => n.id === note.id ? updated : n));
+    syncClient.pushNow();
   };
 
   const handleBookmarkAI = async (title: string, content: string, chapterId: string, scope?: "chapter" | "book") => {
@@ -202,9 +231,11 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       source: "ai",
       sourceLabel: title,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     await saveNote(note);
     setNotes((prev) => [note, ...prev]);
+    syncClient.pushNow();
   };
 
   const filteredNotes = notes.filter((n) =>
@@ -412,7 +443,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
               )}
               {chapterSummary ? (
                 <MiniCard title={chapterSummary.chapterTitle} content={chapterSummary.content}
-                  tokens={chapterSummary.tokensUsed} date={chapterSummary.createdAt}
+                  tokens={chapterSummary.tokensUsed} date={chapterSummary.updatedAt || chapterSummary.createdAt}
                   onRegenerate={() => selectedChapterId && regenerateChapter(selectedChapterId)} loading={loading}
                   onBookmark={() => handleBookmarkAI(chapterSummary.chapterTitle, chapterSummary.content, chapterSummary.chapterId)} />
               ) : (
@@ -465,35 +496,63 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
               {filteredNotes.map((n) => {
                 const isExpanded = noteTab === "chapter" ? expandedChapter === n.id : expandedBook === n.id;
                 const setExpanded = noteTab === "chapter" ? setExpandedChapter : setExpandedBook;
+                const isEditing = editingNoteId === n.id;
                 return (
-                <Card key={n.id} className="shadow-none cursor-pointer overflow-hidden min-w-0"
-                  onClick={() => setExpanded(isExpanded ? null : n.id)}>
+                <Card key={n.id} className="shadow-none overflow-hidden min-w-0"
+                  style={{ cursor: isEditing ? "default" : "pointer" }}
+                  onClick={() => { if (!isEditing) setExpanded(isExpanded ? null : n.id); }}>
                   <CardHeader className="p-2 pb-0.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1 min-w-0">
-                        {isExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                        {isEditing ? null : (isExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />)}
                         <Badge variant={n.source === "ai" ? "secondary" : "outline"} className="text-xs shrink-0">
                           {n.source === "ai" ? "AI" : "笔记"}
                         </Badge>
                         <CardTitle className="text-xs truncate">{n.sourceLabel}</CardTitle>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {noteTab === "chapter" && (
-                          <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
-                            onClick={() => handleMoveToBook(n)} title="移入全书笔记">
-                            移入全书
-                          </Button>
+                        {isEditing ? (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 text-primary shrink-0"
+                              onClick={handleSaveEditNote} title="保存">
+                              <Check className="h-2.5 w-2.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0"
+                              onClick={handleCancelEdit} title="取消">
+                              <X className="h-2.5 w-2.5" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:text-primary shrink-0"
+                              onClick={() => handleEditNote(n)} title="编辑">
+                              <Pencil className="h-2.5 w-2.5" />
+                            </Button>
+                            {noteTab === "chapter" && (
+                              <Button variant="ghost" size="sm" className="h-5 text-xs text-muted-foreground hover:text-primary"
+                                onClick={() => handleMoveToBook(n)} title="移入全书笔记">
+                                移入全书
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive shrink-0"
+                              onClick={() => handleDeleteNote(n.id)}>
+                              <Trash2 className="h-2.5 w-2.5" />
+                            </Button>
+                          </>
                         )}
-                        <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive shrink-0"
-                          onClick={() => handleDeleteNote(n.id)}>
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </Button>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">{new Date(n.createdAt).toLocaleString("zh-CN")}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(n.updatedAt || n.createdAt).toLocaleString("zh-CN")}</p>
                   </CardHeader>
                   <CardContent className="p-2 pt-0">
-                    <div className={`text-xs leading-relaxed text-foreground/80 ${isExpanded ? "whitespace-pre-wrap break-all" : "line-clamp-2 break-all"}`}>{n.content}</div>
+                    {isEditing ? (
+                      <Textarea className="text-xs min-h-[60px]" value={editingContent}
+                        onChange={(e) => setEditingContent(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSaveEditNote(); }} />
+                    ) : (
+                      <div className={`text-xs leading-relaxed text-foreground/80 ${isExpanded ? "whitespace-pre-wrap break-all" : "line-clamp-2 break-all"}`}>{n.content}</div>
+                    )}
                   </CardContent>
                 </Card>
               )})}
@@ -600,7 +659,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
 
 function SubItem({ label, icon, isOpen, onClick, summaries, onGenerate, onRegenerate, loading, emptyLabel, graphData, onGenerateGraph, onRegenerateGraph }: {
   label: string; icon: ReactNode; isOpen: boolean; onClick: () => void;
-  summaries: { id: string; chapterTitle: string; content: string; tokensUsed: number; createdAt: number }[];
+  summaries: { id: string; chapterTitle: string; content: string; tokensUsed: number; createdAt: number; usedFallback?: boolean }[];
   onGenerate: () => void; onRegenerate: () => void; loading: boolean; emptyLabel: string;
   graphData?: GraphData | null; onGenerateGraph?: () => void; onRegenerateGraph?: () => void;
 }) {
@@ -634,8 +693,8 @@ function SubItem({ label, icon, isOpen, onClick, summaries, onGenerate, onRegene
           {graphData && onRegenerateGraph && <CharacterGraph graphData={graphData} onRegenerate={onRegenerateGraph} />}
           {summaries.length > 0 ? (
             summaries.map((s) => (
-              <MiniCard key={s.id} title={s.chapterTitle} content={s.content} tokens={s.tokensUsed} date={s.createdAt}
-                onRegenerate={onRegenerate} loading={loading} />
+              <MiniCard key={s.id} title={s.chapterTitle} content={s.content} tokens={s.tokensUsed} date={s.updatedAt || s.createdAt}
+                onRegenerate={onRegenerate} loading={loading} usedFallback={s.usedFallback} />
             ))
           ) : (
             <button onClick={onGenerate} disabled={loading}
@@ -649,10 +708,10 @@ function SubItem({ label, icon, isOpen, onClick, summaries, onGenerate, onRegene
   );
 }
 
-function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp, onRemove, onBookmark }: {
+function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp, onRemove, onBookmark, usedFallback }: {
   title: string; content: string; tokens: number; date: number;
   onRegenerate?: () => void; loading?: boolean; isTemp?: boolean; onRemove?: () => void;
-  onBookmark?: () => void;
+  onBookmark?: () => void; usedFallback?: boolean;
 }) {
   return (
     <Card className={`shadow-none ${isTemp ? "border-dashed border-amber-300 dark:border-amber-700" : ""}`}>
@@ -660,6 +719,7 @@ function MiniCard({ title, content, tokens, date, onRegenerate, loading, isTemp,
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 min-w-0">
             {isTemp && <Badge variant="outline" className="text-xs font-normal text-amber-600 shrink-0">临时</Badge>}
+            {usedFallback && <Badge variant="outline" className="text-[10px] font-normal text-amber-600 shrink-0">精简</Badge>}
             <CardTitle className="text-xs truncate">{title}</CardTitle>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
@@ -701,8 +761,12 @@ function DataMgr({ novelId, summaries, hasGraph, onDeleteGraph, noteCount, onNot
     if (!window.confirm(`确认删除所有 ${label}？此操作不可恢复。`)) return;
     const all = await db.notes.where("novelId").equals(novelId).toArray();
     const targets = all.filter((n) => isBook ? n.chapterId === "__book__" : n.chapterId !== "__book__");
-    for (const n of targets) await db.notes.delete(n.id);
+    const now = Date.now();
+    for (const n of targets) {
+      if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
+    }
     onNotesChanged();
+    syncClient.pushNow();
   };
   const count = (t: string) => summaries.filter((s) => s.type === t).length;
   return (

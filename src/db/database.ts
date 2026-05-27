@@ -29,7 +29,10 @@ export interface SummaryRecord {
   content: string;
   tokensUsed: number;
   createdAt: number;
+  updatedAt: number;
   type: string;
+  usedFallback?: boolean;
+  deleted?: number;
 }
 
 export interface SettingsRecord {
@@ -46,6 +49,8 @@ export interface NoteRecord {
   source: "user" | "ai";
   sourceLabel: string;
   createdAt: number;
+  updatedAt: number;
+  deleted?: number;
 }
 
 export interface RAGCacheRecord {
@@ -73,6 +78,38 @@ class NovelDB extends Dexie {
       summaries: "id, novelId, chapterId, type",
       settings: "key",
       notes: "id, novelId, chapterId, source, createdAt",
+      ragCache: "novelId",
+    });
+    this.version(4).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, [novelId+chapterId+type]",
+      settings: "key",
+      notes: "id, novelId, chapterId, source, createdAt",
+      ragCache: "novelId",
+    });
+    this.version(5).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, [novelId+chapterId+type]",
+      settings: "key",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt",
+      ragCache: "novelId",
+    });
+    this.version(6).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, [novelId+chapterId+type]",
+      settings: "key",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
+      ragCache: "novelId",
+    });
+    this.version(7).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type]",
+      settings: "key",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
       ragCache: "novelId",
     });
   }

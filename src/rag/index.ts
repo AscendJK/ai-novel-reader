@@ -153,17 +153,19 @@ export function clearCache(novelId?: string) {
 export async function retrieveRelevant(
   novelId: string,
   query: string,
-  topK: number = 15
+  topK?: number
 ): Promise<string> {
   const entry = indexCache.get(novelId);
   if (!entry) return "";
 
+  const k = topK ?? useRAGStore.getState().getTopK(entry.chunks.length);
+
   if (isEmbeddingEngine(entry.engine) && entry.embedding) {
-    const results = await entry.embedding.search(query, topK);
+    const results = await entry.embedding.search(query, k);
     return results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n");
   }
 
-  const results = entry.retriever.search(query, topK);
+  const results = entry.retriever.search(query, k);
   return results
     .map((r) => {
       const chunk = entry.chunks.find((c) => c.id === r.id);
@@ -176,13 +178,15 @@ export async function retrieveRelevant(
 export async function retrieveRelevantWithDetails(
   novelId: string,
   query: string,
-  topK: number = 15
+  topK?: number
 ): Promise<{ text: string; results: { content: string; score: number }[]; engine: string }> {
   const entry = indexCache.get(novelId);
   if (!entry) return { text: "", results: [], engine: "none" };
 
+  const k = topK ?? useRAGStore.getState().getTopK(entry.chunks.length);
+
   if (isEmbeddingEngine(entry.engine) && entry.embedding) {
-    const results = await entry.embedding.search(query, topK);
+    const results = await entry.embedding.search(query, k);
     return {
       engine: entry.engine,
       text: results.map((r) => `[相关度: ${r.score.toFixed(3)}] ${r.chunk.content}`).join("\n\n---\n\n"),
@@ -190,7 +194,7 @@ export async function retrieveRelevantWithDetails(
     };
   }
 
-  const results = entry.retriever.search(query, topK);
+  const results = entry.retriever.search(query, k);
   const mapped = results
     .map((r) => {
       const chunk = entry.chunks.find((c) => c.id === r.id);

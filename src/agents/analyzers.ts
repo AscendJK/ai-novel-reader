@@ -16,6 +16,7 @@ export const characterAnalysisAgent: Agent = {
   description: "分析小说主要人物及其关系",
 
   async run(context: AgentContext): Promise<AgentResult> {
+    context.onStatus?.("正在加载小说数据...");
     const provider = getActiveProvider();
     const novel = await loadNovel(context.novelId);
     if (!novel) return { success: false, error: "小说数据未找到" };
@@ -42,7 +43,8 @@ export const characterAnalysisAgent: Agent = {
 
     const promptLabel = context.preRetrieved ? "语义检索相关段落" : "内容样本";
 
-    const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，分析主要人物及其关系网络。
+    context.onStatus?.("正在组织提示词...");
+    const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，深入分析主要人物及其关系网络。
 
 **小说：**《${novel.title}》${novel.author ? ` · 作者：${novel.author}` : ""}
 **总字数：** ${novel.totalChars.toLocaleString()} 字
@@ -54,31 +56,13 @@ ${chapterList}
 **${promptLabel}：**
 ${relevantContent}
 
-请输出以下两部分内容，用 \`---GRAPH_JSON---\` 分隔：
+请输出以下分析内容：
 
-**第一部分：文字分析**
-1. **主要人物档案**（识别 5-10 个最重要的角色）：每个角色列出姓名、性格关键词、角色定位、人物简介、角色弧光
-2. **人物关系网络**：列出每对重要人物之间的关系类型及演变
-3. **人物重要性评估**：按剧情推动作用排序
-
-**第二部分：关系图谱数据（JSON）**
-在 \`---GRAPH_JSON---\` 之后，输出一个 JSON 对象，格式如下：
-\`\`\`json
-{
-  "nodes": [
-    { "id": "张三", "group": "主角", "description": "勇敢的青年剑客" },
-    { "id": "李四", "group": "反派", "description": "野心勃勃的魔教教主" }
-  ],
-  "edges": [
-    { "source": "张三", "target": "李四", "label": "敌对" },
-    { "source": "张三", "target": "王五", "label": "师徒" }
-  ]
-}
-\`\`\`
-要求：
-- nodes 数组包含所有识别出的人物，group 可选值：主角/配角/反派/导师/恋人/其他
-- edges 数组包含所有重要关系，label 为关系类型（如：亲情/友情/爱情/敌对/师徒/利用/暗恋/仇敌）
-- 确保所有 edges 中的 source 和 target 都在 nodes 中存在`;
+1. **主要人物档案**（识别 8-15 个重要角色）：每个角色列出姓名、性格关键词、角色定位、人物简介、角色弧光
+2. **人物关系网络**：详细描述每对重要人物之间的关系类型、互动方式及关系演变过程
+3. **人物冲突与张力**：分析主要角色之间的矛盾冲突、利益纠葛和情感张力
+4. **人物成长轨迹**：追踪关键角色从故事开始到结束的成长变化
+5. **人物重要性评估**：按剧情推动作用排序，说明每个角色对主线的影响`;
 
     const estimatedInput = estimateTokens(prompt);
     const usePrompt =
@@ -89,13 +73,14 @@ ${relevantContent}
 章节目录：
 ${chapterList}
 
-请输出文字分析，并用 ---GRAPH_JSON--- 分隔后输出 JSON 图谱数据（节点和边）。`;
+请分析主要人物的关系网络、性格特征与成长变化。`;
 
     try {
+      context.onStatus?.("正在等待 AI 回答...");
       const response = await provider.chat({
         model: "",
         messages: [
-          { role: "system", content: "你是一位资深的小说人物分析师。请确保 JSON 部分格式正确，所有边的节点引用与 nodes 中的 id 一致。" },
+          { role: "system", content: "你是一位资深的小说人物分析师，擅长深入剖析角色性格、关系网络和人物弧光。" },
           { role: "user", content: usePrompt },
         ],
         max_tokens: 4096,
@@ -103,31 +88,9 @@ ${chapterList}
         signal: context.signal,
       });
 
-      // Parse response: split text analysis and graph JSON
-      const fullContent = response.content;
-      const graphMarker = "---GRAPH_JSON---";
-      const markerIndex = fullContent.indexOf(graphMarker);
-
-      let textAnalysis = fullContent;
-      let graphData: { nodes: { id: string; group: string; description: string }[]; edges: { source: string; target: string; label: string }[] } | null = null;
-
-      if (markerIndex !== -1) {
-        textAnalysis = fullContent.slice(0, markerIndex).trim();
-        const jsonPart = fullContent.slice(markerIndex + graphMarker.length).trim();
-        // Extract JSON from code block if present
-        const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            graphData = JSON.parse(jsonMatch[0]);
-          } catch (e) {
-            console.error("Character analysis graph JSON parse failed:", e);
-          }
-        }
-      }
-
       return {
         success: true,
-        data: { content: textAnalysis, graphData },
+        data: { content: response.content, usedFallback: estimatedInput >= budget.maxInputTokens * 0.7 },
         tokensUsed: response.tokensUsed.total,
       };
     } catch (err) {
@@ -144,6 +107,7 @@ export const timelineAgent: Agent = {
   description: "提取小说剧情时间线",
 
   async run(context: AgentContext): Promise<AgentResult> {
+    context.onStatus?.("正在加载小说数据...");
     const provider = getActiveProvider();
     const novel = await loadNovel(context.novelId);
     if (!novel) return { success: false, error: "小说数据未找到" };
@@ -172,6 +136,7 @@ export const timelineAgent: Agent = {
 
     const promptLabel = context.preRetrieved ? "语义检索相关段落" : "关键章节样本";
 
+    context.onStatus?.("正在组织提示词...");
     const prompt = `你是一位专业的小说剧情分析师。请根据以下小说信息，提取关键剧情时间线。
 
 **小说：**《${novel.title}》${novel.author ? ` · 作者：${novel.author}` : ""}
@@ -185,19 +150,31 @@ ${chapterList}
 ${relevantContent}
 
 **分析要求：**
-1. **剧情主线时间线**（按时间顺序列出 15-25 个关键事件，每个事件标注章节编号、类型、因果关系）
-2. **剧情结构分析**（开端/发展/转折/高潮/结局在哪些章节、叙事手法、主线与支线分布）
-3. **伏笔与回收**（重要的伏笔及其回收章节）
 
-请用清晰的时间线格式呈现。`;
+### 一、剧情主线时间线
+
+按时间顺序列出 15-25 个关键事件。**每个事件必须是一个独立的编号列表项，且每个列表项只能是一整段文字，不要在列表项内使用子列表（不要用 - 开头的子项）。** 格式如下：
+
+1. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。
+2. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。
+3. ...
+
+以此类推，不要使用表格，不要在编号列表内添加子列表。
+
+### 二、剧情结构分析
+分析开端/发展/转折/高潮/结局分别在哪些章节、叙事手法、主线与支线分布。
+
+### 三、伏笔与回收
+列出重要的伏笔及其回收章节。`;
 
     const estimatedInput = estimateTokens(prompt);
     const usePrompt =
       estimatedInput < budget.maxInputTokens * 0.7
         ? prompt
-        : `请根据《${novel.title}》的章节目录推断剧情时间线。\n章节目录：\n${chapterList}\n请基于章节目录提取关键事件的时间线（标注"基于目录推断"）。`;
+        : `请根据《${novel.title}》的章节目录推断剧情时间线。\n章节目录：\n${chapterList}\n\n请按时间顺序逐条列出关键事件（不要用表格，不要在列表项内使用子列表），每个事件格式：\n1. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。\n\n标注"基于目录推断"。`;
 
     try {
+      context.onStatus?.("正在等待 AI 回答...");
       const response = await provider.chat({
         model: "",
         messages: [
@@ -211,7 +188,7 @@ ${relevantContent}
 
       return {
         success: true,
-        data: { content: response.content },
+        data: { content: response.content, usedFallback: estimatedInput >= budget.maxInputTokens * 0.7 },
         tokensUsed: response.tokensUsed.total,
       };
     } catch (err) {

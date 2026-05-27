@@ -111,6 +111,30 @@ function processQueue() {
     });
 }
 
+/** Get all engines' build statuses for multiple novels */
+export function getAllStatuses(novelIds) {
+  const result = {};
+  for (const nid of novelIds) {
+    const rows = db.db.prepare("SELECT engine, status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ?").all(nid);
+    const engines = {};
+    for (const r of rows) {
+      engines[r.engine] = { status: r.status, chunkCount: r.chunk_count, buildTime: r.build_time, error: r.error_msg };
+    }
+    // Also include in-progress builds from memory
+    for (const [key, mem] of buildProgress) {
+      if (key.startsWith(nid + "-")) {
+        const eng = key.slice(nid.length + 1);
+        if (!engines[eng] || engines[eng].status !== "ready") {
+          const pos = queue.findIndex(t => t.key === key);
+          engines[eng] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
+        }
+      }
+    }
+    result[nid] = engines;
+  }
+  return result;
+}
+
 /** Get build statuses for multiple novels */
 export function getStatuses(novelIds, engine = "bge-small-zh") {
   const result = {};

@@ -49,7 +49,7 @@ export async function loadNovel(novelId: string): Promise<Novel | null> {
       chapters: chapterRecords.map((ch) => ({
         id: ch.id, novelId: ch.novelId, index: ch.index,
         title: ch.title, content: ch.content,
-        startOffset: ch.startOffset, endOffset: ch.endOffset,
+        startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? ch.content.length,
       })),
     };
   } catch (e) {
@@ -82,10 +82,17 @@ export async function loadAllNovelMeta(): Promise<NovelMeta[]> {
 export async function loadAllNovels(): Promise<Novel[]> {
   try {
     const records = await db.novels.orderBy("createdAt").reverse().toArray();
-    const novels: Novel[] = [];
-    for (const record of records) {
-      const chapterRecords = await db.chapters.where("novelId").equals(record.id).sortBy("index");
-      novels.push({
+    // Single bulk query instead of N+1 per-novel queries
+    const allChapters = await db.chapters.toArray();
+    const chaptersByNovel = new Map<string, typeof allChapters>();
+    for (const ch of allChapters) {
+      const arr = chaptersByNovel.get(ch.novelId) || [];
+      arr.push(ch);
+      chaptersByNovel.set(ch.novelId, arr);
+    }
+    return records.map((record) => {
+      const chapterRecords = (chaptersByNovel.get(record.id) || []).sort((a, b) => a.index - b.index);
+      return {
         id: record.id, title: record.title, author: record.author,
         fileName: record.fileName, fileFormat: record.fileFormat,
         totalChars: record.totalChars, chapterCount: chapterRecords.length,
@@ -95,9 +102,8 @@ export async function loadAllNovels(): Promise<Novel[]> {
           title: ch.title, content: ch.content,
           startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? ch.content.length,
         })),
-      });
-    }
-    return novels;
+      };
+    });
   } catch (e) {
     console.error("loadAllNovels failed:", e);
     return [];
@@ -106,11 +112,26 @@ export async function loadAllNovels(): Promise<Novel[]> {
 
 export async function deleteNovel(novelId: string): Promise<void> {
   try {
-    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.settings, db.novels, async () => {
+    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.settings, db.novels, db.ragCache, async () => {
       await db.chapters.where("novelId").equals(novelId).delete();
-      await db.summaries.where("novelId").equals(novelId).delete();
-      await db.notes.where("novelId").equals(novelId).delete();
+      // Soft-delete summaries and notes so sync propagates the deletion
+      const now = Date.now();
+      const novelSummaries = await db.summaries.where("novelId").equals(novelId).toArray();
+      for (const s of novelSummaries) {
+        if (!s.deleted) await db.summaries.put({ ...s, deleted: now, updatedAt: now });
+      }
+      const novelNotes = await db.notes.where("novelId").equals(novelId).toArray();
+      for (const n of novelNotes) {
+        if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
+      }
       await db.settings.delete("character-graph-" + novelId).catch(() => {});
+      // Clean up RAG cache entries (key format: "novelId-engine")
+      const allCache = await db.ragCache.toArray();
+      for (const entry of allCache) {
+        if (entry.novelId === novelId || entry.novelId.startsWith(novelId + "-")) {
+          await db.ragCache.delete(entry.novelId);
+        }
+      }
       await db.novels.delete(novelId);
     });
 
@@ -141,7 +162,8 @@ export async function saveSummary(summary: SummaryItem & { novelId: string }): P
       id: summary.id, novelId: summary.novelId,
       chapterId: summary.chapterId, chapterTitle: summary.chapterTitle,
       content: summary.content, tokensUsed: summary.tokensUsed,
-      createdAt: summary.createdAt, type: summary.type,
+      createdAt: summary.createdAt, updatedAt: summary.updatedAt, type: summary.type,
+      usedFallback: summary.usedFallback, deleted: summary.deleted,
     });
   } catch (e) {
     console.error("saveSummary failed:", e);
@@ -150,7 +172,8 @@ export async function saveSummary(summary: SummaryItem & { novelId: string }): P
 
 export async function loadSummaries(novelId: string): Promise<(SummaryItem & { novelId: string })[]> {
   try {
-    return db.summaries.where("novelId").equals(novelId).sortBy("createdAt");
+    const all = await db.summaries.where("novelId").equals(novelId).sortBy("createdAt");
+    return all.filter((s) => !s.deleted);
   } catch (e) {
     console.error("loadSummaries failed:", e);
     return [];
@@ -186,6 +209,8 @@ export interface NoteItem {
   source: "user" | "ai";
   sourceLabel: string;
   createdAt: number;
+  updatedAt: number;
+  deleted?: number;
 }
 
 export async function saveNote(note: NoteItem): Promise<void> {
@@ -194,22 +219,37 @@ export async function saveNote(note: NoteItem): Promise<void> {
 }
 
 export async function loadNotes(novelId: string): Promise<NoteItem[]> {
-  try { return db.notes.where("novelId").equals(novelId).reverse().sortBy("createdAt"); }
+  try {
+    const all = await db.notes.where("novelId").equals(novelId).reverse().sortBy("createdAt");
+    return all.filter((n) => !n.deleted);
+  }
   catch (e) { console.error("loadNotes failed:", e); return []; }
 }
 
 export async function loadAllNotes(): Promise<NoteItem[]> {
-  try { return db.notes.orderBy("createdAt").reverse().toArray(); }
+  try {
+    const all = await db.notes.orderBy("createdAt").reverse().toArray();
+    return all.filter((n) => !n.deleted);
+  }
   catch (e) { console.error("loadAllNotes failed:", e); return []; }
 }
 
 export async function deleteNote(noteId: string): Promise<void> {
-  try { await db.notes.delete(noteId); }
-  catch (e) { console.error("deleteNote failed:", e); }
+  try {
+    const note = await db.notes.get(noteId);
+    if (note) {
+      await db.notes.put({ ...note, deleted: Date.now(), updatedAt: Date.now() });
+    }
+  } catch (e) { console.error("deleteNote failed:", e); }
 }
 
 /** Delete all notes for a given novel+chapter combination */
 export async function deleteNotesByChapter(novelId: string, chapterId: string): Promise<void> {
-  try { await db.notes.where({ novelId, chapterId }).delete(); }
-  catch (e) { console.error("deleteNotesByChapter failed:", e); }
+  try {
+    const notes = await db.notes.where({ novelId, chapterId }).toArray();
+    const now = Date.now();
+    for (const n of notes) {
+      if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
+    }
+  } catch (e) { console.error("deleteNotesByChapter failed:", e); }
 }

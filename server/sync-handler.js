@@ -89,18 +89,20 @@ function isSensitiveKey(key) {
   return SENSITIVE_PREFIXES.some((p) => key === p || key.startsWith(p + ":"));
 }
 
-// Merge changes into SQLite (last write wins by updatedAt/createdAt)
-export function mergeAndSave(username, changes) {
+// Merge changes into SQLite (last write wins by updatedAt)
+export function mergeAndSave(username, changes, lastSyncTime = 0) {
   db.db.transaction(() => {
     if (changes.summaries?.length) {
       for (const s of changes.summaries) {
         if (!s.id || !s.novelId) continue;
+        if (!db.getNovel(s.novelId)) continue; // skip orphaned records
         db.upsertSummary({ ...s, username });
       }
     }
     if (changes.notes?.length) {
       for (const n of changes.notes) {
         if (!n.id || !n.novelId) continue;
+        if (!db.getNovel(n.novelId)) continue; // skip orphaned records
         db.upsertNote({ ...n, username });
       }
     }
@@ -120,5 +122,9 @@ export function mergeAndSave(username, changes) {
     }
   })();
 
-  return db.gatherSyncData(username);
+  // Capture AFTER transaction — upserts use Date.now() so updated_at <= lastSyncAt
+  const lastSyncAt = Date.now();
+  const data = db.gatherSyncData(username, lastSyncTime);
+  data.lastSyncAt = lastSyncAt;
+  return data;
 }

@@ -1,6 +1,7 @@
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useAPIStore } from "@/stores/api-store";
 import type { ProviderType } from "@/api/types";
 import { COMPAT_PREFIX } from "@/api/types";
@@ -10,6 +11,8 @@ export function ProviderSelect() {
   const configured = providers.filter((p) => p.apiKey);
 
   return (
+    <div className="space-y-2">
+    <Label htmlFor="active-provider">API 提供商</Label>
     <Select
       value={activeProviderId || undefined}
       onValueChange={(v) => setActiveProvider(v as ProviderType)}
@@ -32,5 +35,6 @@ export function ProviderSelect() {
         })}
       </SelectContent>
     </Select>
+    </div>
   );
 }

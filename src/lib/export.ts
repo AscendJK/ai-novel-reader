@@ -73,10 +73,10 @@ export async function importFromJSON(file: File): Promise<{ novels: number; chap
       for (const ch of data.chapters) { await db.chapters.put(ch); chapterCount++; }
     }
     if (data.summaries?.length) {
-      for (const s of data.summaries) { await db.summaries.put(s); summaryCount++; }
+      for (const s of data.summaries) { await db.summaries.put({ ...s, updatedAt: s.updatedAt || Date.now() }); summaryCount++; }
     }
     if (data.notes?.length) {
-      for (const n of data.notes) { await db.notes.put(n); noteCount++; }
+      for (const n of data.notes) { await db.notes.put({ ...n, updatedAt: n.updatedAt || Date.now() }); noteCount++; }
     }
     if (data.settings?.length) {
       for (const s of data.settings) { await db.settings.put(s); }

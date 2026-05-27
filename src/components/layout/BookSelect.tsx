@@ -69,8 +69,7 @@ export function BookSelect() {
         const all = await db.ragCache.toArray();
         const novelIdSet = new Set(ids);
         for (const entry of all) {
-          const dashIdx = entry.novelId.lastIndexOf("-");
-          const nid = dashIdx > 0 ? entry.novelId.slice(0, dashIdx) : entry.novelId;
+          const nid = entry.novelId.slice(0, 36); // UUID is always 36 chars
           if (novelIdSet.has(nid) && entry.vectors?.length) {
             addCachedKey(entry.novelId);
           }
@@ -496,19 +495,20 @@ export function BookSelect() {
                         </Button>
                       </div>
 
-                      {/* Build status indicator — hidden for TF-IDF (no index needed) */}
+                      {/* Build status indicator — hidden for TF-IDF */}
                       {engine !== "tfidf" && (() => {
                         const st = buildStatuses[novel.id] || { status: "none" };
-                        const chunkCount = st.chunkCount || st.chunk_count || 0;
-                        const estSize = chunkCount ? `${((chunkCount * 512 * 4) / 1048576).toFixed(1)} MB` : "";
+                        const chunkCount = st.chunkCount || 0;
+                        const chunkLabel = chunkCount >= 10000 ? `${(chunkCount / 1000).toFixed(1)}k` : `${chunkCount}`;
                         const memKey = novel.id + "-" + engine;
                         const cachedInBrowser = cachedKeys.has(memKey);
                         const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
                         if (st.status === "ready") {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                              <Badge variant="outline" className={`text-[10px] ${cachedInBrowser ? "text-green-500 border-green-500/30" : "text-yellow-500 border-yellow-500/30"}`}>
-                                {cachedInBrowser ? `${el} 已缓存 ${estSize || ""}` : `${el} 就绪 ${estSize || ""}`}
+                              <Badge variant="outline" className={`text-[10px] ${cachedInBrowser ? "text-green-500 border-green-500/30" : "text-yellow-600 border-yellow-500/30"}`}>
+                                {cachedInBrowser ? `${el} 已缓存` : `${el} 就绪`}
+                                {chunkCount > 0 && ` · ${chunkLabel}片段`}
                               </Badge>
                             </div>
                           );

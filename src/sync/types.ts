@@ -13,6 +13,7 @@ export interface PushPayload {
   username: string;
   clientId: string;
   changes: Partial<SyncData>;
+  lastSyncTime: number;
 }
 
 export interface RegisterResult {

@@ -17,6 +17,7 @@ export const summarizerAgent: Agent = {
   description: "生成章节摘要或全书总结",
 
   async run(context: AgentContext): Promise<AgentResult> {
+    context.onStatus?.("正在加载小说数据...");
     const provider = getActiveProvider();
     const novel = await loadNovel(context.novelId);
     if (!novel) return { success: false, error: "小说数据未找到" };
@@ -32,9 +33,11 @@ export const summarizerAgent: Agent = {
     let totalTokens = 0;
 
     for (const chapter of chapters) {
+      context.onStatus?.("正在组织提示词...");
       const prompt = buildChapterSummaryPrompt(chapter.title, chapter.content);
 
       try {
+        context.onStatus?.("正在等待 AI 回答...");
         const response = await provider.chat({
           model: "",
           messages: [{ role: "user", content: prompt }],
@@ -75,6 +78,7 @@ export const globalSummarizerAgent: Agent = {
   description: "生成全书总结（发送小说结构信息+内容样本，让大模型自行分析）",
 
   async run(context: AgentContext): Promise<AgentResult> {
+    context.onStatus?.("正在加载小说数据...");
     const provider = getActiveProvider();
     const novel = await loadNovel(context.novelId);
     if (!novel) return { success: false, error: "小说数据未找到" };
@@ -150,10 +154,12 @@ ${chapterList}
 （注意：你没有完整文本，请基于章节目录和标题进行合理推断，并在回复中注明）`;
 
     // If the full prompt is too large, use the fallback
+    context.onStatus?.("正在估算 Token...");
     const usePrompt =
       estimatedInput < budget.maxInputTokens * 0.7 ? metadataPrompt : fallbackPrompt;
 
     try {
+      context.onStatus?.("正在等待 AI 回答...");
       const response = await provider.chat({
         model: "",
         messages: [

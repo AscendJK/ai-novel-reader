@@ -1,10 +1,19 @@
 import type { SyncData } from "./types";
 import { db } from "@/db/database";
+import { useAPIStore } from "@/stores/api-store";
 
 /** Gather user data for sync push (no novels/chapters — those are server-side) */
-export async function gatherChanges(): Promise<Partial<SyncData>> {
-  const summaries = await db.summaries.toArray();
-  const notes = await db.notes.toArray();
+export async function gatherChanges(lastSyncTime: number): Promise<Partial<SyncData>> {
+  // Incremental: only send records modified since last sync
+  const allSummaries = await db.summaries.toArray();
+  const summaries = lastSyncTime > 0
+    ? allSummaries.filter((s) => (s.updatedAt || 0) > lastSyncTime)
+    : allSummaries;
+
+  const allNotes = await db.notes.toArray();
+  const notes = lastSyncTime > 0
+    ? allNotes.filter((n) => (n.updatedAt || 0) > lastSyncTime)
+    : allNotes;
 
   // Gather settings (graph, RAG) — never sync API keys
   const settings: Record<string, unknown> = {};
@@ -37,24 +46,24 @@ export async function gatherChanges(): Promise<Partial<SyncData>> {
 
 /** Apply server data to local storage (after sync pull) */
 export async function applyServerData(data: SyncData): Promise<void> {
-  // Summaries
+  // Summaries — conflict resolution by updatedAt
   if (data.summaries?.length) {
     await db.transaction("rw", db.summaries, async () => {
-      for (const s of data.summaries as Array<{ id: string; createdAt?: number }>) {
+      for (const s of data.summaries as Array<{ id: string; updatedAt?: number; createdAt?: number }>) {
         const existing = await db.summaries.get(s.id);
-        if (!existing || (s.createdAt || 0) > (existing.createdAt || 0)) {
+        if (!existing || (s.updatedAt || 0) >= (existing.updatedAt || 0)) {
           await db.summaries.put(s as any);
         }
       }
     });
   }
 
-  // Notes
+  // Notes — conflict resolution by updatedAt
   if (data.notes?.length) {
     await db.transaction("rw", db.notes, async () => {
-      for (const n of data.notes as Array<{ id: string; createdAt?: number }>) {
+      for (const n of data.notes as Array<{ id: string; updatedAt?: number; createdAt?: number }>) {
         const existing = await db.notes.get(n.id);
-        if (!existing || (n.createdAt || 0) > (existing.createdAt || 0)) {
+        if (!existing || (n.updatedAt || 0) >= (existing.updatedAt || 0)) {
           await db.notes.put(n as any);
         }
       }
@@ -70,7 +79,6 @@ export async function applyServerData(data: SyncData): Promise<void> {
     }
     // Reload API store so new providers appear without refresh
     try {
-      const { useAPIStore } = await import("@/stores/api-store");
       await useAPIStore.getState().loadFromDB();
     } catch { /* ok */ }
   }

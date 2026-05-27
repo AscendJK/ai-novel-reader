@@ -110,13 +110,13 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label>API Key</Label>
+          <Label htmlFor="api-key">API Key</Label>
           <Input id="api-key" name="api-key" type="password" placeholder="sk-..." value={formData.apiKey}
             onChange={(e) => setFormData((d) => ({ ...d, apiKey: e.target.value }))} />
         </div>
         {!isCompatProvider && type !== "openai-compat-0" && (
           <div className="space-y-2">
-            <Label>模型</Label>
+            <Label htmlFor="model-fixed">模型</Label>
             <Input id="model-fixed" name="model-fixed" placeholder="输入模型名称..." value={formData.model}
               onChange={(e) => setFormData((d) => ({ ...d, model: e.target.value }))}
               list={`model-suggest-${type}`} />
@@ -128,17 +128,17 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
         {(isCompatProvider || type === "openai-compat-0") && (
           <>
             <div className="space-y-2">
-              <Label>厂商名称（可选）</Label>
+              <Label htmlFor="compat-name">厂商名称（可选）</Label>
               <Input id="compat-name" name="compat-name" placeholder={`OpenAI 格式接口 ${parseInt((editingType || "").replace(COMPAT_PREFIX, ""), 10) + 1}`} value={formData.customName}
                 onChange={(e) => setFormData((d) => ({ ...d, customName: e.target.value }))} />
             </div>
             <div className="space-y-2">
-              <Label>API 地址 (Base URL)</Label>
+              <Label htmlFor="compat-baseurl">API 地址 (Base URL)</Label>
               <Input id="compat-baseurl" name="compat-baseurl" placeholder="https://api.example.com/v1" value={formData.baseUrl}
                 onChange={(e) => setFormData((d) => ({ ...d, baseUrl: e.target.value }))} />
             </div>
             <div className="space-y-2">
-              <Label>模型名称</Label>
+              <Label htmlFor="compat-model">模型名称</Label>
               <Input id="compat-model" name="compat-model" placeholder="gpt-4o / deepseek-chat / ..." value={formData.model}
                 onChange={(e) => setFormData((d) => ({ ...d, model: e.target.value }))} />
             </div>
@@ -194,9 +194,11 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       {onBack && (
-        <Button variant="outline" size="sm" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4 mr-1.5" /> 返回
-        </Button>
+        <div className="sticky top-0 z-10 -mx-6 -mt-6 px-6 py-3 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+          <Button variant="outline" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-1.5" /> 返回
+          </Button>
+        </div>
       )}
       <div>
         <h2 className="text-2xl font-semibold">API 设置</h2>

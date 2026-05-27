@@ -8,7 +8,10 @@ interface SummaryItem {
   content: string;
   tokensUsed: number;
   createdAt: number;
+  updatedAt: number;
   type: "chapter" | "global" | "timeline" | "characters";
+  usedFallback?: boolean;
+  deleted?: number;
 }
 
 interface SummaryState {

@@ -29,8 +29,10 @@ app.use(cors({
   },
   allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "anthropic-version"],
   exposedHeaders: ["Content-Type"],
+  credentials: true,
+  maxAge: 86400,
 }));
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 // ── Rate limiting for expensive endpoints ──
 const rateLimits = new Map(); // ip → { count, resetAt }
@@ -84,6 +86,47 @@ function authNovel(req, res) {
   req._username = username;
   return true;
 }
+
+// ── API Proxy (bypass browser CORS for external APIs) ────────
+
+app.post("/api/proxy/chat", rateLimit(60), async (req, res) => {
+  if (!authNovel(req, res)) return;
+  try {
+    const { url, headers, body } = req.body;
+    if (!url) return res.status(400).json({ error: "url required" });
+
+    // Only allow HTTPS URLs to prevent SSRF
+    if (!url.startsWith("https://")) return res.status(400).json({ error: "only HTTPS URLs allowed" });
+
+    const proxyHeaders = {
+      "Content-Type": "application/json",
+      ...headers,
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min timeout
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: proxyHeaders,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+      const data = await response.text();
+      res.status(response.status).setHeader("Content-Type", "application/json").send(data);
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === "AbortError") return res.status(504).json({ error: "请求超时" });
+      throw err;
+    }
+  } catch (e) {
+    console.error("[proxy] error:", e.message);
+    res.status(502).json({ error: "代理请求失败" });
+  }
+});
 
 // ── Novel Library API ────────────────────────────────────────
 
@@ -230,7 +273,7 @@ app.get("/api/rag/test", rateLimit(5), async (req, res) => {
 
 // ── RAG Index API ──────────────────────────────────────────
 
-import { buildIndex as buildRagIndex, getProgress, getIndexData, getStatuses } from "./rag-builder.js";
+import { buildIndex as buildRagIndex, getProgress, getIndexData, getStatuses, getAllStatuses } from "./rag-builder.js";
 
 // POST /api/rag/encode — encode query text (single small batch, max 20 texts)
 app.post("/api/rag/encode", rateLimit(30), async (req, res) => {
@@ -256,6 +299,15 @@ app.get("/api/rag/statuses", (req, res) => {
     const ids = (req.query.ids || "").split(",").filter(Boolean);
     const engine = req.query.engine || "bge-small-zh";
     res.json(getStatuses(ids, engine));
+  } catch (e) { res.status(500).json({ error: "查询失败" }); }
+});
+
+// GET /api/rag/statuses/all?ids=a,b,c — all engines' statuses
+app.get("/api/rag/statuses/all", (req, res) => {
+  if (!authNovel(req, res)) return;
+  try {
+    const ids = (req.query.ids || "").split(",").filter(Boolean);
+    res.json(getAllStatuses(ids));
   } catch (e) { res.status(500).json({ error: "查询失败" }); }
 });
 
@@ -327,7 +379,9 @@ app.post("/api/sync/register", (req, res) => {
   const clientId = crypto.randomBytes(12).toString("hex");
   const token = createSession(trimmed);
   const activeCount = register(trimmed, clientId, token);
+  const lastSyncAt = Date.now();
   const data = db.gatherSyncData(trimmed);
+  data.lastSyncAt = lastSyncAt;
 
   res.json({ clientId, token, activeCount, data, isNew: !exists });
 });
@@ -344,13 +398,18 @@ app.post("/api/sync/heartbeat", (req, res) => {
 // POST /api/sync/push
 app.post("/api/sync/push", (req, res) => {
   try {
-    const { username, clientId, token, changes } = req.body;
+    const { username, clientId, token, changes, lastSyncTime } = req.body;
     if (!username || !clientId) return res.status(400).json({ error: "username and clientId required" });
     if (token && !validateSession(token)) return res.status(401).json({ error: "session expired" });
     if (!isActive(username, clientId)) return res.status(403).json({ error: "kicked" });
-    if (!changes) return res.json({ merged: false, data: db.gatherSyncData(username) });
+    if (!changes) {
+      const now = Date.now();
+      const data = db.gatherSyncData(username, lastSyncTime || 0);
+      data.lastSyncAt = now;
+      return res.json({ merged: false, data });
+    }
 
-    const merged = mergeAndSave(username, changes);
+    const merged = mergeAndSave(username, changes, lastSyncTime || 0);
     res.json({ merged: !!merged, data: merged });
   } catch (e) {
     console.error("[sync] push error:", e);

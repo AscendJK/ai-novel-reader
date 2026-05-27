@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { loadAllNotes, deleteNote, loadAllNovelMeta, type NoteItem } from "@/db/repositories";
 import type { NovelMeta } from "@/parsers/types";
+import { syncClient } from "@/sync/sync-client";
 
 interface Props {
   onBack: () => void;
@@ -51,8 +52,10 @@ export function GlobalNotes({ onBack }: Props) {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("确定删除这条笔记？")) return;
     await deleteNote(id);
     setNotes((prev) => prev.filter((n) => n.id !== id));
+    syncClient.pushNow();
   };
 
   return (
@@ -125,7 +128,7 @@ export function GlobalNotes({ onBack }: Props) {
                         <span className="text-xs text-muted-foreground">·</span>
                         <span className="text-xs text-muted-foreground truncate">{note.chapterTitle}</span>
                         <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                          {new Date(note.createdAt).toLocaleDateString("zh-CN")}
+                          {new Date(note.updatedAt || note.createdAt).toLocaleString("zh-CN")}
                         </span>
                       </div>
                       <p className={`text-sm whitespace-pre-wrap ${isExpanded ? "" : "line-clamp-2"}`}>

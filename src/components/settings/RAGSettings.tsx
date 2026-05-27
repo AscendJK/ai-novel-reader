@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useRAGStore } from "@/stores/rag-store";
+import { useRAGStore, type TopKTier } from "@/stores/rag-store";
 import { useUIStore } from "@/stores/ui-store";
 import { ENGINES, getEngineDisplayName } from "@/rag/engines";
 import { scanCustomModels, getBuiltinBGEStatus, getBuiltinGTEStatus, DOWNLOADABLE_MODELS } from "@/rag/model-loader";
@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import {
   CheckCircle2, Brain, Check, X, Search, ExternalLink,
-  AlertTriangle, Cpu, Zap, RefreshCw, PackageOpen, Star, FolderOpen,
+  AlertTriangle, Cpu, Zap, RefreshCw, PackageOpen, Star, FolderOpen, RotateCcw,
 } from "lucide-react";
 
 export function RAGSettings() {
-  const { engine, setEngine } = useRAGStore();
+  const { engine, setEngine, topKDefault, topKTiers, setTopKDefault, setTopKTiers, resetTopKConfig, getTopK } = useRAGStore();
   const [isMobile] = useState(() => window.innerWidth < 768);
   const [showHelp, setShowHelp] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -302,6 +303,117 @@ export function RAGSettings() {
               <option key={mb} value={mb}>{mb} MB</option>
             ))}
           </select>
+        </div>
+
+        <Separator className="my-4" />
+
+        {/* TopK configuration */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">RAG 检索数量 (TopK)</p>
+              <p className="text-xs text-muted-foreground">
+                全书分析时检索的相关段落数量，根据书籍大小自动调整
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={resetTopKConfig}>
+              <RotateCcw className="h-3 w-3 mr-1" /> 恢复默认
+            </Button>
+          </div>
+
+          {/* Default topK */}
+          <div className="flex items-center gap-3">
+            <label htmlFor="topk-default" className="text-xs text-muted-foreground shrink-0">默认值</label>
+            <Input
+              id="topk-default" name="topk-default"
+              type="number" min={1} max={200}
+              className="h-7 w-20 text-xs"
+              value={topKDefault}
+              onChange={(e) => setTopKDefault(parseInt(e.target.value) || 30)}
+            />
+          </div>
+
+          {/* Tier table */}
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="text-left px-3 py-1.5 font-medium">Chunk 数量上限</th>
+                  <th className="text-left px-3 py-1.5 font-medium">对应 TopK</th>
+                  <th className="text-left px-3 py-1.5 font-medium">适用场景</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topKTiers.map((tier, i) => {
+                  const label = tier.maxChunks <= 200 ? "短篇"
+                    : tier.maxChunks <= 1000 ? "中篇"
+                    : tier.maxChunks <= 5000 ? "长篇"
+                    : "超长篇";
+                  return (
+                    <tr key={i} className="border-t">
+                      <td className="px-3 py-1.5">
+                        <Input
+                          id={`topk-tier-max-${i}`} name={`topk-tier-max-${i}`}
+                          type="number" min={1}
+                          className="h-6 w-20 text-xs"
+                          value={tier.maxChunks === Infinity ? "" : tier.maxChunks}
+                          placeholder="无上限"
+                          onChange={(e) => {
+                            const val = e.target.value === "" ? Infinity : parseInt(e.target.value) || 1;
+                            const next = [...topKTiers];
+                            next[i] = { ...tier, maxChunks: val };
+                            setTopKTiers(next);
+                          }}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <Input
+                          id={`topk-tier-val-${i}`} name={`topk-tier-val-${i}`}
+                          type="number" min={1} max={200}
+                          className="h-6 w-20 text-xs"
+                          value={tier.topK}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(200, parseInt(e.target.value) || 1));
+                            const next = [...topKTiers];
+                            next[i] = { ...tier, topK: val };
+                            setTopKTiers(next);
+                          }}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{label}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Preview */}
+          <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+            <span className="font-medium text-foreground/70">预览：</span>
+            100 chunks → {getTopK(100)}，
+            500 chunks → {getTopK(500)}，
+            2000 chunks → {getTopK(2000)}，
+            6000 chunks → {getTopK(6000)}
+          </div>
+
+          {/* Recommendations and warnings */}
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground/70">推荐值</p>
+            <p>短篇（10万字以下）：15-20 | 中篇（10-50万字）：25-40 | 长篇（50-200万字）：40-60 | 超长篇（200万字以上）：60-100</p>
+            {topKTiers.some((t) => t.topK > 100) && (
+              <div className="flex items-start gap-1.5 mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-medium">TopK 过大可能导致：</p>
+                  <p>- 超出模型上下文限制，导致请求失败</p>
+                  <p>- AI 回答质量下降（信息过多反而干扰判断）</p>
+                  <p>- API 调用成本增加</p>
+                  <p>建议从默认值开始，根据分析质量逐步调高。</p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {!isMobile && (

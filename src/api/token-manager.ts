@@ -27,14 +27,20 @@ const MODEL_LIMITS: Record<string, TokenBudget> = {
   "gpt-4-turbo": { maxInputTokens: 128000, maxOutputTokens: 4096 },
   "claude-sonnet-4-6": { maxInputTokens: 200000, maxOutputTokens: 8192 },
   "claude-haiku-4-5": { maxInputTokens: 200000, maxOutputTokens: 8192 },
-  "deepseek-chat": { maxInputTokens: 64000, maxOutputTokens: 8192 },
-  "deepseek-reasoner": { maxInputTokens: 64000, maxOutputTokens: 8192 },
+  "deepseek-chat": { maxInputTokens: 128000, maxOutputTokens: 8192 },
+  "deepseek-reasoner": { maxInputTokens: 128000, maxOutputTokens: 8192 },
 };
 
 const DEFAULT_BUDGET: TokenBudget = { maxInputTokens: 64000, maxOutputTokens: 4096 };
 
 export function getTokenBudget(model: string): TokenBudget {
-  return MODEL_LIMITS[model] || DEFAULT_BUDGET;
+  // Exact match first
+  if (MODEL_LIMITS[model]) return MODEL_LIMITS[model];
+  // Prefix match for versioned models (e.g. "gpt-4o-2024-08-06" → "gpt-4o")
+  for (const [key, budget] of Object.entries(MODEL_LIMITS)) {
+    if (model.startsWith(key)) return budget;
+  }
+  return DEFAULT_BUDGET;
 }
 
 export function canFitInContext(text: string, model: string, outputTokens: number): boolean {

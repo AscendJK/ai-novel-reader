@@ -11,9 +11,10 @@ export class SyncClient {
   private clientId: string | null = null;
   private token: string | null = null;
   private activeCount = 0;
+  private lastSyncTime = 0;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private gatherChanges: (() => Promise<Partial<SyncData>>) | null = null;
+  private gatherChanges: ((lastSyncTime: number) => Promise<Partial<SyncData>>) | null = null;
   private applyData: ChangeCallback | null = null;
   private isAiRunning: () => boolean = () => false;
   private onKicked: (() => void) | null = null;
@@ -24,6 +25,7 @@ export class SyncClient {
     this.username = localStorage.getItem("sync-username");
     this.clientId = localStorage.getItem("sync-clientId");
     this.token = localStorage.getItem("sync-token");
+    this.lastSyncTime = parseInt(localStorage.getItem("novel-reader-last-sync-time") || "0", 10) || 0;
     // If we have username/clientId but no token (pre-auth migration), clear stale session
     if ((this.username || this.clientId) && !this.token) {
       this.username = null; this.clientId = null;
@@ -62,9 +64,11 @@ export class SyncClient {
       this.clientId = result.clientId;
       this.token = result.token;
       this.activeCount = result.activeCount;
+      this.lastSyncTime = 0; // full sync on login
       localStorage.setItem("sync-username", username);
       localStorage.setItem("sync-clientId", result.clientId);
       if (result.token) localStorage.setItem("sync-token", result.token);
+      localStorage.setItem("novel-reader-last-sync-time", "0");
 
       return { success: true, isNew: result.isNew, activeCount: result.activeCount };
     } catch (e) {
@@ -74,7 +78,7 @@ export class SyncClient {
   }
 
   start(opts: {
-    gatherChanges: () => Promise<Partial<SyncData>>;
+    gatherChanges: (lastSyncTime: number) => Promise<Partial<SyncData>>;
     applyData: ChangeCallback;
     isAiRunning: () => boolean;
     onKicked: () => void;
@@ -110,9 +114,11 @@ export class SyncClient {
     this.clientId = null;
     this.token = null;
     this.activeCount = 0;
+    this.lastSyncTime = 0;
     localStorage.removeItem("sync-username");
     localStorage.removeItem("sync-clientId");
     localStorage.removeItem("sync-token");
+    localStorage.removeItem("novel-reader-last-sync-time");
   }
 
   // ── Full sync round ──
@@ -128,39 +134,69 @@ export class SyncClient {
     }
     this.syncing = true;
     try {
-      const changes = await this.gatherChanges();
-      console.log("[sync] pushing:", JSON.stringify({ s: changes.summaries?.length, n: changes.notes?.length, se: Object.keys(changes.settings||{}).length, p: Object.keys(changes.progress?.readingPositions||{}).length }));
+      const changes = await this.gatherChanges(this.lastSyncTime);
+      const pushS = changes.summaries?.length || 0;
+      const pushN = changes.notes?.length || 0;
       const resp = await fetch("/api/sync/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes }),
+        body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes, lastSyncTime: this.lastSyncTime }),
       });
-      if (resp.status === 403) {
-        console.warn("[sync] 403 from push, attempting re-register...");
+      if (resp.status === 403 || resp.status === 401) {
+        console.warn(`[sync] ${resp.status} from push, attempting re-register...`);
         const reRegistered = await this.tryReRegister();
         if (reRegistered) {
-          // Retry the push with new credentials
-          const retryResp = await fetch("/api/sync/push", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes }),
-          });
-          if (retryResp.ok) {
-            const r: PushResult = await retryResp.json();
-            if (r.merged && r.data) await this.applyData(r.data);
-            return true;
+          // Retry the push with new credentials (full sync after re-register)
+          console.log("[sync] re-registered, retrying push with new credentials...");
+          try {
+            const retryResp = await fetch("/api/sync/push", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes, lastSyncTime: 0 }),
+            });
+            console.log("[sync] retry response:", retryResp.status);
+            if (retryResp.ok) {
+              const r: PushResult = await retryResp.json();
+              const pullS = r.data?.summaries?.length || 0;
+              const pullN = r.data?.notes?.length || 0;
+              console.log(`[sync] retry ok, pulled: s=${pullS} n=${pullN}`);
+              if (r.data) {
+                await this.applyData(r.data);
+                if (r.data.lastSyncAt) {
+                  this.lastSyncTime = r.data.lastSyncAt;
+                  localStorage.setItem("novel-reader-last-sync-time", String(this.lastSyncTime));
+                }
+              }
+              return true;
+            } else {
+              const errText = await retryResp.text().catch(() => "unknown");
+              console.error("[sync] retry failed:", retryResp.status, errText);
+            }
+          } catch (retryErr) {
+            console.error("[sync] retry error:", retryErr);
           }
+        } else {
+          // Re-register failed — this is a real kick (another device logged in)
+          console.warn("[sync] re-register failed, kicked");
+          this.handleKicked();
         }
-        // Re-register failed — this is a real kick (another device logged in)
-        console.warn("[sync] re-register failed, kicked");
-        this.handleKicked();
         return false;
       }
       if (resp.ok) {
         const r: PushResult = await resp.json();
-        console.log("[sync] pull ok");
-        if (r.merged && r.data) {
+        const pullS = r.data?.summaries?.length || 0;
+        const pullN = r.data?.notes?.length || 0;
+        if (pushS || pushN || pullS || pullN) {
+          console.log(`[sync] push: s=${pushS} n=${pushN} | pull: s=${pullS} n=${pullN}`);
+        }
+        // Always apply server data (even if merged=false, server returns new data for incremental sync)
+        if (r.data) {
           await this.applyData(r.data);
+        }
+        // Update lastSyncTime from server response
+        if (r.data?.lastSyncAt) {
+          this.lastSyncTime = r.data.lastSyncAt;
+          localStorage.setItem("novel-reader-last-sync-time", String(this.lastSyncTime));
         }
         return true;
       } else {
@@ -207,6 +243,19 @@ export class SyncClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token }),
       });
+      if (resp.status === 401 || resp.status === 403) {
+        console.warn(`[sync] heartbeat ${resp.status}, attempting re-register...`);
+        const ok = await this.tryReRegister();
+        if (!ok) {
+          console.warn("[sync] re-register failed, kicking");
+          this.handleKicked();
+        } else {
+          // Re-registered successfully, trigger a full sync
+          console.log("[sync] re-registered from heartbeat, syncing now...");
+          this.syncOnce().catch(() => {});
+        }
+        return;
+      }
       if (resp.ok) {
         const r: HeartbeatResult = await resp.json();
         if (r.activeCount === 0) {
@@ -215,6 +264,9 @@ export class SyncClient {
           if (!ok) {
             console.warn("[sync] re-register failed, kicking");
             this.handleKicked();
+          } else {
+            console.log("[sync] re-registered from heartbeat, syncing now...");
+            this.syncOnce().catch(() => {});
           }
           return;
         }
@@ -237,9 +289,11 @@ export class SyncClient {
     this.clientId = null;
     this.token = null;
     this.activeCount = 0;
+    this.lastSyncTime = 0;
     localStorage.removeItem("sync-username");
     localStorage.removeItem("sync-clientId");
     localStorage.removeItem("sync-token");
+    localStorage.removeItem("novel-reader-last-sync-time");
     if (this.onKicked) this.onKicked();
   }
 }

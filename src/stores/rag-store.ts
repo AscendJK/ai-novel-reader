@@ -29,11 +29,52 @@ function loadCacheSize(): number {
   } catch { return 100; }
 }
 
+export interface TopKTier { maxChunks: number; topK: number; }
+
+const DEFAULT_TOPK_TIERS: TopKTier[] = [
+  { maxChunks: 200, topK: 15 },
+  { maxChunks: 1000, topK: 30 },
+  { maxChunks: 5000, topK: 50 },
+  { maxChunks: Infinity, topK: 80 },
+];
+const DEFAULT_TOPK = 30;
+
+function loadTopKConfig(): { default: number; tiers: TopKTier[] } {
+  try {
+    const stored = localStorage.getItem("novel-reader-topk-config");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (typeof parsed.default === "number" && Array.isArray(parsed.tiers)) {
+        // Convert 0 back to Infinity (0 is the sentinel for "no limit")
+        const tiers = parsed.tiers.map((t: TopKTier) => ({
+          ...t,
+          maxChunks: t.maxChunks === 0 ? Infinity : t.maxChunks,
+        }));
+        return { default: parsed.default, tiers };
+      }
+    }
+  } catch { /* ignore */ }
+  return { default: DEFAULT_TOPK, tiers: DEFAULT_TOPK_TIERS };
+}
+
+function saveTopKConfig(config: { default: number; tiers: TopKTier[] }) {
+  try {
+    // Convert Infinity to 0 for JSON serialization
+    const serializable = {
+      ...config,
+      tiers: config.tiers.map((t) => ({ ...t, maxChunks: t.maxChunks === Infinity ? 0 : t.maxChunks })),
+    };
+    localStorage.setItem("novel-reader-topk-config", JSON.stringify(serializable));
+  } catch { /* ignore */ }
+}
+
 interface RAGState {
   engine: EngineId;
   savedCustomModels: { key: string; name: string; size: string }[];
   cacheSizeMB: number;
   cachedKeys: Set<string>;
+  topKDefault: number;
+  topKTiers: TopKTier[];
   setEngine: (e: EngineId, name?: string, size?: string) => void;
   setSavedCustomModels: (models: { key: string; name: string; size: string }[]) => void;
   removeSavedModel: (key: string) => void;
@@ -41,13 +82,21 @@ interface RAGState {
   addCachedKey: (key: string) => void;
   removeCachedKey: (key: string) => void;
   hasCachedKey: (key: string) => boolean;
+  setTopKDefault: (val: number) => void;
+  setTopKTiers: (tiers: TopKTier[]) => void;
+  resetTopKConfig: () => void;
+  getTopK: (chunkCount: number) => number;
 }
+
+const _topKConfig = loadTopKConfig();
 
 export const useRAGStore = create<RAGState>((set, get) => ({
   engine: loadPref(),
   savedCustomModels: loadSavedModels(),
   cacheSizeMB: loadCacheSize(),
   cachedKeys: new Set<string>(),
+  topKDefault: _topKConfig.default,
+  topKTiers: _topKConfig.tiers,
 
   setEngine: (engine, name, size) => {
     try { localStorage.setItem("novel-reader-rag-engine", engine); } catch { /* ignore */ }
@@ -94,4 +143,30 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   },
 
   hasCachedKey: (key) => get().cachedKeys.has(key),
+
+  setTopKDefault: (val) => {
+    const clamped = Math.max(1, Math.min(200, Math.round(val)));
+    const config = { default: clamped, tiers: get().topKTiers };
+    saveTopKConfig(config);
+    set({ topKDefault: clamped });
+  },
+
+  setTopKTiers: (tiers) => {
+    const config = { default: get().topKDefault, tiers };
+    saveTopKConfig(config);
+    set({ topKTiers: tiers });
+  },
+
+  resetTopKConfig: () => {
+    saveTopKConfig({ default: DEFAULT_TOPK, tiers: DEFAULT_TOPK_TIERS });
+    set({ topKDefault: DEFAULT_TOPK, topKTiers: DEFAULT_TOPK_TIERS });
+  },
+
+  getTopK: (chunkCount) => {
+    const { topKTiers, topKDefault } = get();
+    for (const tier of topKTiers) {
+      if (chunkCount <= tier.maxChunks) return tier.topK;
+    }
+    return topKDefault;
+  },
 }));

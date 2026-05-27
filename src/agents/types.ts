@@ -5,6 +5,8 @@ export interface AgentContext {
   signal?: AbortSignal;
   /** Pre-retrieved relevant text from RAG — if provided, agents skip random sampling */
   preRetrieved?: string;
+  /** Callback to report current status/phase to the UI */
+  onStatus?: (msg: string) => void;
 }
 
 export interface AgentResult {

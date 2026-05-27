@@ -128,11 +128,21 @@ export function AppLayout() {
               readingPositions: { ...s.readingPositions, ...data.progress!.readingPositions },
             }));
           }
-          // Reload summaries if viewing a novel
+          // Reload summaries if viewing a novel (deduplicate by novelId+chapterId+type, keep latest)
           const { currentNovel: cn } = useNovelStore.getState();
           if (cn) {
             const s = await loadSummaries(cn.id);
-            if (s.length > 0) setSummaries(s);
+            if (s.length > 0) {
+              const deduped = new Map<string, typeof s[0]>();
+              for (const item of s) {
+                const key = `${item.novelId}|${item.chapterId}|${item.type}`;
+                const existing = deduped.get(key);
+                if (!existing || (item.createdAt || 0) > (existing.createdAt || 0)) {
+                  deduped.set(key, item);
+                }
+              }
+              setSummaries(Array.from(deduped.values()));
+            }
           }
           syncJoinedNovels();
         },
@@ -140,6 +150,12 @@ export function AppLayout() {
         onKicked: handleKicked,
       });
       setSyncReady(true);
+      // Immediately sync on auto-login (use setTimeout to ensure start() callbacks are fully bound)
+      setTimeout(() => {
+        syncClient.syncOnce().then((ok) => {
+          if (ok) syncJoinedNovels();
+        }).catch(() => {});
+      }, 0);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
