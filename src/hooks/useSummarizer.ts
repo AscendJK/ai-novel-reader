@@ -52,24 +52,34 @@ export function useSummarizer() {
     setCurrentTask("");
   }, []);
 
-  // On opening a novel, eagerly download embedding index if ready on server
+  // On opening a novel, eagerly load embedding index (local cache first, then server)
   useEffect(() => {
     if (!currentNovel) return;
     const engine = useRAGStore.getState().engine;
     if (engine === "tfidf") return;
     setCurrentTask("正在检查索引状态...");
-    fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(async (st) => {
-        if (st.status === "ready") {
-          setCurrentTask("正在加载索引...");
-          await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-          setRagEngineUsed(engine);
-          ragLog("索引已加载到浏览器");
-        }
+    // Try local cache first (works offline)
+    buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg))
+      .then(() => {
+        setRagEngineUsed(engine);
+        ragLog("索引已从本地缓存加载");
         setCurrentTask("");
       })
-      .catch(() => setCurrentTask(""));
+      .catch(() => {
+        // Local cache miss — try server
+        fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() })
+          .then(r => r.json())
+          .then(async (st) => {
+            if (st.status === "ready") {
+              setCurrentTask("正在加载索引...");
+              await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+              setRagEngineUsed(engine);
+              ragLog("索引已从服务器加载");
+            }
+            setCurrentTask("");
+          })
+          .catch(() => setCurrentTask(""));
+      });
   }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create a fresh AbortController, aborting any previous one
@@ -94,26 +104,39 @@ export function useSummarizer() {
       try {
         let engine = prefEngine;
         let degraded = false;
+
+        // Try to load from browser cache first (works offline)
         if (engine !== "tfidf") {
           try {
-            const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
-            const st = await sr.json();
-            if (st.status === "ready") {
-              ragLog("索引就绪, 加载中...");
-              try {
+            await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
+            ragLog("索引从本地缓存加载成功");
+          } catch {
+            // Local cache miss — try server
+            ragLog("本地缓存未命中, 尝试服务器...");
+            try {
+              const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
+              const st = await sr.json();
+              if (st.status === "ready") {
+                ragLog("服务器索引就绪, 下载中...");
                 await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-              } catch { engine = "tfidf"; degraded = true; ragLog("索引加载失败, 降级 TF-IDF"); }
-            } else {
-              ragLog("索引未就绪, 降级为 TF-IDF");
+              } else {
+                ragLog("服务器索引未就绪, 降级为 TF-IDF");
+                engine = "tfidf";
+                degraded = true;
+              }
+            } catch {
+              ragLog("服务器不可达, 降级为 TF-IDF");
               engine = "tfidf";
               degraded = true;
             }
-          } catch { engine = "tfidf"; degraded = true; }
+          }
         }
 
         const degradedLabel = degraded ? " (降级至 TF-IDF)" : "";
         setCurrentTask(`正在启动检索引擎 (${engine})${degradedLabel}...`);
-        await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg + degradedLabel));
+        if (engine === "tfidf") {
+          await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg + degradedLabel));
+        }
         setCurrentTask(`正在检索相关段落${degradedLabel}...`);
         const t0 = performance.now();
         const result = await retrieveRelevantWithDetails(currentNovel.id, query);
