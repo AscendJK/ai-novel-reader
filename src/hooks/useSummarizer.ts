@@ -98,9 +98,10 @@ export function useSummarizer() {
   const [ragEngineUsed, setRagEngineUsed] = useState<string>("");
   const getRelevantText = useCallback(
     async (query: string): Promise<string> => {
-      if (!currentNovel) return "";
+      if (!currentNovel) { ragLog("getRelevantText: currentNovel 为空"); return ""; }
       await new Promise((r) => setTimeout(r, 0));
       const prefEngine = useRAGStore.getState().engine;
+      ragLog(`getRelevantText: prefEngine=${prefEngine}, novelId=${currentNovel.id.slice(0, 8)}`);
       try {
         let engine = prefEngine;
         let degraded = false;
@@ -109,10 +110,9 @@ export function useSummarizer() {
         if (engine !== "tfidf") {
           try {
             await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-            ragLog("索引从本地缓存加载成功");
-          } catch {
-            // Local cache miss — try server
-            ragLog("本地缓存未命中, 尝试服务器...");
+            ragLog(`索引从本地缓存加载成功 (${engine})`);
+          } catch (e1) {
+            ragLog(`本地缓存未命中: ${e1 instanceof Error ? e1.message : e1}, 尝试服务器...`);
             try {
               const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
               const st = await sr.json();
@@ -120,12 +120,12 @@ export function useSummarizer() {
                 ragLog("服务器索引就绪, 下载中...");
                 await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
               } else {
-                ragLog("服务器索引未就绪, 降级为 TF-IDF");
+                ragLog(`服务器索引状态: ${st.status}, 降级为 TF-IDF`);
                 engine = "tfidf";
                 degraded = true;
               }
-            } catch {
-              ragLog("服务器不可达, 降级为 TF-IDF");
+            } catch (e2) {
+              ragLog(`服务器不可达: ${e2 instanceof Error ? e2.message : e2}, 降级为 TF-IDF`);
               engine = "tfidf";
               degraded = true;
             }
@@ -135,6 +135,7 @@ export function useSummarizer() {
         const degradedLabel = degraded ? " (降级至 TF-IDF)" : "";
         setCurrentTask(`正在启动检索引擎 (${engine})${degradedLabel}...`);
         if (engine === "tfidf") {
+          ragLog("构建 TF-IDF 索引...");
           await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg + degradedLabel));
         }
         setCurrentTask(`正在检索相关段落${degradedLabel}...`);
@@ -144,7 +145,8 @@ export function useSummarizer() {
         addDebugEntry({ query, duration: (performance.now() - t0) / 1000, results: result.results, engine: result.engine });
         ragLog(`检索: "${query}" → ${result.results.length}段 ${result.text.length}字 (${result.engine})`);
         return result.text;
-      } catch {
+      } catch (e) {
+        ragLog(`getRelevantText 异常: ${e instanceof Error ? e.message : e}`);
         return "";
       }
     },
@@ -371,6 +373,7 @@ export function useSummarizer() {
       // Use full novel's BGE index, query with range context
       setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
       const combinedText = await getRelevantText(`第${fromChapter}章到第${toChapter}章的核心情节、关键事件、人物变化与剧情发展`);
+      ragLog(`范围总结: combinedText=${combinedText.length}字`);
 
       const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
 
