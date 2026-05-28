@@ -199,9 +199,10 @@ app.post("/api/novels", (req, res) => {
       id: ch.id || `${novelId}-ch${i}`,
     }));
     db.insertChapters(mappedChapters);
+    console.log(`[novel] uploaded: "${novel.title}" (${chapters.length} chapters, ${novel.totalChars || 0} chars) → ${novelId.slice(0, 8)}`);
     res.json({ ok: true, novelId });
   } catch (e) {
-    console.error("upload novel failed:", e);
+    console.error("[novel] upload failed:", e);
     res.status(500).json({ error: "上传失败" });
   }
 });
@@ -213,8 +214,9 @@ app.post("/api/novels/:id/join", (req, res) => {
     const novel = db.getNovel(req.params.id);
     if (!novel) return res.status(404).json({ error: "小说未找到" });
     db.joinNovel(req._username, req.params.id);
+    console.log(`[novel] ${req._username} joined: "${novel.title}" (${req.params.id.slice(0, 8)})`);
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "加入书架失败" }); }
+  } catch (e) { console.error("[novel] join failed:", e); res.status(500).json({ error: "加入书架失败" }); }
 });
 
 // POST /api/novels/:id/leave — user removes novel from bookshelf (keeps novel on server)

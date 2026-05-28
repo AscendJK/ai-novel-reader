@@ -46,7 +46,7 @@ export function useFileParser() {
       setProgress(90);
       await saveNovel(novel);
 
-      // Upload to server + auto-join (fire-and-forget)
+      // Upload to server + auto-join
       fetch(`/api/novels`, {
         method: "POST",
         headers: authHeaders(),
@@ -64,17 +64,22 @@ export function useFileParser() {
           })),
         }),
       }).then(async (r) => {
-        if (!r?.ok) return;
+        if (!r?.ok) {
+          console.error(`[upload] ${novel.title} failed: HTTP ${r?.status}`);
+          return;
+        }
         const data = await r.json();
         const nid = data.novelId;
-        if (!nid) return;
+        if (!nid) { console.error(`[upload] ${novel.title}: no novelId in response`); return; }
 
         // Auto-join
         fetch(`/api/novels/${nid}/join`, {
           method: "POST", headers: authHeaders(),
-        }).catch(() => {});
+        }).then((jr) => {
+          if (!jr?.ok) console.error(`[upload] ${novel.title} join failed: HTTP ${jr?.status}`);
+        }).catch((e) => console.error(`[upload] ${novel.title} join error:`, e));
 
-      }).catch(() => {});
+      }).catch((e) => console.error(`[upload] ${novel.title} error:`, e));
 
       setProgress(100);
       addNovel(novel);
