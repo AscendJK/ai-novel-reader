@@ -99,6 +99,14 @@ export function mountAdminRoutes(app) {
     res.json({ ok: true });
   });
 
+  app.delete("/api/admin/novels/:id/rag/:engine", (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      db.db.prepare("DELETE FROM rag_indices WHERE novel_id = ? AND engine = ?").run(req.params.id, req.params.engine);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: "删除失败" }); }
+  });
+
   // ── Settings ──
 
   app.get("/api/admin/settings", (req, res) => {

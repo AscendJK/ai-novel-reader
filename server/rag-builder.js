@@ -59,8 +59,8 @@ export function buildIndex(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
 
   // Check DB status
-  const existing = db.db.prepare("SELECT status, chunk_count FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
-  if (existing && existing.status === "ready") return { status: "ready", chunkCount: existing.chunk_count };
+  const existing = db.db.prepare("SELECT status, chunk_count, dim FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
+  if (existing && existing.status === "ready") return { status: "ready", chunkCount: existing.chunk_count, dim: existing.dim };
 
   // Don't allow duplicate
   if (buildProgress.has(key)) return { ...buildProgress.get(key), queuePosition: queue.length + (running ? 1 : 0) };
@@ -115,10 +115,10 @@ function processQueue() {
 export function getAllStatuses(novelIds) {
   const result = {};
   for (const nid of novelIds) {
-    const rows = db.db.prepare("SELECT engine, status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ?").all(nid);
+    const rows = db.db.prepare("SELECT engine, status, chunk_count, build_time, error_msg, dim FROM rag_indices WHERE novel_id = ?").all(nid);
     const engines = {};
     for (const r of rows) {
-      engines[r.engine] = { status: r.status, chunkCount: r.chunk_count, buildTime: r.build_time, error: r.error_msg };
+      engines[r.engine] = { status: r.status, chunkCount: r.chunk_count, buildTime: r.build_time, error: r.error_msg, dim: r.dim };
     }
     // Also include in-progress builds from memory
     for (const [key, mem] of buildProgress) {
@@ -146,8 +146,8 @@ export function getStatuses(novelIds, engine = "bge-small-zh") {
       result[nid] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
       continue;
     }
-    const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(nid, engine);
-    result[nid] = dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg } : { status: "none" };
+    const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg, dim FROM rag_indices WHERE novel_id = ? AND engine = ?").get(nid, engine);
+    result[nid] = dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg, dim: dbRow.dim } : { status: "none" };
   }
   return result;
 }
@@ -157,8 +157,8 @@ export function getProgress(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
   const mem = buildProgress.get(key);
   if (mem) return mem;
-  const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
-  return dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg } : { status: "none" };
+  const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg, dim FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
+  return dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg, dim: dbRow.dim } : { status: "none" };
 }
 
 export function getIndexData(novelId, engine = "bge-small-zh") {

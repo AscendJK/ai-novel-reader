@@ -534,6 +534,8 @@ export function BookSelect() {
                         const st = buildStatuses[novel.id] || { status: "none" };
                         const chunkCount = st.chunkCount || 0;
                         const chunkLabel = chunkCount >= 10000 ? `${(chunkCount / 1000).toFixed(1)}k` : `${chunkCount}`;
+                        const vecBytes = chunkCount * (st.dim || 512) * 4;
+                        const sizeLabel = vecBytes >= 1048576 ? `${(vecBytes / 1048576).toFixed(1)}MB` : vecBytes >= 1024 ? `${Math.round(vecBytes / 1024)}KB` : `${vecBytes}B`;
                         const memKey = novel.id + "-" + engine;
                         const cachedInBrowser = cachedKeys.has(memKey);
                         const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
@@ -542,7 +544,7 @@ export function BookSelect() {
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
                               <Badge variant="outline" className={`text-[10px] ${cachedInBrowser ? "text-green-500 border-green-500/30" : "text-yellow-600 border-yellow-500/30"}`}>
                                 {cachedInBrowser ? `${el} 已缓存` : `${el} 就绪`}
-                                {chunkCount > 0 && ` · ${chunkLabel}片段`}
+                                {chunkCount > 0 && ` · ${chunkLabel}片段 · ${sizeLabel}`}
                               </Badge>
                             </div>
                           );
