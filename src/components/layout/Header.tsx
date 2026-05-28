@@ -65,7 +65,7 @@ export function Header({ inBook, bookTitle, onBack, onSettings, onNotes }: Heade
             </Button>
             <span className="hidden md:block w-px h-5 bg-border mx-1" />
             <Book className="h-5 w-5 text-primary shrink-0" />
-            <h1 className="text-sm font-semibold truncate max-w-[150px] md:max-w-[300px]">{bookTitle}</h1>
+            <h1 className="text-sm font-semibold truncate max-w-[150px] md:max-w-[300px]">《{bookTitle}》</h1>
           </>
         ) : (
           <>

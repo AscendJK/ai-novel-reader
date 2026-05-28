@@ -454,7 +454,7 @@ export function BookSelect() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="font-semibold truncate group-hover:text-primary transition-colors pr-6">
-                            {novel.title}
+                            《{novel.title}》
                           </h3>
                           {novel.author && (
                             <p className="text-xs text-muted-foreground">{novel.author}</p>
@@ -581,7 +581,7 @@ export function BookSelect() {
                           <FileText className="h-5 w-5 text-muted-foreground" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h3 className="font-semibold truncate">{novel.title}</h3>
+                          <h3 className="font-semibold truncate">《{novel.title}》</h3>
                           {novel.author && <p className="text-xs text-muted-foreground">{novel.author}</p>}
                         </div>
                       </div>

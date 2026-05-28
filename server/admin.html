@@ -159,7 +159,7 @@ async function loadNovels() {
   const tbody = document.createElement("tbody");
   for (const n of novels) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${h(n.title)}</td><td>${h(n.author||"-")}</td><td><span class="badge">${h((n.fileFormat||"?").toUpperCase())}</span></td><td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td><td>${ragBadges(n)}</td><td>${fmt(n.createdAt)}</td>`;
+    tr.innerHTML = `<td>《${h(n.title)}》</td><td>${h(n.author||"-")}</td><td><span class="badge">${h((n.fileFormat||"?").toUpperCase())}</span></td><td>${n.chapterCount}</td><td>${fmtSize(n.totalChars)}</td><td>${n.joinCount||0}</td><td>${ragBadges(n)}</td><td>${fmt(n.createdAt)}</td>`;
     const td = document.createElement("td");
     const btn = document.createElement("button");
     btn.className = "danger"; btn.textContent = "删除";

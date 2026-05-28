@@ -32,7 +32,7 @@ export function ChapterNav() {
       <div className="flex-1 flex flex-col min-w-0 h-full">
         <div className="p-4 border-b shrink-0 flex items-center min-h-[85px]">
           <div className="min-w-0">
-            <p className="font-medium text-sm truncate">{currentNovel.title}</p>
+            <p className="font-medium text-sm truncate">《{currentNovel.title}》</p>
             <p className="text-xs text-muted-foreground mt-0.5">共 {currentNovel.chapters.length} 章</p>
           </div>
         </div>

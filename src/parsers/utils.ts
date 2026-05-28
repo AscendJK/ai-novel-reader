@@ -18,7 +18,7 @@ export function createNovel(parseResult: import("./types").ParseResult, fileName
   const novelId = uuid();
   return {
     id: novelId,
-    title: parseResult.title || fileName.replace(/\.[^.]+$/, ""),
+    title: fileName.replace(/\.[^.]+$/, "").replace(/^《/, "").replace(/》$/, ""),
     author: parseResult.author,
     fileName,
     fileFormat,
