@@ -77,11 +77,11 @@ export function mountAdminRoutes(app) {
       ORDER BY n.updated_at DESC
     `).all();
     // Fetch all rag indices grouped by novel
-    const allIndices = db.db.prepare(`SELECT novel_id, engine, status, chunk_count, build_time FROM rag_indices WHERE engine != 'tfidf'`).all();
+    const allIndices = db.db.prepare(`SELECT novel_id, engine, status, chunk_count, build_time, dim FROM rag_indices WHERE engine != 'tfidf'`).all();
     const indexMap = new Map();
     for (const ri of allIndices) {
       if (!indexMap.has(ri.novel_id)) indexMap.set(ri.novel_id, []);
-      indexMap.get(ri.novel_id).push({ engine: ri.engine, status: ri.status, chunkCount: ri.chunk_count, buildTime: ri.build_time });
+      indexMap.get(ri.novel_id).push({ engine: ri.engine, status: ri.status, chunkCount: ri.chunk_count, buildTime: ri.build_time, dim: ri.dim });
     }
     res.json(novels.map(n => ({
       id: n.id, title: n.title, author: n.author,
