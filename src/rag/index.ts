@@ -38,7 +38,8 @@ export async function buildIndex(
   novelId: string,
   chapters: { title: string; content: string }[],
   engine: EngineId = "tfidf",
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  options?: { cacheOnly?: boolean }
 ): Promise<Retriever | EmbeddingRetriever> {
   const existing = indexCache.get(novelId);
   if (existing && existing.engine === engine) {
@@ -90,6 +91,8 @@ export async function buildIndex(
         return emb;
       }
     } catch { /* cache miss */ }
+
+    if (options?.cacheOnly) throw new Error("索引未缓存，需要先构建");
 
     onProgress?.("正在加载嵌入模型...");
     ragLog(`加载嵌入模型: ${engine}...`);

@@ -9,12 +9,10 @@ import { getProvider } from "@/api/registry";
 import { saveSummary } from "@/db/repositories";
 import { db } from "@/db/database";
 import { APIError } from "@/api/error-handler";
-import { buildIndex, retrieveRelevant, retrieveRelevantWithDetails } from "@/rag/index";
+import { buildIndex, retrieveRelevantWithDetails } from "@/rag/index";
 import { useRAGStore } from "@/stores/rag-store";
 import { syncClient } from "@/sync/sync-client";
 import { addDebugEntry, ragLog } from "@/components/common/DebugPanel";
-import { useBuildStore } from "@/stores/build-store";
-import { authHeaders } from "@/lib/auth-headers";
 import { setAiRunning } from "@/lib/ai-state";
 
 export interface GraphData {
@@ -52,35 +50,8 @@ export function useSummarizer() {
     setCurrentTask("");
   }, []);
 
-  // On opening a novel, eagerly load embedding index (local cache first, then server)
-  useEffect(() => {
-    if (!currentNovel) return;
-    const engine = useRAGStore.getState().engine;
-    if (engine === "tfidf") return;
-    setCurrentTask("正在检查索引状态...");
-    // Try local cache first (works offline)
-    buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg))
-      .then(() => {
-        setRagEngineUsed(engine);
-        ragLog("索引已从本地缓存加载");
-        setCurrentTask("");
-      })
-      .catch(() => {
-        // Local cache miss — try server
-        fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() })
-          .then(r => r.json())
-          .then(async (st) => {
-            if (st.status === "ready") {
-              setCurrentTask("正在加载索引...");
-              await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-              setRagEngineUsed(engine);
-              ragLog("索引已从服务器加载");
-            }
-            setCurrentTask("");
-          })
-          .catch(() => setCurrentTask(""));
-      });
-  }, [currentNovel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Index is loaded on-demand via getRelevantText (only from cache).
+  // Explicit build is triggered by the build button in BookSelect.
 
   // Create a fresh AbortController, aborting any previous one
   const createSignal = useCallback(() => {
@@ -106,29 +77,15 @@ export function useSummarizer() {
         let engine = prefEngine;
         let degraded = false;
 
-        // Try to load from browser cache first (works offline)
+        // Only load from cache (memory + IndexedDB). Never trigger a fresh build.
         if (engine !== "tfidf") {
           try {
-            await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-            ragLog(`索引从本地缓存加载成功 (${engine})`);
-          } catch (e1) {
-            ragLog(`本地缓存未命中: ${e1 instanceof Error ? e1.message : e1}, 尝试服务器...`);
-            try {
-              const sr = await fetch(`/api/rag/${currentNovel.id}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
-              const st = await sr.json();
-              if (st.status === "ready") {
-                ragLog("服务器索引就绪, 下载中...");
-                await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg));
-              } else {
-                ragLog(`服务器索引状态: ${st.status}, 降级为 TF-IDF`);
-                engine = "tfidf";
-                degraded = true;
-              }
-            } catch (e2) {
-              ragLog(`服务器不可达: ${e2 instanceof Error ? e2.message : e2}, 降级为 TF-IDF`);
-              engine = "tfidf";
-              degraded = true;
-            }
+            await buildIndex(currentNovel.id, currentNovel.chapters, engine, (msg) => setCurrentTask(msg), { cacheOnly: true });
+            ragLog(`索引从缓存加载成功 (${engine})`);
+          } catch {
+            ragLog(`索引未缓存 (${engine}), 降级为 TF-IDF`);
+            engine = "tfidf";
+            degraded = true;
           }
         }
 
