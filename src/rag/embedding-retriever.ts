@@ -18,6 +18,31 @@ let cacheTotalSize = 0;
 const evictListeners: Set<(key: string) => void> = new Set();
 export function onLRUEvict(fn: (key: string) => void) { evictListeners.add(fn); return () => evictListeners.delete(fn); }
 
+/** Add an entry to the LRU memory cache and evict if over limit */
+export function lruAdd(key: string, vectors: Float32Array[], chunks: Chunk[], dim: number) {
+  const size = vectors.length * dim * 4;
+  // Remove old entry if exists
+  const old = LRU_CACHE.get(key);
+  if (old) cacheTotalSize -= old.size;
+  LRU_CACHE.set(key, { vectors, chunks, dim, size });
+  cacheTotalSize += size;
+  evictLRU();
+}
+
+/** Remove a specific entry from LRU cache */
+export function lruDelete(key: string) {
+  const entry = LRU_CACHE.get(key);
+  if (entry) {
+    cacheTotalSize -= entry.size;
+    LRU_CACHE.delete(key);
+  }
+}
+
+/** Check if key exists in LRU cache */
+export function lruHas(key: string): boolean {
+  return LRU_CACHE.has(key);
+}
+
 function getMaxCacheMB() {
   try { return useRAGStore.getState().cacheSizeMB || 100; } catch { return 100; }
 }
@@ -91,10 +116,7 @@ export class EmbeddingRetriever {
         this.chunks = data.chunks;
         this.dim = data.dim;
         useRAGStore.getState().addCachedKey(memCacheKey);
-        const size = this.vectors.length * this.dim * 4;
-        LRU_CACHE.set(memCacheKey, { vectors: this.vectors, chunks: this.chunks, dim: this.dim, size });
-        cacheTotalSize += size;
-        evictLRU();
+        lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
         onProgress?.({ phase: "done" });
         return;
       }
@@ -202,13 +224,9 @@ export class EmbeddingRetriever {
     }
     this.vectors = vectors;
 
-    const size = vectors.length * data.dim * 4;
-    ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(size / 1024 / 1024).toFixed(1)}MB`);
+    ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(vectors.length * data.dim * 4 / 1024 / 1024).toFixed(1)}MB`);
     useRAGStore.getState().addCachedKey(memCacheKey);
-
-    LRU_CACHE.set(memCacheKey, { vectors, chunks: data.chunks, dim: data.dim, size });
-    cacheTotalSize += size;
-    evictLRU();
+    lruAdd(memCacheKey, vectors, this.chunks, data.dim);
 
     try {
       await db.ragCache.put({

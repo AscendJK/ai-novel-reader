@@ -1,5 +1,5 @@
 import { Retriever, type Chunk } from "./retriever";
-import { EmbeddingRetriever, onLRUEvict, type EmbeddingProgress } from "./embedding-retriever";
+import { EmbeddingRetriever, onLRUEvict, lruAdd, lruDelete, lruHas, type EmbeddingProgress } from "./embedding-retriever";
 import type { EngineId } from "./engines";
 import { isEmbeddingEngine } from "./engines";
 import { ragLog } from "@/components/common/DebugPanel";
@@ -86,13 +86,15 @@ export async function buildIndex(
         ragLog(`从缓存加载索引: ${cached.vectors.length}片段 · ${cached.dim}维`);
         const emb = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, engine);
         useRAGStore.getState().addCachedKey(cacheKey);
+        lruAdd(cacheKey, emb.toData().vectors.map(v => new Float32Array(v)), cached.chunks, cached.dim);
+        buildingNow.delete(buildKey);
         const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), embedding: emb, chunks, buildTime: Date.now() - t0 };
         indexCache.set(novelId, entry);
         return emb;
       }
     } catch { /* cache miss */ }
 
-    if (options?.cacheOnly) throw new Error("索引未缓存，需要先构建");
+    if (options?.cacheOnly) { buildingNow.delete(buildKey); throw new Error("索引未缓存，需要先构建"); }
 
     onProgress?.("正在加载嵌入模型...");
     ragLog(`加载嵌入模型: ${engine}...`);
@@ -145,10 +147,18 @@ export { getEmbeddingMeta as getBGEMeta };
 
 export function clearCache(novelId?: string) {
   if (novelId) {
-    indexCache.get(novelId)?.embedding?.dispose();
-    indexCache.delete(novelId);
+    const entry = indexCache.get(novelId);
+    if (entry) {
+      entry.embedding?.dispose();
+      const key = `${novelId}-${entry.engine}`;
+      lruDelete(key);
+      indexCache.delete(novelId);
+    }
   } else {
-    for (const entry of indexCache.values()) entry.embedding?.dispose();
+    for (const entry of indexCache.values()) {
+      entry.embedding?.dispose();
+      lruDelete(`${entry.novelId}-${entry.engine}`);
+    }
     indexCache.clear();
   }
 }
