@@ -17,7 +17,7 @@ import { setupLocalModelLoader } from "@/rag/model-loader";
 setupLocalModelLoader();
 import { useUIStore } from "@/stores/ui-store";
 import { useNovelStore } from "@/stores/novel-store";
-import { loadAllNovels, loadSummaries } from "@/db/repositories";
+import { loadAllNovels, loadSummaries, deleteNovel } from "@/db/repositories";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useAPIStore } from "@/stores/api-store";
 import { db } from "@/db/database";
@@ -284,7 +284,7 @@ export function AppLayout() {
       for (const local of localNovels) {
         if (serverNovelIds.has(local.id)) continue;
         if (local.id === currentNovelId) continue; // don't remove while user is reading
-        await db.deleteNovel(local.id).catch(() => {});
+        await deleteNovel(local.id).catch(() => {});
         useNovelStore.getState().removeNovel(local.id);
       }
 

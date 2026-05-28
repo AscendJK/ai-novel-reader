@@ -32,7 +32,7 @@ app.use(cors({
   credentials: true,
   maxAge: 86400,
 }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
 
 // ── Rate limiting for expensive endpoints ──
 const rateLimits = new Map(); // ip → { count, resetAt }
