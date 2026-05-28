@@ -29,9 +29,11 @@ fi
 
 # Install deps if needed
 if [ ! -d "node_modules" ]; then
-  echo "First run: installing dependencies..."
   echo ""
-  if ! npm install; then
+  echo "First run: installing dependencies..."
+  echo "This may take 1-2 minutes, please wait..."
+  echo ""
+  if ! npm install --loglevel info; then
     echo ""
     echo "[ERROR] Failed to install dependencies."
     echo ""
@@ -40,6 +42,8 @@ if [ ! -d "node_modules" ]; then
     echo ""
     exit 1
   fi
+  echo ""
+  echo "Dependencies installed successfully!"
   echo ""
 fi
 

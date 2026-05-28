@@ -36,8 +36,11 @@ if %NODE_VER% GEQ 24 (
 
 REM Install dependencies if needed
 if not exist "node_modules\" (
+    echo.
     echo First run: installing dependencies...
-    call npm install
+    echo This may take 1-2 minutes, please wait...
+    echo.
+    call npm install --loglevel info
     if %errorlevel% neq 0 (
         echo.
         echo [ERROR] Failed to install dependencies.
@@ -48,6 +51,8 @@ if not exist "node_modules\" (
         pause
         exit /b 1
     )
+    echo.
+    echo Dependencies installed successfully!
     echo.
 )
 
