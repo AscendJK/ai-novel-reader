@@ -132,6 +132,22 @@ export function BookSelect() {
         if (st.status === "ready") {
           bs.finish(); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
           setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st }));
+          // Download built index into browser cache
+          try {
+            const ir = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
+            if (ir.ok) {
+              const data = await ir.json();
+              const raw = Uint8Array.from(atob(data.vectorsBase64), c => c.charCodeAt(0));
+              const floats = new Float32Array(raw.buffer);
+              const vecs: number[][] = [];
+              for (let i = 0; i < data.chunkCount; i++) {
+                vecs.push(Array.from(floats.slice(i * data.dim, (i + 1) * data.dim)));
+              }
+              const cacheKey = `${novelId}-${engine}`;
+              await db.ragCache.put({ novelId: cacheKey, engine, vectors: vecs, chunks: data.chunks, dim: data.dim, createdAt: Date.now() });
+              addCachedKey(cacheKey);
+            }
+          } catch { /* cache download failed, non-critical */ }
         } else if (st.status === "error") {
           bs.fail(st.error || "失败"); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
           setBuildingId(null);
