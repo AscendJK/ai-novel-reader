@@ -571,25 +571,20 @@ export function BookSelect() {
 
         {/* Server novel library */}
         <div className="space-y-4 mt-8">
-          {!serverScanned && (
-            <div className="text-center py-6">
-              <Button variant="outline" onClick={scanServer} disabled={scanning}>
-                <Search className="h-4 w-4 mr-2" />
-                {scanning ? "扫描中..." : "扫描书库"}
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
+              <FolderOpen className="h-5 w-5" />书库
+            </h2>
+            <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>
+              <Search className="h-4 w-4 mr-2" />
+              {scanning ? "扫描中..." : serverScanned ? "重新扫描" : "扫描书库"}
+            </Button>
+          </div>
           {serverScanned && serverNovels.length === 0 && (
-            <div className="text-center py-4">
-              <p className="text-sm text-muted-foreground mb-3">扫描完成，书库为空</p>
-              <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>重新扫描</Button>
-            </div>
+            <p className="text-sm text-muted-foreground text-center py-4">书库为空</p>
           )}
           {serverScanned && serverNovels.length > 0 && (
             <>
-              <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
-                <FolderOpen className="h-5 w-5" />书库
-              </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {serverNovels.map((novel: any) => (
                   <Card key={novel.id} className="transition-all hover:shadow-md">
