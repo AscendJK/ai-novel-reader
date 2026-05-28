@@ -207,7 +207,25 @@ export function BookSelect() {
         return;
       }
       setError(null);
+
+      // Check for duplicate filenames against existing novels
+      const existingMeta = await loadAllNovelMeta();
+      const existingNames = new Set(existingMeta.map((n) => n.fileName));
+      const skipped: string[] = [];
+      const toProcess: File[] = [];
       for (const file of valid) {
+        if (existingNames.has(file.name)) {
+          skipped.push(file.name);
+        } else {
+          toProcess.push(file);
+        }
+      }
+      if (skipped.length > 0) {
+        setError(`已跳过 ${skipped.length} 本重复小说：${skipped.join("、")}`);
+      }
+      if (toProcess.length === 0) return;
+
+      for (const file of toProcess) {
         const novel = await parseFile(file);
         if (novel) {
           const meta: NovelMeta = {
