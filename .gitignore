@@ -58,3 +58,6 @@ server/server.log
 server/data/.admin_token
 DEVELOPER_MANUAL.md
 REFACTORING_PLAN.md
+
+# Claude Code memory file
+CLAUDE.md
