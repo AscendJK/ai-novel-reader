@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ChapterNav } from "./ChapterNav";
 import { ChapterContent } from "./ChapterContent";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
+import { LocalErrorBoundary } from "@/components/common/LocalErrorBoundary";
 import { PanelRightOpen, PanelRightClose, List, FileText, BookOpen, MessageSquare, StickyNote, X } from "lucide-react";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useNovelStore } from "@/stores/novel-store";
@@ -90,7 +91,9 @@ export function ReadingPanel() {
               className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0">
               <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
             </button>
-            <SummaryPanel />
+            <LocalErrorBoundary name="SummaryPanel">
+              <SummaryPanel />
+            </LocalErrorBoundary>
           </div>
         )}
       </div>

@@ -444,3 +444,16 @@ function cleanOldBackups() {
     }
   }
 }
+
+// ── Garbage collection for soft-deleted records ──
+
+const GC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export function cleanupDeletedRecords() {
+  const cutoff = Date.now() - GC_MAX_AGE_MS;
+  const s = db.prepare("DELETE FROM summaries WHERE deleted > 0 AND updated_at < ?").run(cutoff);
+  const n = db.prepare("DELETE FROM notes WHERE deleted > 0 AND updated_at < ?").run(cutoff);
+  if (s.changes || n.changes) {
+    console.log(`[gc] cleaned ${s.changes} summaries, ${n.changes} notes (deleted > 30 days ago)`);
+  }
+}

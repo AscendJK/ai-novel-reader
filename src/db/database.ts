@@ -1,5 +1,7 @@
 import Dexie, { type Table } from "dexie";
 
+// ── Record interfaces ──
+
 export interface NovelRecord {
   id: string;
   title: string;
@@ -54,65 +56,104 @@ export interface NoteRecord {
 }
 
 export interface RAGCacheRecord {
-  novelId: string;
+  id: string;           // composite key: "${novelId}-${engine}"
+  novelId: string;      // raw novel UUID
   engine: string;
   vectors: number[][];  // serialized Float32Array as nested number arrays
   chunks: { id: string; content: string }[];
   dim: number;
   createdAt: number;
+  lastAccessed?: number;  // 最后访问时间（用于智能淘汰）
+  accessCount?: number;   // 访问次数（用于智能淘汰）
 }
 
-class NovelDB extends Dexie {
-  novels!: Table<NovelRecord, string>;
-  chapters!: Table<ChapterRecord, string>;
-  summaries!: Table<SummaryRecord, string>;
+// ── Shared database (settings + ragCache, not per-user) ──
+
+class SharedDB extends Dexie {
   settings!: Table<SettingsRecord, string>;
-  notes!: Table<NoteRecord, string>;
   ragCache!: Table<RAGCacheRecord, string>;
 
   constructor() {
-    super("ai-novel-reader");
-    this.version(3).stores({
-      novels: "id, createdAt",
-      chapters: "id, novelId, index",
-      summaries: "id, novelId, chapterId, type",
+    super("ai-novel-reader-shared");
+    this.version(1).stores({
       settings: "key",
-      notes: "id, novelId, chapterId, source, createdAt",
-      ragCache: "novelId",
+      ragCache: "id, novelId, engine, createdAt",
     });
-    this.version(4).stores({
-      novels: "id, createdAt",
-      chapters: "id, novelId, index",
-      summaries: "id, novelId, chapterId, type, [novelId+chapterId+type]",
+    // 添加 lastAccessed 和 accessCount 索引
+    this.version(2).stores({
       settings: "key",
-      notes: "id, novelId, chapterId, source, createdAt",
-      ragCache: "novelId",
-    });
-    this.version(5).stores({
-      novels: "id, createdAt",
-      chapters: "id, novelId, index",
-      summaries: "id, novelId, chapterId, type, updatedAt, [novelId+chapterId+type]",
-      settings: "key",
-      notes: "id, novelId, chapterId, source, createdAt, updatedAt",
-      ragCache: "novelId",
-    });
-    this.version(6).stores({
-      novels: "id, createdAt",
-      chapters: "id, novelId, index",
-      summaries: "id, novelId, chapterId, type, updatedAt, [novelId+chapterId+type]",
-      settings: "key",
-      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
-      ragCache: "novelId",
-    });
-    this.version(7).stores({
-      novels: "id, createdAt",
-      chapters: "id, novelId, index",
-      summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type]",
-      settings: "key",
-      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
-      ragCache: "novelId",
+      ragCache: "id, novelId, engine, createdAt, lastAccessed, accessCount",
     });
   }
 }
 
-export const db = new NovelDB();
+// ── User database (novels, chapters, summaries, notes, per-user) ──
+
+class UserDB extends Dexie {
+  novels!: Table<NovelRecord, string>;
+  chapters!: Table<ChapterRecord, string>;
+  summaries!: Table<SummaryRecord, string>;
+  notes!: Table<NoteRecord, string>;
+
+  constructor(username: string) {
+    super(`ai-novel-reader-${username}`);
+    this.version(1).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type]",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
+    });
+    // 添加复合索引以优化查询性能
+    this.version(2).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type], [novelId+type]",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
+    });
+  }
+}
+
+// ── Exports ──
+
+/** Shared database — settings and ragCache, always available */
+export const sharedDB = new SharedDB();
+
+/** Current user's database — set via setCurrentUser() after login */
+let _userDB: UserDB | null = null;
+
+/** Switch to a user's database */
+export function setCurrentUser(username: string) {
+  const oldDB = _userDB;
+  // 创建新数据库实例
+  _userDB = new UserDB(username);
+  // 关闭旧数据库（在新数据库准备好之后）
+  if (oldDB) {
+    try {
+      oldDB.close();
+    } catch { /* ignore close errors */ }
+  }
+}
+
+/** Get the current user's database. Auto-initializes from localStorage if needed. */
+export function getUserDB(): UserDB {
+  if (!_userDB) {
+    const username = localStorage.getItem("sync-username");
+    if (username) {
+      setCurrentUser(username);
+    } else {
+      throw new Error("未登录，无法访问用户数据库");
+    }
+  }
+  return _userDB!;
+}
+
+/** Delete a user's entire database */
+export async function deleteUserDB(username: string) {
+  const dbName = `ai-novel-reader-${username}`;
+  // Close the connection if this is the current user's database
+  if (_userDB && _userDB.name === dbName) {
+    _userDB.close();
+    _userDB = null;
+  }
+  await Dexie.delete(dbName);
+}

@@ -1,15 +1,15 @@
 import { create } from "zustand";
-import type { ProviderConfig, ProviderType } from "@/api/types";
-import { db } from "@/db/database";
+import type { ProviderConfig } from "@/api/types";
+import { sharedDB as db } from "@/db/database";
 
 interface APIState {
   providers: ProviderConfig[];
   activeProviderId: string | null;
   loaded: boolean;
   addProvider: (config: ProviderConfig) => void;
-  removeProvider: (type: ProviderType) => void;
-  updateProvider: (type: ProviderType, config: Partial<ProviderConfig>) => void;
-  setActiveProvider: (type: ProviderType | null) => void;
+  removeProvider: (id: string) => void;
+  updateProvider: (id: string, config: Partial<ProviderConfig>) => void;
+  setActiveProvider: (id: string | null) => void;
   getActiveProvider: () => ProviderConfig | undefined;
   loadFromDB: () => Promise<void>;
 }
@@ -62,38 +62,38 @@ export const useAPIStore = create<APIState>((set, get) => ({
 
   addProvider: (config) =>
     set((s) => {
-      const filtered = s.providers.filter((p) => p.type !== config.type);
+      // Replace if same id exists, otherwise append
+      const filtered = s.providers.filter((p) => p.id !== config.id);
       const providers = [...filtered, config];
-      // Only auto-switch if this is the first provider added
-      const activeId = s.providers.length === 0 ? config.type : s.activeProviderId;
+      const activeId = s.activeProviderId || config.id;
       persist(providers, activeId);
       return { providers, activeProviderId: activeId };
     }),
 
-  removeProvider: (type) =>
+  removeProvider: (id) =>
     set((s) => {
-      const providers = s.providers.filter((p) => p.type !== type);
-      const activeId = s.activeProviderId === type ? null : s.activeProviderId;
+      const providers = s.providers.filter((p) => p.id !== id);
+      const activeId = s.activeProviderId === id ? (providers[0]?.id || null) : s.activeProviderId;
       persist(providers, activeId);
       return { providers, activeProviderId: activeId };
     }),
 
-  updateProvider: (type, config) =>
+  updateProvider: (id, config) =>
     set((s) => {
-      const providers = s.providers.map((p) => (p.type === type ? { ...p, ...config } : p));
+      const providers = s.providers.map((p) => (p.id === id ? { ...p, ...config } : p));
       persist(providers, s.activeProviderId);
       return { providers };
     }),
 
-  setActiveProvider: (type) => {
+  setActiveProvider: (id) => {
     const { providers } = get();
-    if (type && !providers.some((p) => p.type === type)) return;
-    persist(providers, type);
-    set({ activeProviderId: type });
+    if (id && !providers.some((p) => p.id === id)) return;
+    persist(providers, id);
+    set({ activeProviderId: id });
   },
 
   getActiveProvider: () => {
     const { providers, activeProviderId } = get();
-    return providers.find((p) => p.type === activeProviderId);
+    return providers.find((p) => p.id === activeProviderId);
   },
 }));

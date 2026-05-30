@@ -3,8 +3,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useAPIStore } from "@/stores/api-store";
-import type { ProviderType } from "@/api/types";
-import { COMPAT_PREFIX } from "@/api/types";
+import { Badge } from "@/components/ui/badge";
 
 export function ProviderSelect() {
   const { providers, activeProviderId, setActiveProvider } = useAPIStore();
@@ -15,24 +14,23 @@ export function ProviderSelect() {
     <Label htmlFor="active-provider">API 提供商</Label>
     <Select
       value={activeProviderId || undefined}
-      onValueChange={(v) => setActiveProvider(v as ProviderType)}
+      onValueChange={(v) => setActiveProvider(v)}
     >
       <SelectTrigger id="active-provider" name="active-provider" className="w-full">
         <SelectValue placeholder="选择 API 提供商" />
       </SelectTrigger>
       <SelectContent>
-        {configured.map((p) => {
-          const isCompat = p.type.startsWith(COMPAT_PREFIX);
-          const label = isCompat ? (p.name || `OpenAI 格式接口 ${parseInt(p.type.replace(COMPAT_PREFIX, ""), 10) + 1}`) : p.name;
-          return (
-            <SelectItem key={p.type} value={p.type}>
-              <div className="flex items-center gap-2">
-                <span>{label}</span>
-                <span className="text-xs text-muted-foreground">({p.model})</span>
-              </div>
-            </SelectItem>
-          );
-        })}
+        {configured.map((p) => (
+          <SelectItem key={p.id} value={p.id}>
+            <div className="flex items-center gap-2">
+              <span>{p.name || "未命名"}</span>
+              <Badge variant="outline" className="text-[10px]">
+                {p.format === "anthropic" ? "Anthropic" : "OpenAI"}
+              </Badge>
+              <span className="text-xs text-muted-foreground">({p.model})</span>
+            </div>
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
     </div>

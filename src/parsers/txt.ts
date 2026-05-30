@@ -1,14 +1,6 @@
 import type { ParseResult, ParserOptions } from "./types";
 import { detectChapters, splitByChapters } from "./chapter-detector";
 
-const ENCODING_MARKERS: Record<string, string> = {
-  "utf-8": "UTF-8",
-  gb2312: "GBK",
-  gbk: "GBK",
-  gb18030: "GBK",
-  big5: "Big5",
-};
-
 function detectEncoding(bytes: Uint8Array): string {
   // BOM detection
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "UTF-8";

@@ -3,6 +3,7 @@ import { useNovelStore } from "@/stores/novel-store";
 import { useRAGStore } from "@/stores/rag-store";
 import { getEngineDisplayName } from "@/rag/engines";
 import { getBGEMeta } from "@/rag/index";
+import { onRagLog } from "@/lib/logger";
 
 export interface DebugEntry {
   id: number;
@@ -19,16 +20,10 @@ const entries: DebugEntry[] = [];
 const logLines: string[] = [];
 
 function log(msg: string) {
-  const ts = new Date().toLocaleTimeString();
-  logLines.push(`[${ts}] ${msg}`);
+  // 已经是格式化的消息，直接使用
+  logLines.push(msg);
   if (logLines.length > 500) logLines.shift();
   listeners.forEach((fn) => fn());
-}
-
-export function ragLog(msg: string) {
-  // Only accumulate logs when debug panel is visible
-  if (listeners.size === 0) return;
-  log(msg);
 }
 
 export function addDebugEntry(e: Omit<DebugEntry, "id" | "time">) {
@@ -36,7 +31,8 @@ export function addDebugEntry(e: Omit<DebugEntry, "id" | "time">) {
   if (listeners.size === 0) return;
   entries.unshift({ ...e, id: ++entryId, time: Date.now() });
   if (entries.length > 10) entries.pop();
-  log(`检索: ${e.query.slice(0, 60)} → ${e.results.length}条 · ${e.engine} · ${e.duration?.toFixed(2) || "?"}s`);
+  const ts = new Date().toLocaleTimeString();
+  log(`[${ts}] 检索: ${e.query.slice(0, 60)} → ${e.results.length}条 · ${e.engine} · ${e.duration?.toFixed(2) || "?"}s`);
   listeners.forEach((fn) => fn());
 }
 
@@ -60,6 +56,14 @@ export function DebugPanel() {
   const resizing = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
 
+  // 监听 ragLog 消息
+  useEffect(() => {
+    const unsubscribe = onRagLog((message) => {
+      log(message);
+    });
+    return unsubscribe;
+  }, []);
+
   useEffect(() => {
     const fn = () => setTick((n) => n + 1);
     listeners.add(fn);
@@ -72,15 +76,16 @@ export function DebugPanel() {
 
   // Log status changes
   useEffect(() => {
-    log(`引擎切换: ${ragEngine}`);
+    const ts = new Date().toLocaleTimeString();
+    log(`[${ts}] 引擎切换: ${ragEngine}`);
   }, [ragEngine]);
 
   useEffect(() => {
     if (currentNovel) {
       log(`打开小说: 《${currentNovel.title}》 (${currentNovel.chapterCount}章)`);
-      const meta = getBGEMeta(currentNovel.id);
+      const meta = getBGEMeta(currentNovel.id, ragEngine);
       if (meta) {
-        log(`BGE 索引: ${meta.chunkCount}片段 · ${meta.dim}维 · ${meta.buildTime ? (meta.buildTime/1000).toFixed(1)+'s' : '已缓存'}`);
+        log(`索引: ${meta.chunkCount}片段 · ${meta.dim}维 · ${meta.buildTime ? (meta.buildTime/1000).toFixed(1)+'s' : '已缓存'}`);
       } else {
         log(`索引: 尚未构建 (当前引擎: ${ragEngine})`);
       }
@@ -119,7 +124,7 @@ export function DebugPanel() {
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
-  const meta = currentNovel ? getBGEMeta(currentNovel.id) : null;
+  const meta = currentNovel ? getBGEMeta(currentNovel.id, ragEngine) : null;
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 

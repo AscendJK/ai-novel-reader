@@ -131,19 +131,33 @@ async function loadOverview() {
 }
 
 // Users
+function fmtLastSeen(ts) {
+  if (!ts) return "-";
+  const d = new Date(ts);
+  const now = Date.now();
+  const diff = now - ts;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+  return d.toLocaleDateString("zh-CN") + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
 async function loadUsers() {
   const users = await get("/users");
   const tbody = document.createElement("tbody");
   for (const u of users) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${h(u.username)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>`;
+    const statusDot = u.online
+      ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4a4;margin-right:6px"></span>在线'
+      : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px"></span>离线';
+    tr.innerHTML = `<td>${h(u.username)}</td><td>${statusDot}</td><td>${fmtLastSeen(u.lastSeen)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>`;
     const td = document.createElement("td");
     const btn = document.createElement("button");
     btn.className = "danger"; btn.textContent = "删除";
     btn.addEventListener("click", () => delUser(u.username));
     td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
   }
-  document.getElementById("content").innerHTML = `<table><thead><tr><th>用户名</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>用户名</th><th>状态</th><th>最后活跃</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead></table>`;
   document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 
@@ -187,7 +201,7 @@ async function loadNovels() {
     btn.addEventListener("click", () => delNovel(n.id));
     td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
   }
-  document.getElementById("content").innerHTML = `<table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>字数</th><th>加入</th><th>索引构建</th><th>上传</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>标题</th><th>作者</th><th>格式</th><th>章节</th><th>大小</th><th>加入</th><th>索引构建</th><th>上传</th><th>操作</th></tr></thead></table>`;
   document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 

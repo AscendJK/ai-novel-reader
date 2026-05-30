@@ -1,10 +1,12 @@
 import type { Chunk } from "./retriever";
-import { ragLog } from "@/components/common/DebugPanel";
-import { db } from "@/db/database";
+import { ragLog } from "@/lib/logger";
+import { sharedDB as db } from "@/db/database";
 import { useRAGStore } from "@/stores/rag-store";
 import { useBuildStore } from "@/stores/build-store";
 import { authHeaders } from "@/lib/auth-headers";
 import { encodeQuery } from "./client-encoder";
+import { enforceIndexedDBQuota, updateAccessTime } from "./rag-cache-utils";
+import { buildAndPollRAGIndex, downloadAndCacheIndex } from "./build-index";
 
 export type BGEProgress = EmbeddingProgress;
 export type BGERetrieverData = EmbeddingRetrieverData;
@@ -26,6 +28,7 @@ export function lruAdd(key: string, vectors: Float32Array[], chunks: Chunk[], di
   if (old) cacheTotalSize -= old.size;
   LRU_CACHE.set(key, { vectors, chunks, dim, size });
   cacheTotalSize += size;
+  try { useRAGStore.getState().addLruKey(key); } catch { /* ignore */ }
   evictLRU();
 }
 
@@ -43,9 +46,9 @@ export function lruHas(key: string): boolean {
   return LRU_CACHE.has(key);
 }
 
-function getMaxCacheMB() {
-  try { return useRAGStore.getState().cacheSizeMB || 100; } catch { return 100; }
-}
+// Memory LRU is fixed at 100MB. IndexedDB capacity is managed separately.
+const MEMORY_CACHE_LIMIT_MB = 100;
+function getMaxCacheMB() { return MEMORY_CACHE_LIMIT_MB; }
 
 function evictLRU() {
   const max = getMaxCacheMB() * 1024 * 1024;
@@ -117,129 +120,80 @@ export class EmbeddingRetriever {
         this.dim = data.dim;
         useRAGStore.getState().addCachedKey(memCacheKey);
         lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
+        // 更新访问记录（用于智能淘汰策略）
+        updateAccessTime(novelId, this.engine);
         onProgress?.({ phase: "done" });
         return;
       }
     } catch { /* no cached index */ }
 
-    // Check status first to avoid 404
+    // 检查服务器状态，触发构建并轮询
     ragLog("检查服务器索引状态...");
     const statusCheck = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
     const statusData = await statusCheck.json();
 
-    if (statusData.status === "none") {
-      ragLog("索引未构建, 触发服务器构建...");
-      useBuildStore.getState().start();
-      await fetch(`/api/rag/${novelId}/build`, {
-        method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ engine: this.engine }),
-      });
-
-      let waited = 0;
-      while (waited < 600_000) {
-        if (signal?.aborted) throw new Error("操作已取消");
-        await new Promise((r) => setTimeout(r, 3000));
-        waited += 3000;
-        if (signal?.aborted) throw new Error("操作已取消");
-        const statusResp = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
-        const status = await statusResp.json();
-        ragLog(`服务器构建中: ${status.status} ${status.current ?? ""}/${status.total ?? ""}`);
-
-        if (status.status === "ready") { useBuildStore.getState().finish(); break; }
-        if (status.status === "error") { useBuildStore.getState().fail(status.error || "构建失败"); throw new Error(status.error || "服务器构建失败"); }
-
-        useBuildStore.getState().setProgress({
-          message: `服务器处理中 (${status.current ?? 0}/${status.total ?? "?"})`,
-          current: status.current || 0,
-          total: status.total || _allChunks.length,
-          novelId, engine: this.engine,
-        });
-        onProgress?.({ phase: "encoding", current: status.current || 0, total: status.total || _allChunks.length });
-      }
-
-      const retryResp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
-      if (!retryResp.ok) throw new Error("索引加载失败");
-      const data = await retryResp.json();
-      await this._loadFromServer(novelId, data, memCacheKey, onProgress);
-      return;
-    }
-
+    // 如果服务器已有索引，直接下载
     if (statusData.status === "ready") {
-      const resp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
-      if (!resp.ok) throw new Error("索引加载失败");
-      const data = await resp.json();
-      await this._loadFromServer(novelId, data, memCacheKey, onProgress);
+      ragLog("服务器索引已就绪，下载中...");
+      await downloadAndCacheIndex({ novelId, engine: this.engine, updateStore: false });
+      // 从 IndexedDB 重新加载到内存
+      const cached = await db.ragCache.get(memCacheKey);
+      if (cached && cached.vectors?.length > 0) {
+        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
+        this.vectors = data.vectors;
+        this.chunks = data.chunks;
+        this.dim = data.dim;
+        useRAGStore.getState().addCachedKey(memCacheKey);
+        lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
+      }
+      onProgress?.({ phase: "done" });
       return;
     }
 
-    // Still building — poll
-    if (!useBuildStore.getState().open) useBuildStore.getState().start();
-    let waited = 0;
-    while (waited < 600_000) {
-      if (signal?.aborted) throw new Error("操作已取消");
-      await new Promise((r) => setTimeout(r, 3000));
-      waited += 3000;
-      if (signal?.aborted) throw new Error("操作已取消");
-      const sr = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
-      const st = await sr.json();
-      if (st.status === "ready") {
-        useBuildStore.getState().finish();
-        const resp = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(this.engine)}`, { headers: authHeaders() });
-        if (!resp.ok) throw new Error("索引加载失败");
-        const data = await resp.json();
-        await this._loadFromServer(novelId, data, memCacheKey, onProgress);
-        return;
-      }
-      if (st.status === "error") {
-        useBuildStore.getState().fail(st.error || "构建失败");
-        throw new Error(st.error || "服务器构建失败");
-      }
-      const msg = st.status === "loading" ? "正在加载嵌入模型..."
-        : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
-      useBuildStore.getState().setProgress({
-        message: msg,
-        current: st.current || 0, total: st.total || _allChunks.length,
-        novelId, engine: this.engine,
-      });
-      onProgress?.({ phase: "encoding", current: st.current || 0, total: st.total || _allChunks.length });
-    }
-  }
-
-  private async _loadFromServer(
-    novelId: string,
-    data: { chunks: Chunk[]; vectorsBase64: string; dim: number },
-    memCacheKey: string,
-    onProgress?: (p: EmbeddingProgress) => void
-  ) {
-    this.chunks = data.chunks.map((c: any) => typeof c === "string" ? { id: "", content: c } : c);
-    this.dim = data.dim;
-
-    const binary = Uint8Array.from(atob(data.vectorsBase64), (c) => c.charCodeAt(0));
-    const flatVectors = new Float32Array(binary.buffer);
-    const count = flatVectors.length / data.dim;
-    const vectors: Float32Array[] = [];
-    for (let i = 0; i < count; i++) {
-      vectors.push(flatVectors.slice(i * data.dim, (i + 1) * data.dim));
-    }
-    this.vectors = vectors;
-
-    ragLog(`索引加载完成: ${vectors.length}片段 · ${data.dim}维 · ${(vectors.length * data.dim * 4 / 1024 / 1024).toFixed(1)}MB`);
-    useRAGStore.getState().addCachedKey(memCacheKey);
-    lruAdd(memCacheKey, vectors, this.chunks, data.dim);
+    // 触发构建并轮询
+    ragLog("触发服务器构建...");
+    useBuildStore.getState().start();
 
     try {
-      await db.ragCache.put({
-        novelId: memCacheKey,
+      await buildAndPollRAGIndex({
+        novelId,
         engine: this.engine,
-        vectors: vectors.map((v) => Array.from(v)),
-        chunks: this.chunks,
-        dim: data.dim,
-        createdAt: Date.now(),
+        signal,
+        onProgress: (progress) => {
+          useBuildStore.getState().setProgress({
+            message: progress.message,
+            current: progress.current || 0,
+            total: progress.total || _allChunks.length,
+            novelId,
+            engine: this.engine,
+            status: progress.status,
+            queuePosition: progress.queuePosition,
+          });
+          if (progress.status === "loading" || progress.status === "building" || progress.status === "encoding") {
+            onProgress?.({ phase: "encoding", current: progress.current || 0, total: progress.total || _allChunks.length });
+          }
+        },
       });
-    } catch { /* storage full, memory cache is enough */ }
 
-    onProgress?.({ phase: "done" });
+      useBuildStore.getState().finish();
+
+      // 从 IndexedDB 加载到内存
+      const cached = await db.ragCache.get(memCacheKey);
+      if (cached && cached.vectors?.length > 0) {
+        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
+        this.vectors = data.vectors;
+        this.chunks = data.chunks;
+        this.dim = data.dim;
+        useRAGStore.getState().addCachedKey(memCacheKey);
+        lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
+      }
+      onProgress?.({ phase: "done" });
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "构建失败";
+      useBuildStore.getState().fail(message);
+      throw err;
+    }
   }
 
   async search(query: string, topK: number = 15): Promise<{ chunk: Chunk; score: number }[]> {

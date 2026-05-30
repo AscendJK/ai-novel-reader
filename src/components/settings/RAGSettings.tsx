@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { useRAGStore, type TopKTier } from "@/stores/rag-store";
+import { useRAGStore } from "@/stores/rag-store";
 import { useUIStore } from "@/stores/ui-store";
-import { ENGINES, getEngineDisplayName } from "@/rag/engines";
-import { scanCustomModels, getBuiltinBGEStatus, getBuiltinGTEStatus, DOWNLOADABLE_MODELS } from "@/rag/model-loader";
-import type { ScannedModel, ModelStatus } from "@/rag/model-loader";
+import { ENGINES } from "@/rag/engines";
+import { scanCustomModels, getBuiltinBGEStatus, getBuiltinGTEStatus, DOWNLOADABLE_MODELS, checkModelCacheStatus, downloadModelToCache } from "@/rag/model-loader";
+import type { ScannedModel, ModelStatus, ModelCacheStatus } from "@/rag/model-loader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,30 +11,50 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import {
   CheckCircle2, Brain, Check, X, Search, ExternalLink,
-  AlertTriangle, Cpu, Zap, RefreshCw, PackageOpen, Star, FolderOpen, RotateCcw,
+  AlertTriangle, Cpu, Zap, RefreshCw, PackageOpen, Star, FolderOpen, RotateCcw, Download, Loader2,
 } from "lucide-react";
 
 export function RAGSettings() {
-  const { engine, setEngine, topKDefault, topKTiers, setTopKDefault, setTopKTiers, resetTopKConfig, getTopK } = useRAGStore();
+  const { engine, setEngine, cacheSizeMB, ragCacheSizeBytes, setCacheSizeMB, topKDefault, topKTiers, setTopKDefault, setTopKTiers, resetTopKConfig, getTopK } = useRAGStore();
+  const { graphCharacterLimit, setGraphCharacterLimit } = useUIStore();
   const [isMobile] = useState(() => window.innerWidth < 768);
   const [showHelp, setShowHelp] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [bgeStatus, setBgeStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
   const [gteStatus, setGteStatus] = useState<ModelStatus>({ available: false, onnxFiles: [] });
   const [scannedModels, setScannedModels] = useState<ScannedModel[]>([]);
-  const loadedRef = useRef(false);
+  const [cacheStatuses, setCacheStatuses] = useState<Record<string, ModelCacheStatus>>({});
+  const [downloading, setDownloading] = useState<Set<string>>(new Set());
   const mountedRef = useRef(true);
   useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
+  // Check model cache status for all engines
+  const checkAllCacheStatuses = async () => {
+    const keys = ["Xenova/bge-small-zh-v1.5", "Xenova/gte-small", ...DOWNLOADABLE_MODELS.map(m => m.modelKey)];
+    const statuses: Record<string, ModelCacheStatus> = {};
+    await Promise.all(keys.map(async (key) => {
+      try { statuses[key] = await checkModelCacheStatus(key); } catch { /* ignore */ }
+    }));
+    setCacheStatuses(statuses);
+  };
+
+  const handleDownload = async (modelKey: string) => {
+    setDownloading(prev => new Set(prev).add(modelKey));
+    const ok = await downloadModelToCache(modelKey);
+    if (ok) {
+      const status = await checkModelCacheStatus(modelKey);
+      setCacheStatuses(prev => ({ ...prev, [modelKey]: status }));
+    }
+    setDownloading(prev => { const n = new Set(prev); n.delete(modelKey); return n; });
+  };
+
   // Load builtin status on mount
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
     let cancelled = false;
     getBuiltinBGEStatus().then((s) => { if (!cancelled) setBgeStatus(s); });
     getBuiltinGTEStatus().then((s) => { if (!cancelled) setGteStatus(s); });
-    // Auto-scan on mount
     scanCustomModels().then((m) => { if (!cancelled) setScannedModels(m); });
+    checkAllCacheStatuses();
     return () => { cancelled = true; };
   }, []);
 
@@ -50,6 +70,7 @@ export function RAGSettings() {
     setGteStatus(gte);
     setScannedModels(models);
     setScanning(false);
+    checkAllCacheStatuses();
   };
 
   const bgeInstalled = bgeStatus.available;
@@ -57,17 +78,17 @@ export function RAGSettings() {
 
   const builtinModels = [
     {
-      key: "tfidf", name: "TF-IDF", size: "0MB",
+      key: "tfidf", modelKey: "", name: "TF-IDF", size: "0MB",
       detail: "内置字符级检索，即时可用",
       installed: true, modelType: undefined as string | undefined, typeWarning: undefined as string | undefined,
     },
     {
-      key: "bge-small-zh", name: "BGE Small ZH", size: "26MB",
+      key: "bge-small-zh", modelKey: "Xenova/bge-small-zh-v1.5", name: "BGE Small ZH", size: "26MB",
       detail: ENGINES["bge-small-zh"]?.description || "",
       installed: bgeInstalled, modelType: bgeStatus.modelType, typeWarning: bgeStatus.typeWarning,
     },
     {
-      key: "gte-small", name: "GTE Small", size: "34MB",
+      key: "gte-small", modelKey: "Xenova/gte-small", name: "GTE Small", size: "34MB",
       detail: ENGINES["gte-small"]?.description || "",
       installed: gteInstalled, modelType: gteStatus.modelType, typeWarning: gteStatus.typeWarning,
     },
@@ -115,17 +136,32 @@ export function RAGSettings() {
                     <div className="flex items-center gap-1.5">
                       {m.typeWarning ? (
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      ) : m.key === "tfidf" ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" title="始终可用" />
+                      ) : cacheStatuses[m.modelKey]?.cached ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" title="已缓存到浏览器" />
                       ) : m.installed ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4 text-blue-500" title="服务器有文件，未缓存到浏览器" />
                       ) : (
                         <PackageOpen className="h-4 w-4 text-muted-foreground/40" />
                       )}
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{m.detail}</p>
-                  {!m.installed && m.key !== "tfidf" && (
+                  {m.key !== "tfidf" && m.installed && !cacheStatuses[m.modelKey]?.cached && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-xs text-blue-500">文件在服务器上，需加载到浏览器</p>
+                      <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5"
+                        disabled={downloading.has(m.modelKey)}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(m.modelKey); }}>
+                        {downloading.has(m.modelKey) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                        {downloading.has(m.modelKey) ? "下载中" : "下载"}
+                      </Button>
+                    </div>
+                  )}
+                  {!m.installed && !cacheStatuses[m.modelKey]?.cached && m.key !== "tfidf" && (
                     <p className="text-xs text-destructive mt-0.5">
-                      模型文件未找到
+                      模型文件未找到（服务器离线或文件未部署）
                     </p>
                   )}
                   {m.typeWarning && (
@@ -179,7 +215,8 @@ export function RAGSettings() {
                       <Badge variant="outline" className="text-xs">{m.size}</Badge>
                       {m.fileStatus?.modelType && <Badge variant="outline" className="text-xs font-mono">{m.fileStatus.modelType}</Badge>}
                       {isActive && <Badge className="text-xs bg-primary">当前</Badge>}
-                      {fs.complete && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+                      {fs.complete && cacheStatuses[m.modelKey]?.cached && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" title="已缓存到浏览器" />}
+                      {fs.complete && !cacheStatuses[m.modelKey]?.cached && <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" title="服务器有文件，未缓存到浏览器" />}
                     </div>
                     <a
                       href={m.url}
@@ -188,7 +225,7 @@ export function RAGSettings() {
                       className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      下载 <ExternalLink className="h-2.5 w-2.5" />
+                      HuggingFace <ExternalLink className="h-2.5 w-2.5" />
                     </a>
                   </div>
 
@@ -217,6 +254,18 @@ export function RAGSettings() {
 
                   {fs.typeWarning && (
                     <p className="text-xs text-amber-600 mt-1">{fs.typeWarning}</p>
+                  )}
+
+                  {fs.complete && !cacheStatuses[m.modelKey]?.cached && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <p className="text-xs text-blue-500">文件在服务器上，需加载到浏览器</p>
+                      <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5"
+                        disabled={downloading.has(m.modelKey)}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(m.modelKey); }}>
+                        {downloading.has(m.modelKey) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                        {downloading.has(m.modelKey) ? "下载中" : "下载到浏览器"}
+                      </Button>
+                    </div>
                   )}
 
                   {!fs.complete && (
@@ -288,21 +337,62 @@ export function RAGSettings() {
 
         <Separator className="my-4" />
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-sm">索引缓存上限</p>
-            <p className="text-xs text-muted-foreground">{useRAGStore.getState().cacheSizeMB}MB，超过自动淘汰旧索引</p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">索引缓存上限</p>
+              <p className="text-xs text-muted-foreground">仅管理浏览器本地构建缓存，超过自动淘汰旧索引</p>
+            </div>
+            <select
+              id="rag-cache-size" name="rag-cache-size"
+              className="text-xs border rounded px-2 py-1 bg-background"
+              value={cacheSizeMB}
+              onChange={(e) => setCacheSizeMB(parseInt(e.target.value))}
+            >
+              {[100, 200, 300, 400, 500].map((mb) => (
+                <option key={mb} value={mb}>{mb} MB</option>
+              ))}
+            </select>
           </div>
-          <select
-            id="rag-cache-size" name="rag-cache-size"
-            className="text-xs border rounded px-2 py-1 bg-background"
-            value={useRAGStore.getState().cacheSizeMB}
-            onChange={(e) => useRAGStore.getState().setCacheSizeMB(parseInt(e.target.value))}
-          >
-            {[100, 200, 300, 400, 500].map((mb) => (
-              <option key={mb} value={mb}>{mb} MB</option>
-            ))}
-          </select>
+          {/* Usage indicator */}
+          {(() => {
+            const usedMB = ragCacheSizeBytes / 1024 / 1024;
+            const pct = cacheSizeMB > 0 ? (usedMB / cacheSizeMB) * 100 : 0;
+            const color = pct > 95 ? "text-red-500" : pct > 80 ? "text-yellow-500" : "text-green-500";
+            return (
+              <div className="flex items-center gap-2 text-xs">
+                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${pct > 95 ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-green-500"}`}
+                    style={{ width: `${Math.min(100, pct)}%` }}
+                  />
+                </div>
+                <span className={`font-mono ${color}`}>
+                  {usedMB.toFixed(1)} / {cacheSizeMB} MB
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+
+        <Separator className="my-4" />
+
+        {/* Graph character limit */}
+        <div className="space-y-2">
+          <div>
+            <p className="font-medium text-sm">图谱人物上限</p>
+            <p className="text-xs text-muted-foreground">生成人物关系图谱时，AI 识别的最大角色数量（下限 10）</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              id="graph-char-limit" name="graph-char-limit"
+              type="number" min={10} max={150} step={5}
+              className="h-7 w-24 text-xs"
+              value={graphCharacterLimit}
+              onChange={(e) => setGraphCharacterLimit(parseInt(e.target.value) || 50)}
+            />
+            <span className="text-xs text-muted-foreground">人</span>
+          </div>
         </div>
 
         <Separator className="my-4" />

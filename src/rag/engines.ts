@@ -78,22 +78,6 @@ export const ENGINES: Record<string, EngineInfo> = {
       "加载时间与 BGE 相近",
     ],
   },
-  "Xenova/gte-small": {
-    id: "Xenova/gte-small",
-    name: "GTE Small",
-    description: "阿里通义实验室出品，中英文均衡，检索评测表现优秀",
-    size: "约 70 MB",
-    modelKey: "Xenova/gte-small",
-    strengths: [
-      "中英文均衡，双语场景表现好",
-      "阿里出品，中文语料训练充分",
-      "检索评测分数高",
-    ],
-    weaknesses: [
-      "需下载约 70MB 模型文件",
-      "中文古文理解不如 BGE",
-    ],
-  },
   "Xenova/all-MiniLM-L6-v2": {
     id: "Xenova/all-MiniLM-L6-v2",
     name: "All-MiniLM-L6-v2",

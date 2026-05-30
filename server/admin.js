@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as db from "./database.js";
 import { getTimeoutConfig, setPerChunkTimeout } from "./rag-builder.js";
+import { getUsersOnlineStatus } from "./sync-handler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, "data", ".admin_token");
@@ -49,7 +50,12 @@ export function mountAdminRoutes(app) {
         (SELECT COUNT(*) FROM notes n WHERE n.username = u.username) as note_count
       FROM users u ORDER BY u.created_at DESC
     `).all();
-    res.json(rows);
+    const onlineMap = getUsersOnlineStatus();
+    res.json(rows.map(r => ({
+      ...r,
+      online: onlineMap[r.username]?.online || false,
+      lastSeen: onlineMap[r.username]?.lastSeen || null,
+    })));
   });
 
   app.delete("/api/admin/users/:name", (req, res) => {

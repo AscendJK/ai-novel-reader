@@ -1,5 +1,7 @@
 import type { SyncData, RegisterResult, HeartbeatResult, PushResult } from "./types";
 import { useUIStore } from "@/stores/ui-store";
+import { hasMoreChanges } from "./sync-bridge";
+import { broadcast } from "@/lib/broadcast";
 
 const SYNC_INTERVAL = 30_000;
 const HEARTBEAT_INTERVAL = 15_000;
@@ -17,9 +19,13 @@ export class SyncClient {
   private gatherChanges: ((lastSyncTime: number) => Promise<Partial<SyncData>>) | null = null;
   private applyData: ChangeCallback | null = null;
   private isAiRunning: () => boolean = () => false;
-  private onKicked: (() => void) | null = null;
+  private onKicked: ((username: string) => void) | null = null;
+  private onConflict: ((username: string) => Promise<"overwrite" | "rename">) | null = null;
   private reRegistering = false;
   private syncing = false;
+  private heartbeatFailCount = 0;
+  private autoOffline = false; // true if offlineMode was auto-enabled by heartbeat failure
+  private conflictCooldownUntil = 0; // timestamp until which conflict dialog is suppressed
 
   constructor() {
     this.username = localStorage.getItem("sync-username");
@@ -38,6 +44,34 @@ export class SyncClient {
   get user() { return this.username; }
   get cid() { return this.clientId; }
   get connectionCount() { return this.activeCount; }
+  /** 是否因为服务器不可达而自动进入离线模式 */
+  get isAutoOffline() { return this.autoOffline; }
+
+  /** Update the local username (for conflict rename flow) */
+  setUsername(username: string) {
+    this.username = username;
+    localStorage.setItem("sync-username", username);
+  }
+
+  /**
+   * 检查用户是否在线
+   * @param username 用户名
+   * @returns 用户在线状态
+   */
+  async checkUserOnline(username: string): Promise<{
+    exists: boolean;
+    online: boolean;
+    deviceCount: number;
+    lastSeen: number | null;
+  } | null> {
+    try {
+      const resp = await fetch(`/api/sync/check-user/${encodeURIComponent(username)}`);
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch {
+      return null;
+    }
+  }
 
   async login(username: string, mode: "create" | "join" = "create"): Promise<{ success: boolean; isNew: boolean; activeCount: number; error?: string }> {
     try {
@@ -56,7 +90,10 @@ export class SyncClient {
         const err = await resp.json().catch(() => ({}));
         return { success: false, isNew: false, activeCount: 0, error: (err as any).error || "用户名已存在" };
       }
-      if (!resp.ok) return { success: false, isNew: false, activeCount: 0 };
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        return { success: false, isNew: false, activeCount: 0, error: (err as any).error || `服务器错误 (${resp.status})` };
+      }
       const result: RegisterResult = await resp.json();
       console.log("[sync] registered:", result.isNew ? "new" : "existing");
 
@@ -81,12 +118,14 @@ export class SyncClient {
     gatherChanges: (lastSyncTime: number) => Promise<Partial<SyncData>>;
     applyData: ChangeCallback;
     isAiRunning: () => boolean;
-    onKicked: () => void;
+    onKicked: (username: string) => void;
+    onConflict?: (username: string) => Promise<"overwrite" | "rename">;
   }) {
     this.gatherChanges = opts.gatherChanges;
     this.applyData = opts.applyData;
     this.isAiRunning = opts.isAiRunning;
     this.onKicked = opts.onKicked;
+    this.onConflict = opts.onConflict || null;
 
     this.heartbeatTimer = setInterval(() => this.doHeartbeat(), HEARTBEAT_INTERVAL);
     this.syncTimer = setInterval(() => this.doSync(), SYNC_INTERVAL);
@@ -101,13 +140,19 @@ export class SyncClient {
     await this.doSync();
   }
 
+  /** Reset auto-offline detection (call when user manually toggles offline mode) */
+  resetAutoOffline() {
+    this.autoOffline = false;
+    this.heartbeatFailCount = 0;
+  }
+
   logout() {
     if (this.username && this.clientId) {
       fetch("/api/sync/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token }),
-      }).catch(() => {});
+      }).catch((e) => console.warn("[sync] disconnect failed:", e));
     }
     this.stop();
     this.username = null;
@@ -142,7 +187,67 @@ export class SyncClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes, lastSyncTime: this.lastSyncTime }),
       });
+      if (resp.status === 409) {
+        // Username conflict — another device has the same username
+        console.warn("[sync] 409 username conflict");
+        // Respect cooldown to avoid spamming the user with conflict dialogs
+        if (Date.now() < this.conflictCooldownUntil) {
+          console.log("[sync] conflict cooldown active, skipping push");
+          return false;
+        }
+        if (this.onConflict && this.username) {
+          const usernameBefore = this.username;
+          const choice = await this.onConflict(this.username);
+          if (choice === "overwrite") {
+            // Register on server (kicks other device), then pull data
+            console.log("[sync] overwrite: registering on server...");
+            const regResult = await this.login(this.username, "join");
+            if (regResult.success) {
+              console.log("[sync] overwrite: registered, pulling server data...");
+              const retryResp = await fetch("/api/sync/push", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes, lastSyncTime: 0 }),
+              });
+              if (retryResp.ok) {
+                const r: PushResult = await retryResp.json();
+                if (r.data) {
+                  await this.applyData(r.data);
+                  if (r.data.lastSyncAt) {
+                    this.lastSyncTime = r.data.lastSyncAt;
+                    localStorage.setItem("novel-reader-last-sync-time", String(this.lastSyncTime));
+                  }
+                }
+                return true;
+              } else {
+                console.warn("[sync] overwrite: retry push failed, cooldown 5 min");
+                this.conflictCooldownUntil = Date.now() + 5 * 60 * 1000;
+              }
+            } else {
+              console.warn("[sync] overwrite: register failed, cooldown 5 min");
+              this.conflictCooldownUntil = Date.now() + 5 * 60 * 1000;
+            }
+          } else {
+            // Rename — caller may have updated username
+            if (this.username !== usernameBefore) {
+              console.log("[sync] rename: username changed, will retry on next sync");
+            } else {
+              // User cancelled rename — set cooldown to avoid re-triggering
+              console.log("[sync] rename: user cancelled, conflict cooldown 5 min");
+              this.conflictCooldownUntil = Date.now() + 5 * 60 * 1000;
+            }
+          }
+        }
+        return false;
+      }
       if (resp.status === 403 || resp.status === 401) {
+        // Check if kicked by another device
+        const errData = await resp.json().catch(() => ({}));
+        if (errData.kicked) {
+          console.warn("[sync] kicked by another device during push");
+          this.handleKicked();
+          return false;
+        }
         console.warn(`[sync] ${resp.status} from push, attempting re-register...`);
         const reRegistered = await this.tryReRegister();
         if (reRegistered) {
@@ -198,6 +303,20 @@ export class SyncClient {
           this.lastSyncTime = r.data.lastSyncAt;
           localStorage.setItem("novel-reader-last-sync-time", String(this.lastSyncTime));
         }
+        // 通知其他标签页同步完成
+        try {
+          broadcast.send('sync-complete');
+        } catch { /* ignore */ }
+
+        // 检查是否还有更多数据需要同步
+        try {
+          if (await hasMoreChanges(this.lastSyncTime)) {
+            console.log("[sync] more data to sync, scheduling next batch...");
+            // 延迟 1 秒后继续同步下一批
+            setTimeout(() => this.syncOnce(), 1000);
+          }
+        } catch { /* ignore */ }
+
         return true;
       } else {
         const errText = await resp.text().catch(() => "unknown");
@@ -214,13 +333,23 @@ export class SyncClient {
     if (!this.username) return false;
     this.reRegistering = true;
     try {
-      const reReg = await fetch("/api/sync/register", {
+      // Try "join" first (user exists on server)
+      let resp = await fetch("/api/sync/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, mode: "join" }),
       });
-      if (reReg.ok) {
-        const result = await reReg.json();
+      // If 404, user doesn't exist on server — try "create"
+      if (resp.status === 404) {
+        console.log("[sync] user not found on server, creating...");
+        resp = await fetch("/api/sync/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: this.username, mode: "create" }),
+        });
+      }
+      if (resp.ok) {
+        const result = await resp.json();
         this.clientId = result.clientId;
         this.token = result.token;
         this.activeCount = result.activeCount;
@@ -235,8 +364,28 @@ export class SyncClient {
   }
 
   private async doHeartbeat() {
-    if (!this.username || !this.clientId || useUIStore.getState().offlineMode) return;
+    if (!this.username) return;
+    // Skip if user manually enabled offline mode (heartbeatFailCount === 0 means manual)
+    if (useUIStore.getState().offlineMode && this.heartbeatFailCount === 0) return;
     if (this.reRegistering) return;
+
+    // No credentials yet (server was offline during login) — try to register
+    if (!this.clientId) {
+      try {
+        const ok = await this.tryReRegister();
+        if (ok) {
+          this.heartbeatFailCount = 0;
+          if (useUIStore.getState().offlineMode) {
+            this.autoOffline = false;
+            useUIStore.getState().setOfflineMode(false);
+          }
+          console.log("[sync] registered from heartbeat, syncing now...");
+          this.syncOnce().catch((e) => console.warn("[sync] syncOnce failed:", e));
+        }
+      } catch { /* server still offline */ }
+      return;
+    }
+
     try {
       const resp = await fetch("/api/sync/heartbeat", {
         method: "POST",
@@ -244,19 +393,34 @@ export class SyncClient {
         body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token }),
       });
       if (resp.status === 401 || resp.status === 403) {
+        // Check if kicked by another device
+        const data = await resp.json().catch(() => ({}));
+        if (data.kicked) {
+          console.warn("[sync] kicked by another device");
+          this.handleKicked();
+          return;
+        }
+        // Session expired (not kicked) — try re-register
         console.warn(`[sync] heartbeat ${resp.status}, attempting re-register...`);
         const ok = await this.tryReRegister();
         if (!ok) {
           console.warn("[sync] re-register failed, kicking");
           this.handleKicked();
         } else {
-          // Re-registered successfully, trigger a full sync
           console.log("[sync] re-registered from heartbeat, syncing now...");
-          this.syncOnce().catch(() => {});
+          this.syncOnce().catch((e) => console.warn("[sync] syncOnce failed:", e));
         }
         return;
       }
       if (resp.ok) {
+        // If heartbeat was failing (auto-offline), disable offline mode on recovery
+        const wasAutoOffline = this.heartbeatFailCount >= 3;
+        this.heartbeatFailCount = 0;
+        if (wasAutoOffline) {
+          this.autoOffline = false;
+          useUIStore.getState().setOfflineMode(false);
+          console.log("[sync] server reachable, offline mode auto-disabled");
+        }
         const r: HeartbeatResult = await resp.json();
         if (r.activeCount === 0) {
           console.warn("[sync] heartbeat 0, attempting re-register...");
@@ -266,13 +430,21 @@ export class SyncClient {
             this.handleKicked();
           } else {
             console.log("[sync] re-registered from heartbeat, syncing now...");
-            this.syncOnce().catch(() => {});
+            this.syncOnce().catch((e) => console.warn("[sync] syncOnce failed:", e));
           }
           return;
         }
         this.activeCount = r.activeCount;
       }
-    } catch { /* server unreachable */ }
+    } catch {
+      // Server unreachable — count failures and auto-enable offline mode
+      this.heartbeatFailCount++;
+      if (this.heartbeatFailCount >= 3 && !useUIStore.getState().offlineMode) {
+        this.autoOffline = true;
+        useUIStore.getState().setOfflineMode(true);
+        console.log("[sync] server unreachable after 3 heartbeats, offline mode auto-enabled");
+      }
+    }
   }
 
   private async doSync() {
@@ -283,7 +455,8 @@ export class SyncClient {
     await this.syncOnce();
   }
 
-  private handleKicked() {
+  private async handleKicked() {
+    const kickedUser = this.username;
     this.stop();
     this.username = null;
     this.clientId = null;
@@ -294,7 +467,11 @@ export class SyncClient {
     localStorage.removeItem("sync-clientId");
     localStorage.removeItem("sync-token");
     localStorage.removeItem("novel-reader-last-sync-time");
-    if (this.onKicked) this.onKicked();
+    // 通知其他标签页用户已登出
+    try {
+      broadcast.send('logout');
+    } catch { /* ignore */ }
+    if (this.onKicked && kickedUser) this.onKicked(kickedUser);
   }
 }
 

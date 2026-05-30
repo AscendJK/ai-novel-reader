@@ -9,11 +9,27 @@ export interface AgentContext {
   onStatus?: (msg: string) => void;
 }
 
+/** 分析结果的元数据 */
+export interface AnalysisMetadata {
+  /** 是否使用了精简模式 */
+  usedFallback?: boolean;
+  /** 是否截断了内容 */
+  truncated?: boolean;
+  /** 原始内容长度（字符数） */
+  originalLength?: number;
+  /** 实际分析的内容长度（字符数） */
+  analyzedLength?: number;
+  /** 分段数（如果使用了分段分析） */
+  segments?: number;
+}
+
 export interface AgentResult {
   success: boolean;
   data?: unknown;
   error?: string;
   tokensUsed?: number;
+  /** 分析元数据 */
+  metadata?: AnalysisMetadata;
 }
 
 export interface Agent {

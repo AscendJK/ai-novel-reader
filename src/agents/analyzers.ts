@@ -1,47 +1,28 @@
-import type { Agent, AgentContext, AgentResult } from "./types";
-import { getProvider } from "@/api/registry";
-import { useAPIStore } from "@/stores/api-store";
-import { loadNovel } from "@/db/repositories";
-import { APIError } from "@/api/error-handler";
-import { estimateTokens, getTokenBudget } from "@/api/token-manager";
+/**
+ * 人物分析和时间线 Agent
+ */
 
-function getActiveProvider() {
-  const config = useAPIStore.getState().getActiveProvider();
-  if (!config) throw new Error("请先在设置中配置 API");
-  return getProvider(config);
-}
+import type { AgentContext, AgentResult } from "./types";
+import type { AgentEnvironment } from "./base-agent";
+import { BaseAgent } from "./base-agent";
+import { getRelevantContent } from "./utils";
+import { estimateTokens } from "@/api/token-manager";
 
-export const characterAnalysisAgent: Agent = {
-  name: "character-analysis",
-  description: "分析小说主要人物及其关系",
+/**
+ * 人物分析 Agent
+ */
+class CharacterAnalysisAgent extends BaseAgent {
+  name = "character-analysis";
+  description = "分析小说主要人物及其关系";
 
-  async run(context: AgentContext): Promise<AgentResult> {
-    context.onStatus?.("正在加载小说数据...");
-    const provider = getActiveProvider();
-    const novel = await loadNovel(context.novelId);
-    if (!novel) return { success: false, error: "小说数据未找到" };
-
-    const providerConfig = useAPIStore.getState().getActiveProvider();
-    const model = providerConfig?.model || "";
-    const budget = getTokenBudget(model);
+  protected async execute(context: AgentContext, env: AgentEnvironment): Promise<AgentResult> {
+    const { novel, provider, budget } = env;
 
     const chapterList = novel.chapters
       .map((c, i) => `${i + 1}. ${c.title} (${c.content.length.toLocaleString()}字)`)
       .join("\n");
 
-    const relevantContent = context.preRetrieved && context.preRetrieved.length > 100
-      ? context.preRetrieved
-      : (() => {
-          const indices = [0, 1, 2];
-          if (novel.chapters.length > 6) indices.push(Math.floor(novel.chapters.length / 2));
-          if (novel.chapters.length > 3) indices.push(novel.chapters.length - 1);
-          return [...new Set(indices)]
-            .filter((i) => i < novel.chapters.length)
-            .map((i) => `【${novel.chapters[i].title}】\n${novel.chapters[i].content.slice(0, 2000)}`)
-            .join("\n\n---\n\n");
-        })();
-
-    const promptLabel = context.preRetrieved ? "语义检索相关段落" : "内容样本";
+    const { content: relevantContent, label: promptLabel } = getRelevantContent(context, novel.chapters);
 
     context.onStatus?.("正在组织提示词...");
     const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，深入分析主要人物及其关系网络。
@@ -65,15 +46,10 @@ ${relevantContent}
 5. **人物重要性评估**：按剧情推动作用排序，说明每个角色对主线的影响`;
 
     const estimatedInput = estimateTokens(prompt);
-    const usePrompt =
-      estimatedInput < budget.maxInputTokens * 0.7
-        ? prompt
-        : `请根据小说《${novel.title}》的章节目录分析人物关系。
-
-章节目录：
-${chapterList}
-
-请分析主要人物的关系网络、性格特征与成长变化。`;
+    const useFallback = estimatedInput >= budget.maxInputTokens * 0.7;
+    const usePrompt = useFallback
+      ? `请根据小说《${novel.title}》的章节目录分析人物关系。\n\n章节目录：\n${chapterList}\n\n请分析主要人物的关系网络、性格特征与成长变化。`
+      : prompt;
 
     try {
       context.onStatus?.("正在等待 AI 回答...");
@@ -90,51 +66,35 @@ ${chapterList}
 
       return {
         success: true,
-        data: { content: response.content, usedFallback: estimatedInput >= budget.maxInputTokens * 0.7 },
+        data: { content: response.content, usedFallback },
         tokensUsed: response.tokensUsed.total,
       };
     } catch (err) {
-      if (err instanceof APIError) {
-        return { success: false, error: `[${err.code}] ${err.message}` };
-      }
-      return { success: false, error: err instanceof Error ? err.message : "未知错误" };
+      return { success: false, error: this.formatError(err) };
     }
-  },
-};
+  }
 
-export const timelineAgent: Agent = {
-  name: "timeline",
-  description: "提取小说剧情时间线",
+  private formatError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return "未知错误";
+  }
+}
 
-  async run(context: AgentContext): Promise<AgentResult> {
-    context.onStatus?.("正在加载小说数据...");
-    const provider = getActiveProvider();
-    const novel = await loadNovel(context.novelId);
-    if (!novel) return { success: false, error: "小说数据未找到" };
+/**
+ * 时间线 Agent
+ */
+class TimelineAgent extends BaseAgent {
+  name = "timeline";
+  description = "提取小说剧情时间线";
 
-    const providerConfig = useAPIStore.getState().getActiveProvider();
-    const model = providerConfig?.model || "";
-    const budget = getTokenBudget(model);
+  protected async execute(context: AgentContext, env: AgentEnvironment): Promise<AgentResult> {
+    const { novel, provider, budget } = env;
 
     const chapterList = novel.chapters
       .map((c, i) => `${i + 1}. ${c.title} (${c.content.length.toLocaleString()}字)`)
       .join("\n");
 
-    const relevantContent = context.preRetrieved && context.preRetrieved.length > 100
-      ? context.preRetrieved
-      : (() => {
-          const indices = [0, 1];
-          if (novel.chapters.length > 5) indices.push(Math.floor(novel.chapters.length / 3));
-          if (novel.chapters.length > 6) indices.push(Math.floor(novel.chapters.length / 2));
-          if (novel.chapters.length > 7) indices.push(Math.floor((novel.chapters.length * 2) / 3));
-          if (novel.chapters.length > 3) indices.push(novel.chapters.length - 1);
-          return [...new Set(indices)]
-            .filter((i) => i < novel.chapters.length)
-            .map((i) => `【${novel.chapters[i].title}】${novel.chapters[i].content.slice(0, 1500)}`)
-            .join("\n\n---\n\n");
-        })();
-
-    const promptLabel = context.preRetrieved ? "语义检索相关段落" : "关键章节样本";
+    const { content: relevantContent, label: promptLabel } = getRelevantContent(context, novel.chapters);
 
     context.onStatus?.("正在组织提示词...");
     const prompt = `你是一位专业的小说剧情分析师。请根据以下小说信息，提取关键剧情时间线。
@@ -168,10 +128,10 @@ ${relevantContent}
 列出重要的伏笔及其回收章节。`;
 
     const estimatedInput = estimateTokens(prompt);
-    const usePrompt =
-      estimatedInput < budget.maxInputTokens * 0.7
-        ? prompt
-        : `请根据《${novel.title}》的章节目录推断剧情时间线。\n章节目录：\n${chapterList}\n\n请按时间顺序逐条列出关键事件（不要用表格，不要在列表项内使用子列表），每个事件格式：\n1. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。\n\n标注"基于目录推断"。`;
+    const useFallback = estimatedInput >= budget.maxInputTokens * 0.7;
+    const usePrompt = useFallback
+      ? `请根据《${novel.title}》的章节目录推断剧情时间线。\n章节目录：\n${chapterList}\n\n请按时间顺序逐条列出关键事件（不要用表格，不要在列表项内使用子列表），每个事件格式：\n1. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。\n\n标注"基于目录推断"。`
+      : prompt;
 
     try {
       context.onStatus?.("正在等待 AI 回答...");
@@ -188,14 +148,20 @@ ${relevantContent}
 
       return {
         success: true,
-        data: { content: response.content, usedFallback: estimatedInput >= budget.maxInputTokens * 0.7 },
+        data: { content: response.content, usedFallback },
         tokensUsed: response.tokensUsed.total,
       };
     } catch (err) {
-      if (err instanceof APIError) {
-        return { success: false, error: `[${err.code}] ${err.message}` };
-      }
-      return { success: false, error: err instanceof Error ? err.message : "未知错误" };
+      return { success: false, error: this.formatError(err) };
     }
-  },
-};
+  }
+
+  private formatError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return "未知错误";
+  }
+}
+
+// 导出 Agent 实例
+export const characterAnalysisAgent = new CharacterAnalysisAgent();
+export const timelineAgent = new TimelineAgent();

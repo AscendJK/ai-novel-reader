@@ -50,6 +50,8 @@ function loadTopKConfig(): { default: number; tiers: TopKTier[] } {
           ...t,
           maxChunks: t.maxChunks === 0 ? Infinity : t.maxChunks,
         }));
+        // Sort by maxChunks ascending to ensure correct tier matching
+        tiers.sort((a: TopKTier, b: TopKTier) => a.maxChunks - b.maxChunks);
         return { default: parsed.default, tiers };
       }
     }
@@ -72,16 +74,21 @@ interface RAGState {
   engine: EngineId;
   savedCustomModels: { key: string; name: string; size: string }[];
   cacheSizeMB: number;
-  cachedKeys: Set<string>;
+  ragCacheSizeBytes: number;
+  cachedKeys: Set<string>;   // keys in IndexedDB (persistent browser cache)
+  lruKeys: Set<string>;      // keys in LRU memory (ready for immediate retrieval)
   topKDefault: number;
   topKTiers: TopKTier[];
   setEngine: (e: EngineId, name?: string, size?: string) => void;
   setSavedCustomModels: (models: { key: string; name: string; size: string }[]) => void;
   removeSavedModel: (key: string) => void;
   setCacheSizeMB: (size: number) => void;
+  updateRagCacheSize: (bytes: number) => void;
   addCachedKey: (key: string) => void;
   removeCachedKey: (key: string) => void;
   hasCachedKey: (key: string) => boolean;
+  addLruKey: (key: string) => void;
+  removeLruKey: (key: string) => void;
   setTopKDefault: (val: number) => void;
   setTopKTiers: (tiers: TopKTier[]) => void;
   resetTopKConfig: () => void;
@@ -94,7 +101,9 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   engine: loadPref(),
   savedCustomModels: loadSavedModels(),
   cacheSizeMB: loadCacheSize(),
+  ragCacheSizeBytes: 0,
   cachedKeys: new Set<string>(),
+  lruKeys: new Set<string>(),
   topKDefault: _topKConfig.default,
   topKTiers: _topKConfig.tiers,
 
@@ -130,6 +139,8 @@ export const useRAGStore = create<RAGState>((set, get) => ({
     set({ cacheSizeMB: clamped });
   },
 
+  updateRagCacheSize: (bytes) => set({ ragCacheSizeBytes: bytes }),
+
   addCachedKey: (key) => {
     const next = new Set(get().cachedKeys);
     next.add(key);
@@ -143,6 +154,18 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   },
 
   hasCachedKey: (key) => get().cachedKeys.has(key),
+
+  addLruKey: (key) => {
+    const next = new Set(get().lruKeys);
+    next.add(key);
+    set({ lruKeys: next });
+  },
+
+  removeLruKey: (key) => {
+    const next = new Set(get().lruKeys);
+    next.delete(key);
+    set({ lruKeys: next });
+  },
 
   setTopKDefault: (val) => {
     const clamped = Math.max(1, Math.min(200, Math.round(val)));

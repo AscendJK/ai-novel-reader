@@ -1,54 +1,191 @@
 import { create } from "zustand";
-import { useRAGStore } from "./rag-store";
 
-interface BuildState {
-  open: boolean;
-  status: "building" | "queued" | "done" | "error";
+/** 构建状态类型 */
+export type BuildStatusType = "idle" | "queued" | "loading" | "building" | "encoding" | "ready" | "done" | "error";
+
+/** 单本书的构建状态 */
+export interface NovelBuildStatus {
+  novelId: string;
+  engine: string;
+  status: BuildStatusType;
   message: string;
-  current?: number;
-  total?: number;
+  current: number;
+  total: number;
   error?: string;
-  novelId?: string;
-  engine?: string;
   queuePosition?: number;
-  setProgress: (p: Partial<BuildState>) => void;
-  start: () => void;
-  finish: () => void;
-  fail: (err: string) => void;
-  fallbackToTFIDF: () => void;
-  retry: () => void;
-  dismiss: () => void;
+  open: boolean;  // 是否显示状态窗口
+  startTime: number;
+}
+
+/** 构建状态 Store */
+interface BuildState {
+  /** 所有书的构建状态 Map，key = `${novelId}-${engine}` */
+  builds: Map<string, NovelBuildStatus>;
+
+  /** 开始构建 */
+  startBuild: (novelId: string, engine: string) => void;
+
+  /** 更新进度 */
+  updateProgress: (novelId: string, engine: string, progress: Partial<NovelBuildStatus>) => void;
+
+  /** 构建完成 */
+  finishBuild: (novelId: string, engine: string) => void;
+
+  /** 构建失败 */
+  failBuild: (novelId: string, engine: string, error: string) => void;
+
+  /** 切换窗口显示 */
+  toggleWindow: (novelId: string, engine: string) => void;
+
+  /** 关闭窗口 */
+  dismissWindow: (novelId: string, engine: string) => void;
+
+  /** 获取指定书的构建状态 */
+  getBuildStatus: (novelId: string, engine: string) => NovelBuildStatus | undefined;
+
+  /** 检查是否有构建正在进行 */
+  isBuilding: (novelId: string, engine: string) => boolean;
+
+  /** 清除完成/错误的状态（自动清理） */
+  cleanupCompleted: () => void;
+}
+
+/** 生成构建 key */
+function buildKey(novelId: string, engine: string): string {
+  return `${novelId}-${engine}`;
 }
 
 export const useBuildStore = create<BuildState>((set, get) => ({
-  open: false,
-  status: "building",
-  message: "",
-  current: 0,
-  total: 0,
-  error: undefined,
+  builds: new Map(),
 
-  setProgress: (p) => set(p),
-
-  start: () => set({ open: true, status: "building", message: "正在准备...", error: undefined }),
-  dismiss: () => set({ open: false }),
-  finish: () => {
-    set({ status: "done", message: "索引构建成功" });
-    setTimeout(() => set({ open: false }), 1500);
+  startBuild: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      newBuilds.set(key, {
+        novelId,
+        engine,
+        status: "building",
+        message: "正在准备...",
+        current: 0,
+        total: 0,
+        open: true,
+        startTime: Date.now(),
+      });
+      return { builds: newBuilds };
+    });
   },
 
-  fail: (err) => set({ status: "error", message: "构建失败", error: err }),
-
-  fallbackToTFIDF: () => {
-    useRAGStore.getState().setEngine("tfidf");
-    set({ open: false });
+  updateProgress: (novelId, engine, progress) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      const existing = newBuilds.get(key);
+      if (existing) {
+        // 避免不必要的更新
+        if (
+          existing.status === progress.status &&
+          existing.message === progress.message &&
+          existing.current === progress.current &&
+          existing.total === progress.total &&
+          existing.queuePosition === progress.queuePosition
+        ) {
+          return state; // 无变化，不触发更新
+        }
+        newBuilds.set(key, { ...existing, ...progress });
+      }
+      return { builds: newBuilds };
+    });
   },
 
-  retry: () => {
-    set({ open: false });
-    // Trigger rebuild by changing engine back and forth
-    const currentEngine = useRAGStore.getState().engine;
-    useRAGStore.getState().setEngine("tfidf");
-    setTimeout(() => useRAGStore.getState().setEngine(currentEngine), 100);
+  finishBuild: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      const existing = newBuilds.get(key);
+      if (existing) {
+        newBuilds.set(key, {
+          ...existing,
+          status: "done",
+          message: "索引构建成功",
+          open: true,
+        });
+      }
+      return { builds: newBuilds };
+    });
+
+    // 3 秒后自动关闭窗口
+    setTimeout(() => {
+      get().dismissWindow(novelId, engine);
+    }, 3000);
+  },
+
+  failBuild: (novelId, engine, error) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      const existing = newBuilds.get(key);
+      if (existing) {
+        newBuilds.set(key, {
+          ...existing,
+          status: "error",
+          message: "构建失败",
+          error,
+          open: true,
+        });
+      }
+      return { builds: newBuilds };
+    });
+  },
+
+  toggleWindow: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      const existing = newBuilds.get(key);
+      if (existing) {
+        newBuilds.set(key, { ...existing, open: !existing.open });
+      }
+      return { builds: newBuilds };
+    });
+  },
+
+  dismissWindow: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      const existing = newBuilds.get(key);
+      if (existing) {
+        newBuilds.set(key, { ...existing, open: false });
+      }
+      return { builds: newBuilds };
+    });
+  },
+
+  getBuildStatus: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    return get().builds.get(key);
+  },
+
+  isBuilding: (novelId, engine) => {
+    const key = buildKey(novelId, engine);
+    const status = get().builds.get(key)?.status;
+    return status === "building" || status === "loading" || status === "encoding" || status === "queued";
+  },
+
+  cleanupCompleted: () => {
+    set((state) => {
+      const newBuilds = new Map(state.builds);
+      for (const [key, build] of newBuilds) {
+        // 清除超过 1 小时的完成/错误状态
+        if (
+          (build.status === "done" || build.status === "error") &&
+          Date.now() - build.startTime > 60 * 60 * 1000
+        ) {
+          newBuilds.delete(key);
+        }
+      }
+      return { builds: newBuilds };
+    });
   },
 }));

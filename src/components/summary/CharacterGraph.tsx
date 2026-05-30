@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-// @ts-ignore - d3-force types not installed
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import type { GraphData } from "@/hooks/useSummarizer";
 import { Button } from "@/components/ui/button";

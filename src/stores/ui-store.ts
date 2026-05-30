@@ -58,6 +58,13 @@ function getInitialOfflineMode(): boolean {
   try { return localStorage.getItem("novel-reader-offline-mode") === "true"; } catch { return false; }
 }
 
+function getInitialGraphCharacterLimit(): number {
+  try {
+    const v = parseInt(localStorage.getItem("novel-reader-graph-char-limit") || "", 10);
+    return (v >= 10 && v <= 150) ? v : 50;
+  } catch { return 50; }
+}
+
 interface UIState {
   theme: "light" | "dark";
   fontSize: number;
@@ -67,6 +74,7 @@ interface UIState {
   paragraphSpacing: number;
   fontFamily: string;
   offlineMode: boolean;
+  graphCharacterLimit: number;
   setTheme: (theme: "light" | "dark") => void;
   toggleTheme: () => void;
   setFontSize: (size: number) => void;
@@ -76,6 +84,7 @@ interface UIState {
   setParagraphSpacing: (v: number) => void;
   setFontFamily: (v: string) => void;
   setOfflineMode: (v: boolean) => void;
+  setGraphCharacterLimit: (v: number) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -87,6 +96,7 @@ export const useUIStore = create<UIState>((set) => ({
   paragraphSpacing: getInitialParagraphSpacing(),
   fontFamily: getInitialFontFamily(),
   offlineMode: getInitialOfflineMode(),
+  graphCharacterLimit: getInitialGraphCharacterLimit(),
 
   setTheme: (theme) => {
     try { localStorage.setItem("novel-reader-theme", theme); } catch { /* ignore */ }
@@ -101,13 +111,15 @@ export const useUIStore = create<UIState>((set) => ({
     }),
 
   setFontSize: (size) => {
-    try { localStorage.setItem("novel-reader-font-size", String(size)); } catch { /* ignore */ }
-    set({ fontSize: size });
+    const clamped = Math.max(8, Math.min(48, size));
+    try { localStorage.setItem("novel-reader-font-size", String(clamped)); } catch { /* ignore */ }
+    set({ fontSize: clamped });
   },
 
   setFontWeight: (weight) => {
-    try { localStorage.setItem("novel-reader-font-weight", String(weight)); } catch { /* ignore */ }
-    set({ fontWeight: weight });
+    const clamped = Math.max(100, Math.min(900, weight));
+    try { localStorage.setItem("novel-reader-font-weight", String(clamped)); } catch { /* ignore */ }
+    set({ fontWeight: clamped });
   },
 
   setDebugMode: (v) => {
@@ -135,5 +147,11 @@ export const useUIStore = create<UIState>((set) => ({
   setOfflineMode: (v) => {
     try { localStorage.setItem("novel-reader-offline-mode", String(v)); } catch { /* ignore */ }
     set({ offlineMode: v });
+  },
+
+  setGraphCharacterLimit: (v) => {
+    const clamped = Math.max(10, Math.min(150, Math.round(v)));
+    try { localStorage.setItem("novel-reader-graph-char-limit", String(clamped)); } catch { /* ignore */ }
+    set({ graphCharacterLimit: clamped });
   },
 }));

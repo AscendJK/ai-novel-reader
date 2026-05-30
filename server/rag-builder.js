@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BATCH_SIZE = 16;
+const BATCH_SIZE = 8;
 const CHUNK_SIZE = 500;
 const OVERLAP = 100;
 
@@ -120,14 +120,12 @@ export function getAllStatuses(novelIds) {
     for (const r of rows) {
       engines[r.engine] = { status: r.status, chunkCount: r.chunk_count, buildTime: r.build_time, error: r.error_msg, dim: r.dim };
     }
-    // Also include in-progress builds from memory
+    // In-progress builds from memory always override DB status
     for (const [key, mem] of buildProgress) {
       if (key.startsWith(nid + "-")) {
         const eng = key.slice(nid.length + 1);
-        if (!engines[eng] || engines[eng].status !== "ready") {
-          const pos = queue.findIndex(t => t.key === key);
-          engines[eng] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
-        }
+        const pos = queue.findIndex(t => t.key === key);
+        engines[eng] = { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
       }
     }
     result[nid] = engines;
@@ -156,7 +154,14 @@ export function getStatuses(novelIds, engine = "bge-small-zh") {
 export function getProgress(novelId, engine = "bge-small-zh") {
   const key = `${novelId}-${engine}`;
   const mem = buildProgress.get(key);
-  if (mem) return mem;
+  if (mem) {
+    // 动态计算 queuePosition（只对 queued 状态有效）
+    if (mem.status === "queued") {
+      const pos = queue.findIndex(t => t.key === key);
+      return { ...mem, queuePosition: pos >= 0 ? pos + 1 + (running ? 1 : 0) : 0 };
+    }
+    return mem;
+  }
   const dbRow = db.db.prepare("SELECT status, chunk_count, build_time, error_msg, dim FROM rag_indices WHERE novel_id = ? AND engine = ?").get(novelId, engine);
   return dbRow ? { status: dbRow.status, chunkCount: dbRow.chunk_count, buildTime: dbRow.build_time, error: dbRow.error_msg, dim: dbRow.dim } : { status: "none" };
 }
@@ -223,6 +228,9 @@ async function _doBuild(novelId, engine, key) {
       }
     });
     worker.on("error", (e) => { clearTimeout(timeout); reject(e); });
+    worker.on("exit", (code) => {
+      if (code !== 0) { clearTimeout(timeout); reject(new Error(`Worker 异常退出 (code ${code})`)); }
+    });
   });
 
   const dim = vectors[0]?.length || 0;
@@ -235,4 +243,10 @@ async function _doBuild(novelId, engine, key) {
 
   buildProgress.set(key, { status: "ready", current: chunks.length, total: chunks.length, chunkCount: chunks.length });
   console.log(`[rag] done: ${key} ${chunks.length} chunks ${dim}d ${Date.now() - t0}ms`);
+
+  // Prune from memory after a short delay so frontend can poll the "ready" status
+  setTimeout(() => {
+    buildProgress.delete(key);
+    console.log(`[rag] pruned from memory: ${key}`);
+  }, 10_000);
 }

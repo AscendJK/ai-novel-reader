@@ -1,6 +1,9 @@
+import type { SummaryItem } from "@/stores/summary-store";
+import type { NoteItem } from "@/db/repositories";
+
 export interface SyncData {
-  summaries: unknown[];
-  notes: unknown[];
+  summaries: SummaryItem[];
+  notes: NoteItem[];
   settings: Record<string, unknown>;
   progress: {
     readingPositions: Record<string, { chapterId: string; chapterIndex: number }>;

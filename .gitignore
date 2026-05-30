@@ -56,3 +56,5 @@ server/server.log
 
 # Admin token (contains secret)
 server/data/.admin_token
+DEVELOPER_MANUAL.md
+REFACTORING_PLAN.md

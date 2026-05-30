@@ -4,6 +4,8 @@
  *   custom/   — user-downloaded models, NOT in Git
  */
 
+import { ENGINES, resolveModelKey } from "./engines";
+
 const BUILTIN = "/models/builtin/";
 const CUSTOM = "/models/custom/";
 
@@ -37,10 +39,11 @@ export async function checkFileStatus(modelKey: string): Promise<FileStatus> {
   async function probe(file: string): Promise<boolean> {
     try {
       const r = await fetch(base + file, { method: "HEAD", ...nc });
+      console.log(`[model-status] ${base}${file} → ${r.status} ${r.headers.get("Content-Type") || ""}`);
       if (!r.ok) return false;
       const ct = r.headers.get("Content-Type") || "";
       return !ct.includes("text/html");
-    } catch { return false; }
+    } catch (e) { console.warn(`[model-status] ${base}${file} → fetch failed:`, e); return false; }
   }
 
   [status.config, status.tokenizer, status.tokenizerConfig] = await Promise.all([
@@ -163,7 +166,7 @@ export async function getBuiltinModelStatus(modelKey: string): Promise<ModelStat
       const ct = r.headers.get("Content-Type") || "";
       if (!ct.includes("text/html")) onnxFound = true;
     }
-  } catch { /* not found */ }
+  } catch (e) { console.warn(`[model-status] ${base}onnx/${ONNX_EXPECTED} → fetch failed:`, e); }
   if (!onnxFound) return missing;
 
   // Read model_type
@@ -227,11 +230,88 @@ export function setupLocalModelLoader(): Promise<void> {
     envReady = import("@xenova/transformers")
       .then(({ env }) => {
         env.localModelPath = BUILTIN;
-        env.allowRemoteModels = false;
-        env.useBrowserCache = false;
+        // allowRemoteModels and useBrowserCache are set dynamically in getEncoder()
+        // to support offline model loading via service worker cache
         console.log("[transformers] localModelPath set to:", env.localModelPath);
       })
       .catch((e) => { console.error("Failed to configure Transformers.js:", e); });
   }
   return envReady;
+}
+
+// ── Model cache status and download ─────────────────────────────
+
+// Builtin model keys (shipped with the project in public/models/builtin/)
+const BUILTIN_KEYS = new Set(["Xenova/bge-small-zh-v1.5", "Xenova/gte-small"]);
+
+/** Get the base URL for a model's files */
+export function getModelBasePath(modelKey: string): string {
+  return (BUILTIN_KEYS.has(modelKey) ? BUILTIN : CUSTOM) + modelKey + "/";
+}
+
+const REQUIRED_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model_quantized.onnx"];
+
+export interface ModelCacheStatus {
+  cached: boolean;       // all files in browser cache
+  totalFiles: number;
+  cachedFiles: number;
+  missingFiles: string[];
+}
+
+const MODEL_CACHE_NAME = "model-files-cache";
+
+/** Check if all model files are in the browser Cache API */
+export async function checkModelCacheStatus(modelKey: string): Promise<ModelCacheStatus> {
+  const base = getModelBasePath(modelKey);
+  let cachedCount = 0;
+  const missing: string[] = [];
+
+  try {
+    const cache = await caches.open(MODEL_CACHE_NAME);
+    for (const file of REQUIRED_FILES) {
+      const url = base + file;
+      const cached = await cache.match(url);
+      if (cached) {
+        cachedCount++;
+      } else {
+        missing.push(file);
+      }
+    }
+  } catch { /* Cache API not available */ }
+
+  return { cached: cachedCount === REQUIRED_FILES.length, totalFiles: REQUIRED_FILES.length, cachedFiles: cachedCount, missingFiles: missing };
+}
+
+/** Download model files from server into our Cache API */
+export async function downloadModelToCache(modelKey: string): Promise<boolean> {
+  const base = getModelBasePath(modelKey);
+  try {
+    const cache = await caches.open(MODEL_CACHE_NAME);
+    for (const file of REQUIRED_FILES) {
+      const url = base + file;
+      const r = await fetch(url);
+      if (!r.ok) return false;
+      await cache.put(url, r.clone());
+      await r.arrayBuffer(); // consume body
+    }
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Ensure model files are cached in the browser. Checks first, downloads if missing.
+ * Skips silently for TF-IDF or if offline.
+ */
+export async function ensureModelCached(engine: string): Promise<void> {
+  if (!engine || engine === "tfidf") return;
+  const modelKey = resolveModelKey(engine);
+  if (!modelKey) return;
+  try {
+    const status = await checkModelCacheStatus(modelKey);
+    if (!status.cached) {
+      console.log(`[model-loader] 引擎 ${engine} 模型文件未缓存，从服务器下载...`);
+      const ok = await downloadModelToCache(modelKey);
+      console.log(`[model-loader] 下载${ok ? "成功" : "失败"}: ${engine}`);
+    }
+  } catch { /* server unreachable, skip */ }
 }

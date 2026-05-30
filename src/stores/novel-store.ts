@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Novel } from "@/parsers/types";
 import { syncClient } from "@/sync/sync-client";
+import { userKey } from "@/lib/user-utils";
 
 interface ReadPosition { chapterId: string; chapterIndex: number }
 
@@ -19,18 +20,17 @@ interface NovelState {
 
 function loadPositions(): Record<string, ReadPosition> {
   try {
-    const stored = localStorage.getItem("novel-reader-positions-v2");
-    return stored ? JSON.parse(stored) : {};
+    return JSON.parse(localStorage.getItem(userKey("novel-reader-positions")) || "{}");
   } catch { return {}; }
 }
 
 function savePositions(positions: Record<string, ReadPosition>) {
-  try { localStorage.setItem("novel-reader-positions-v2", JSON.stringify(positions)); } catch { /* ignore */ }
+  try { localStorage.setItem(userKey("novel-reader-positions"), JSON.stringify(positions)); } catch { /* ignore */ }
 }
 
 export function getLastOpenedTimes(): Record<string, number> {
   try {
-    return JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
+    return JSON.parse(localStorage.getItem(userKey("novel-reader-last-opened")) || "{}");
   } catch { return {}; }
 }
 
@@ -50,17 +50,15 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       const selectedIdx = chapter
         ? novel.chapters.findIndex((c) => c.id === chapter.id)
         : 0;
-      // Save position (even for first chapter) so bookshelf shows progress
       const positions = {
         ...get().readingPositions,
         [novel.id]: { chapterId: selectedId, chapterIndex: selectedIdx >= 0 ? selectedIdx : 0 },
       };
       savePositions(positions);
-      // Track last opened time for sorting
       try {
-        const opened = JSON.parse(localStorage.getItem("novel-reader-last-opened") || "{}");
+        const opened = getLastOpenedTimes();
         opened[novel.id] = Date.now();
-        localStorage.setItem("novel-reader-last-opened", JSON.stringify(opened));
+        localStorage.setItem(userKey("novel-reader-last-opened"), JSON.stringify(opened));
       } catch { /* ignore */ }
       set({
         currentNovel: novel,
@@ -82,7 +80,7 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       };
       savePositions(positions);
       set({ selectedChapterId: chapterId, readingPositions: positions });
-      syncClient.pushNow(); // immediate sync progress to server
+      syncClient.pushNow();
     } else {
       set({ selectedChapterId: chapterId });
     }

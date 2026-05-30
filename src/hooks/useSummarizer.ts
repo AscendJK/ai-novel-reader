@@ -1,18 +1,21 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { useAPIStore } from "@/stores/api-store";
 import { useSummaryStore, type SummaryItem } from "@/stores/summary-store";
 import { summarizerAgent, globalSummarizerAgent } from "@/agents/summarizer";
 import { characterAnalysisAgent, timelineAgent } from "@/agents/analyzers";
 import { characterGraphAgent } from "@/agents/graph-agent";
+import type { Agent, AgentContext, AgentResult } from "@/agents/types";
 import { getProvider } from "@/api/registry";
 import { saveSummary } from "@/db/repositories";
-import { db } from "@/db/database";
+import { getUserDB } from "@/db/database";
 import { APIError } from "@/api/error-handler";
-import { buildIndex, retrieveRelevantWithDetails } from "@/rag/index";
+import { buildIndex, retrieveRelevantWithDetails, retrieveRelevantForRange } from "@/rag/index";
+import { isEmbeddingEngine } from "@/rag/engines";
 import { useRAGStore } from "@/stores/rag-store";
 import { syncClient } from "@/sync/sync-client";
-import { addDebugEntry, ragLog } from "@/components/common/DebugPanel";
+import { addDebugEntry } from "@/components/common/DebugPanel";
+import { ragLog } from "@/lib/logger";
 import { setAiRunning } from "@/lib/ai-state";
 
 export interface GraphData {
@@ -28,6 +31,26 @@ interface TempResult {
   createdAt: number;
 }
 
+/** Compute keyword overlap between two Chinese/English texts (0-1) using bigrams */
+function keywordOverlap(a: string, b: string): number {
+  const tokenize = (s: string) => {
+    const tokens = new Set<string>();
+    // Chinese bigrams (consecutive CJK characters, including Extension B+ via /u flag)
+    const cjk = s.match(/[一-鿿㐀-䶿\u{20000}-\u{2a6df}]{2}/gu);
+    if (cjk) for (const t of cjk) tokens.add(t);
+    // English word-level tokens
+    const words = s.match(/[a-zA-Z0-9]+/g);
+    if (words) for (const w of words) tokens.add(w.toLowerCase());
+    return tokens;
+  };
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let overlap = 0;
+  for (const t of setA) { if (setB.has(t)) overlap++; }
+  return overlap / Math.min(setA.size, setB.size);
+}
+
 export function useSummarizer() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTask, setCurrentTask] = useState("");
@@ -36,6 +59,8 @@ export function useSummarizer() {
   const { getActiveProvider } = useAPIStore();
   const { addSummary, setProgress } = useSummaryStore();
   const abortRef = useRef<AbortController | null>(null);
+  // Cached RAG context for Q&A session (cleared on new session or every 3 follow-ups)
+  const qaRagCacheRef = useRef<{ question: string; text: string; followUps: number } | null>(null);
 
   const startTask = useCallback((name: string) => {
     setCurrentTask(name);
@@ -97,7 +122,7 @@ export function useSummarizer() {
         }
         setCurrentTask(`正在检索相关段落${degradedLabel}...`);
         const t0 = performance.now();
-        const result = await retrieveRelevantWithDetails(currentNovel.id, query);
+        const result = await retrieveRelevantWithDetails(currentNovel.id, query, undefined, engine);
         setRagEngineUsed(result.engine);
         addDebugEntry({ query, duration: (performance.now() - t0) / 1000, results: result.results, engine: result.engine });
         ragLog(`检索: "${query}" → ${result.results.length}段 ${result.text.length}字 (${result.engine})`);
@@ -135,7 +160,7 @@ export function useSummarizer() {
       const data = result.data as { summaries: { chapterTitle: string; content: string; tokens: number }[] };
       for (const s of data.summaries) {
         // Reuse existing ID for same (novelId, chapterId, type) — server upserts by ID, can't signal deletes
-        const existing = await db.summaries.where({ novelId: currentNovel.id, chapterId, type: "chapter" }).first();
+        const existing = await getUserDB().summaries.where({ novelId: currentNovel.id, chapterId, type: "chapter" }).first();
         const summary: SummaryItem = {
           id: existing?.id || crypto.randomUUID(), novelId: currentNovel.id, chapterId,
           chapterTitle: s.chapterTitle, content: s.content,
@@ -153,7 +178,7 @@ export function useSummarizer() {
       if (!currentNovel || !result.success || !result.data) return;
       const data = result.data as { content: string; usedFallback?: boolean };
       // Reuse existing ID for same (novelId, chapterId, type) — server upserts by ID, can't signal deletes
-      const existing = await db.summaries.where({ novelId: currentNovel.id, chapterId, type }).first();
+      const existing = await getUserDB().summaries.where({ novelId: currentNovel.id, chapterId, type }).first();
       const summary: SummaryItem = {
         id: existing?.id || crypto.randomUUID(), novelId: currentNovel.id, chapterId,
         chapterTitle: title + (data.usedFallback ? "（精简版）" : ""),
@@ -166,159 +191,220 @@ export function useSummarizer() {
     [currentNovel, addSummary]
   );
 
+  // --- 通用 Agent 任务执行器 ---
+  const runAgentTask = useCallback(async (options: {
+    taskName: string;
+    agent: Agent;
+    context: AgentContext;
+    errorMessage: string;
+    onSuccess?: (result: AgentResult) => Promise<void>;
+    returnData?: boolean;
+  }): Promise<unknown> => {
+    const { taskName, agent, context, errorMessage, onSuccess, returnData } = options;
+    startTask(taskName);
+    try {
+      const result = await agent.run(context);
+      if (result.success) {
+        if (onSuccess) {
+          setCurrentTask("正在保存结果...");
+          await onSuccess(result);
+        }
+        return returnData ? result.data : undefined;
+      } else {
+        setError(result.error || errorMessage);
+        return returnData ? null : undefined;
+      }
+    } catch (err) {
+      handleError(err);
+      return returnData ? null : undefined;
+    } finally {
+      endTask();
+      syncClient.pushNow();
+    }
+  }, [startTask, endTask, handleError, setCurrentTask]);
+
   // --- Chapter summary ---
   const summarizeChapter = useCallback(async (chapterId: string) => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("总结本章");
-    try {
-      const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal(), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveChapterSummary(chapterId, result); }
-      else setError(result.error || "总结生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveChapterSummary, handleError]);
+    await runAgentTask({
+      taskName: "总结本章",
+      agent: summarizerAgent,
+      context: { novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal(), onStatus: setCurrentTask },
+      errorMessage: "总结生成失败",
+      onSuccess: (result) => saveChapterSummary(chapterId, result),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveChapterSummary]);
 
   const regenerateChapter = useCallback(async (chapterId: string) => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("总结本章");
-    try {
-      const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal(), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveChapterSummary(chapterId, result); }
-      else setError(result.error || "重新生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveChapterSummary, handleError]);
+    await runAgentTask({
+      taskName: "重新生成总结",
+      agent: summarizerAgent,
+      context: { novelId: currentNovel.id, chapterIds: [chapterId], signal: createSignal(), onStatus: setCurrentTask },
+      errorMessage: "重新生成失败",
+      onSuccess: (result) => saveChapterSummary(chapterId, result),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveChapterSummary]);
 
-  const summarizeAllChapters = useCallback(async () => {
+  // 批量总结停止标志
+  const batchStopRef = useRef(false);
+
+  const summarizeAllChapters = useCallback(async (options?: { skipExisting?: boolean }) => {
     if (!currentNovel || !checkProvider()) return;
+    const { skipExisting = true } = options || {};
+
+    batchStopRef.current = false;
     startTask("批量总结所有章节");
     const chapters = currentNovel.chapters;
+
+    // 获取已有的章节总结
+    const existingSummaries = await getUserDB().summaries
+      .where({ novelId: currentNovel.id, type: "chapter" })
+      .toArray();
+    const existingChapterIds = new Set(existingSummaries.map(s => s.chapterId));
+
+    // 计算需要总结的章节
+    const chaptersToSummarize = skipExisting
+      ? chapters.filter(ch => !existingChapterIds.has(ch.id))
+      : chapters;
+
+    if (chaptersToSummarize.length === 0) {
+      setCurrentTask("所有章节已有总结");
+      endTask();
+      return;
+    }
+
     const signal = createSignal();
-    setProgress({ current: 0, total: chapters.length });
+    setProgress({ current: 0, total: chaptersToSummarize.length });
     try {
-      for (let i = 0; i < chapters.length; i++) {
+      for (let i = 0; i < chaptersToSummarize.length; i++) {
+        // 检查停止标志
+        if (batchStopRef.current) {
+          setCurrentTask("已停止批量总结");
+          break;
+        }
         if (signal.aborted) break;
-        setCurrentTask(`正在总结第 ${i + 1}/${chapters.length} 章...`);
-        const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chapters[i].id], signal, onStatus: setCurrentTask });
+
+        setCurrentTask(`正在总结第 ${i + 1}/${chaptersToSummarize.length} 章...`);
+        const result = await summarizerAgent.run({ novelId: currentNovel.id, chapterIds: [chaptersToSummarize[i].id], signal, onStatus: setCurrentTask });
         if (signal.aborted) break;
-        if (result.success) { setCurrentTask("正在保存结果..."); await saveChapterSummary(chapters[i].id, result); }
-        setProgress({ current: i + 1, total: chapters.length });
+        if (result.success) { setCurrentTask("正在保存结果..."); await saveChapterSummary(chaptersToSummarize[i].id, result); }
+        setProgress({ current: i + 1, total: chaptersToSummarize.length });
       }
     } catch (err) { handleError(err); }
-    finally { endTask(); setProgress(null); syncClient.pushNow(); }
+    finally {
+      endTask();
+      setProgress(null);
+      // 推送数据到服务器
+      syncClient.pushNow();
+    }
   }, [currentNovel, checkProvider, saveChapterSummary, setProgress, handleError]);
+
+  const stopBatchSummary = useCallback(() => {
+    batchStopRef.current = true;
+  }, []);
 
   // --- Global summary ---
   const generateGlobalSummary = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("生成全书总览");
-    try {
-      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说的核心主线、主题思想、故事梗概，关键情节的发展脉络"), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveGlobalSummary(result, "global", "全书总结", "__global__"); }
-      else setError(result.error || "全局总结生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "生成全书总览",
+      agent: globalSummarizerAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说的核心主线、主题思想、故事梗概，关键情节的发展脉络"), onStatus: setCurrentTask },
+      errorMessage: "全局总结生成失败",
+      onSuccess: (result) => saveGlobalSummary(result, "global", "全书总结", "__global__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   const regenerateGlobal = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("生成全书总览");
-    try {
-      const result = await globalSummarizerAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说的核心主线、主题思想、故事梗概，关键情节的发展脉络"), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveGlobalSummary(result, "global", "全书总结", "__global__"); }
-      else setError(result.error || "重新生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "重新生成全书总览",
+      agent: globalSummarizerAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说的核心主线、主题思想、故事梗概，关键情节的发展脉络"), onStatus: setCurrentTask },
+      errorMessage: "重新生成失败",
+      onSuccess: (result) => saveGlobalSummary(result, "global", "全书总结", "__global__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   // --- Character analysis ---
   const generateCharacterAnalysis = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("生成人物关系分析");
-    try {
-      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask });
-      if (result.success) {
-        setCurrentTask("正在保存结果...");
-        await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
-      } else {
-        setError(result.error || "人物分析失败");
-      }
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "生成人物关系分析",
+      agent: characterAnalysisAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask },
+      errorMessage: "人物分析失败",
+      onSuccess: (result) => saveGlobalSummary(result, "characters", "人物关系分析", "__characters__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   const regenerateCharacters = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("重新生成人物关系分析");
-    try {
-      const result = await characterAnalysisAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask });
-      if (result.success) {
-        setCurrentTask("正在保存结果...");
-        await saveGlobalSummary(result, "characters", "人物关系分析", "__characters__");
-      } else {
-        setError(result.error || "重新生成失败");
-      }
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "重新生成人物关系分析",
+      agent: characterAnalysisAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask },
+      errorMessage: "重新生成失败",
+      onSuccess: (result) => saveGlobalSummary(result, "characters", "人物关系分析", "__characters__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   // --- Character graph only (no text analysis) ---
   const generateCharacterGraph = useCallback(async (): Promise<GraphData | null> => {
     if (!currentNovel || !checkProvider()) return null;
-    startTask("生成人物关系图谱");
-    try {
-      const result = await characterGraphAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask });
-      if (result.success) {
-        const data = result.data as { graphData?: GraphData };
-        if (!data.graphData) setError("图谱生成成功但数据解析失败，请重试");
-        return data.graphData || null;
-      } else {
-        setError(result.error || "图谱生成失败");
-        return null;
-      }
-    } catch (err) { handleError(err); return null; }
-    finally { endTask(); }
-  }, [currentNovel, checkProvider, handleError]);
+    const result = await runAgentTask({
+      taskName: "生成人物关系图谱",
+      agent: characterGraphAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask },
+      errorMessage: "图谱生成失败",
+      returnData: true,
+    });
+    if (result && !result.graphData) {
+      setError("图谱生成成功但数据解析失败，请重试");
+      return null;
+    }
+    return result?.graphData || null;
+  }, [currentNovel, checkProvider, runAgentTask]);
 
   const regenerateCharacterGraph = useCallback(async (): Promise<GraphData | null> => {
     if (!currentNovel || !checkProvider()) return null;
-    startTask("重新生成人物关系图谱");
-    try {
-      const result = await characterGraphAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask });
-      if (result.success) {
-        const data = result.data as { graphData?: GraphData };
-        if (!data.graphData) setError("图谱生成成功但数据解析失败，请重试");
-        return data.graphData || null;
-      } else {
-        setError(result.error || "图谱生成失败");
-        return null;
-      }
-    } catch (err) { handleError(err); return null; }
-    finally { endTask(); }
-  }, [currentNovel, checkProvider, handleError]);
+    const result = await runAgentTask({
+      taskName: "重新生成人物关系图谱",
+      agent: characterGraphAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说中各主要角色的关系网络、互动、性格特征与情感变化"), onStatus: setCurrentTask },
+      errorMessage: "图谱生成失败",
+      returnData: true,
+    });
+    if (result && !result.graphData) {
+      setError("图谱生成成功但数据解析失败，请重试");
+      return null;
+    }
+    return result?.graphData || null;
+  }, [currentNovel, checkProvider, runAgentTask]);
 
   // --- Timeline ---
   const generateTimeline = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("生成剧情时间线");
-    try {
-      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说剧情的时间线、关键事件、转折点、伏笔与高潮结局"), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__"); }
-      else setError(result.error || "时间线生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "生成剧情时间线",
+      agent: timelineAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说剧情的时间线、关键事件、转折点、伏笔与高潮结局"), onStatus: setCurrentTask },
+      errorMessage: "时间线生成失败",
+      onSuccess: (result) => saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   const regenerateTimeline = useCallback(async () => {
     if (!currentNovel || !checkProvider()) return;
-    startTask("重新生成剧情时间线");
-    try {
-      const result = await timelineAgent.run({ novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说剧情的时间线、关键事件、转折点、伏笔与高潮结局"), onStatus: setCurrentTask });
-      if (result.success) { setCurrentTask("正在保存结果..."); await saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__"); }
-      else setError(result.error || "重新生成失败");
-    } catch (err) { handleError(err); }
-    finally { endTask(); syncClient.pushNow(); }
-  }, [currentNovel, checkProvider, saveGlobalSummary, handleError]);
+    await runAgentTask({
+      taskName: "重新生成剧情时间线",
+      agent: timelineAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), preRetrieved: await getRelevantText("小说剧情的时间线、关键事件、转折点、伏笔与高潮结局"), onStatus: setCurrentTask },
+      errorMessage: "重新生成失败",
+      onSuccess: (result) => saveGlobalSummary(result, "timeline", "剧情时间线", "__timeline__"),
+    });
+  }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
   // --- Temporary: range summary (in-memory, not saved to DB) ---
   const generateRangeSummary = useCallback(
@@ -327,12 +413,31 @@ export function useSummarizer() {
       const provider = getActiveProvider();
       if (!provider) return null;
 
-      // Use full novel's BGE index, query with range context
-      setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
-      const combinedText = await getRelevantText(`第${fromChapter}章到第${toChapter}章的核心情节、关键事件、人物变化与剧情发展`);
-      ragLog(`范围总结: combinedText=${combinedText.length}字`);
+      startTask(`第${fromChapter}-${toChapter}章 范围总结`);
+      try {
+        // Use RAG index filtered by chapter range
+        setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
+        let combinedText = "";
+        const prefEngine = useRAGStore.getState().engine;
+        if (isEmbeddingEngine(prefEngine)) {
+          try {
+            await buildIndex(currentNovel.id, currentNovel.chapters, prefEngine, undefined, { cacheOnly: true });
+            const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节、关键事件、人物变化与剧情发展`, fromChapter - 1, toChapter - 1, undefined, prefEngine);
+            combinedText = r.text;
+          } catch {
+            // Fall back to TF-IDF with range filter
+            await buildIndex(currentNovel.id, currentNovel.chapters, "tfidf");
+            const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节`, fromChapter - 1, toChapter - 1, undefined, "tfidf");
+            combinedText = r.text;
+          }
+        } else {
+          await buildIndex(currentNovel.id, currentNovel.chapters, "tfidf");
+          const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节`, fromChapter - 1, toChapter - 1, undefined, "tfidf");
+          combinedText = r.text;
+        }
+        ragLog(`范围总结: combinedText=${combinedText.length}字`);
 
-      const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
+        const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
 
 要求：
 1. **核心情节**（概括该段落的整体剧情走向）
@@ -346,11 +451,12 @@ export function useSummarizer() {
 
 ${combinedText}`;
 
-      try {
+        setCurrentTask("正在等待 AI 回答...");
         const providerInstance = getProvider(provider);
         const response = await providerInstance.chat({
           model: "", messages: [{ role: "user", content: prompt }],
           max_tokens: 2048, temperature: 0.5,
+          signal: createSignal(),
         });
 
         return {
@@ -363,6 +469,8 @@ ${combinedText}`;
       } catch (err) {
         handleError(err);
         return null;
+      } finally {
+        endTask();
       }
     },
     [currentNovel, checkProvider]
@@ -378,11 +486,21 @@ ${combinedText}`;
       const provider = getActiveProvider();
       if (!provider) return null;
 
-      // Build system context (only sent once)
+      // Build system context
       const chapterList = currentNovel.chapters.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
 
-      // Use RAG to find relevant text for this question
-      const relevantText = await getRelevantText(question);
+      // Use cached RAG context for follow-up questions, refresh if topic changes
+      let relevantText: string;
+      const QA_CACHE_MAX_FOLLOWUPS = 3;
+      const cached = qaRagCacheRef.current;
+      const isSameTopic = cached && keywordOverlap(cached.question, question) > 0.5;
+      if (cached && cached.followUps < QA_CACHE_MAX_FOLLOWUPS && isSameTopic) {
+        relevantText = cached.text;
+        cached.followUps++;
+      } else {
+        relevantText = await getRelevantText(question);
+        qaRagCacheRef.current = { question, text: relevantText, followUps: 0 };
+      }
 
       const systemPrompt = `你是一位专业的小说分析助手。请根据以下小说信息回答用户问题。请用中文回答。
 
@@ -411,6 +529,7 @@ ${relevantText || "（无额外参考信息，请基于章节目录回答）"}
           messages,
           max_tokens: 2048,
           temperature: 0.5,
+          signal: createSignal(),
         });
 
         return { answer: response.content, tokensUsed: response.tokensUsed.total };
@@ -424,12 +543,13 @@ ${relevantText || "（无额外参考信息，请基于章节目录回答）"}
 
   return {
     isRunning, currentTask, error,
-    summarizeChapter, summarizeAllChapters, regenerateChapter,
+    summarizeChapter, summarizeAllChapters, stopBatchSummary, regenerateChapter,
     generateGlobalSummary, regenerateGlobal,
     generateCharacterAnalysis, regenerateCharacters,
     generateCharacterGraph, regenerateCharacterGraph,
     generateTimeline, regenerateTimeline,
     generateRangeSummary, askCustomQuestion,
+    clearQaCache: () => { qaRagCacheRef.current = null; },
     clearError: () => setError(null),
     abortAll,
     ragEngineUsed,

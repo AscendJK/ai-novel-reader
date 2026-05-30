@@ -3,7 +3,7 @@ import { Upload, BookOpen, FolderOpen, Clock, ChevronRight, FileText, Trash2, Se
 import { useFileParser } from "@/hooks/useFileParser";
 import { useNovelStore, getLastOpenedTimes } from "@/stores/novel-store";
 import { loadAllNovelMeta, deleteNovel, loadNovel } from "@/db/repositories";
-import { db } from "@/db/database";
+import { sharedDB, getUserDB } from "@/db/database";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,15 +11,33 @@ import { Badge } from "@/components/ui/badge";
 import { formatCharCount } from "@/lib/text-utils";
 import { useBuildStore } from "@/stores/build-store";
 import { useRAGStore } from "@/stores/rag-store";
+import { useUIStore } from "@/stores/ui-store";
 import { getEngineDisplayName } from "@/rag/engines";
+import { ensureModelCached } from "@/rag/model-loader";
 import { authHeaders } from "@/lib/auth-headers";
+import { buildAndPollRAGIndex, downloadAndCacheIndex } from "@/rag/build-index";
+import { NovelBuildWindow } from "@/components/common/NovelBuildWindow";
 import type { NovelMeta } from "@/parsers/types";
 
+/** 服务器返回的小说数据类型 */
+interface ServerNovel {
+  id: string;
+  title: string;
+  author?: string;
+  fileName: string;
+  fileFormat: string;
+  totalChars: number;
+  chapterCount: number;
+  createdAt: number;
+  updatedAt: number;
+  joined?: boolean;
+}
+
 export function BookSelect() {
-  const { parseFile, isParsing, progress } = useFileParser();
+  const { parseFile, isParsing, progress, warning: parseWarning } = useFileParser();
   const { setCurrentNovel, readingPositions, addNovel } = useNovelStore();
   const [savedNovels, setSavedNovels] = useState<NovelMeta[]>([]);
-  const [serverNovels, setServerNovels] = useState<NovelMeta[]>([]);
+  const [serverNovels, setServerNovels] = useState<ServerNovel[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -29,16 +47,25 @@ export function BookSelect() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // 订阅构建状态变化，触发重渲染
+  const builds = useBuildStore((state) => state.builds);
+
   // Cleanup build polling on unmount
   useEffect(() => {
     return () => { if (buildPollRef.current) clearInterval(buildPollRef.current); };
   }, []);
 
   useEffect(() => {
+    // 只有在用户登录后才加载数据
+    const username = localStorage.getItem("sync-username");
+    if (!username) return;
+
     loadAllNovelMeta().then((novels) => {
       const lastOpened = getLastOpenedTimes();
       novels.sort((a, b) => (lastOpened[b.id] || 0) - (lastOpened[a.id] || 0));
       setSavedNovels(novels);
+    }).catch((err) => {
+      console.error("loadAllNovelMeta failed:", err);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -56,109 +83,125 @@ export function BookSelect() {
   const [scanning, setScanning] = useState(false);
   const engine = useRAGStore((s) => s.engine);
   const cachedKeys = useRAGStore((s) => s.cachedKeys);
+  const lruKeys = useRAGStore((s) => s.lruKeys);
+  const offlineMode = useUIStore((s) => s.offlineMode);
   const addCachedKey = useRAGStore((s) => s.addCachedKey);
-  const [buildingId, setBuildingId] = useState<string | null>(null);
-  const [buildStatuses, setBuildStatuses] = useState<Record<string, any>>({});
+  const [buildingKeys, setBuildingKeys] = useState<Set<string>>(new Set());
+  const [buildStatuses, setBuildStatuses] = useState<Record<string, Record<string, any>>>({});
 
-  // Scan ALL IndexedDB ragCache entries once on mount (engine-independent)
+  // Scan ragCache when novel count changes (new novel added or novel deleted)
+  const prevNovelCountRef = useRef(savedNovels.length);
   useEffect(() => {
+    if (savedNovels.length === prevNovelCountRef.current) return;
+    prevNovelCountRef.current = savedNovels.length;
     const ids = savedNovels.map((n) => n.id);
     if (!ids.length) return;
     (async () => {
       try {
-        const all = await db.ragCache.toArray();
+        const all = await sharedDB.ragCache.toArray();
         const novelIdSet = new Set(ids);
+        let totalBytes = 0;
         for (const entry of all) {
-          const nid = entry.novelId.slice(0, 36); // UUID is always 36 chars
-          if (novelIdSet.has(nid) && entry.vectors?.length) {
-            addCachedKey(entry.novelId);
+          if (novelIdSet.has(entry.novelId) && entry.vectors?.length) {
+            addCachedKey(entry.id);
+          }
+          if (entry.vectors?.length && entry.dim) {
+            totalBytes += entry.vectors.length * entry.dim * 4;
           }
         }
+        useRAGStore.getState().updateRagCacheSize(totalBytes);
       } catch { /* ignore */ }
     })();
   }, [savedNovels, addCachedKey]);
 
-  // Poll build statuses for the current engine
+  // Poll build statuses for ALL engines (so switching engines shows correct state)
   useEffect(() => {
-    if (engine === "tfidf") { setBuildStatuses({}); return; }
     const ids = savedNovels.map((n) => n.id);
     if (!ids.length) return;
     let active = true;
     const poll = async () => {
       try {
-        if (!localStorage.getItem("sync-token")) return;
-        const resp = await fetch(`/api/rag/statuses?ids=${ids.join(",")}&engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
+        if (!localStorage.getItem("sync-token") || useUIStore.getState().offlineMode) return;
+        const resp = await fetch(`/api/rag/statuses/all?ids=${ids.join(",")}`, { headers: authHeaders() });
         if (!active || !resp.ok) return;
         const statuses = await resp.json();
         setBuildStatuses(statuses);
-        const cur = buildingId ? statuses[buildingId] : null;
-        if (cur && (cur.status === "ready" || cur.status === "error")) {
-          setBuildingId(null);
-        }
+        // Clear building keys that are now ready or errored
+        setBuildingKeys(prev => {
+          const next = new Set(prev);
+          for (const key of prev) {
+            const [nid, eng] = key.split(";");
+            const st = statuses[nid]?.[eng];
+            if (st && (st.status === "ready" || st.status === "error")) {
+              next.delete(key);
+            }
+          }
+          return next.size === prev.size ? prev : next;
+        });
       } catch { /* server unreachable */ }
     };
     poll();
     const timer = setInterval(poll, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [savedNovels, buildingId, authHeaders, engine]);
+  }, [savedNovels]);
+
+  // Auto-download indexes that are ready on server but missing from local cache
+  const downloadingRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!savedNovels.length) return;
+    for (const novel of savedNovels) {
+      const cacheKey = `${novel.id}-${engine}`;
+      const st = buildStatuses[novel.id]?.[engine];
+      if (st?.status === "ready" && !cachedKeys.has(cacheKey) && !downloadingRef.current.has(cacheKey)) {
+        downloadingRef.current.add(cacheKey);
+        (async () => {
+          try {
+            await downloadAndCacheIndex({ novelId: novel.id, engine });
+          } catch { /* download failed, will retry on next effect run */ }
+          finally { downloadingRef.current.delete(cacheKey); }
+        })();
+      }
+    }
+  }, [buildStatuses, cachedKeys, engine, savedNovels]);
 
   const handleBuild = async (novelId: string) => {
-    // Clear any existing poll before starting a new one
-    if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
-    setBuildingId(novelId);
-    useBuildStore.getState().start();
-    const resp = await fetch(`/api/rag/${novelId}/build`, {
-      method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ engine }),
-    });
-    const result = await resp.json();
-    if (result.status === "busy") {
-      alert("服务器繁忙，当前排队已满。请稍后再试。");
-      useBuildStore.getState().dismiss();
-      setBuildingId(null);
-      return;
+    // Capture the engine at build start so polling stays consistent even if user switches engines
+    const buildEngine = engine;
+
+    try {
+      // Ensure engine model files are cached in browser before building
+      await ensureModelCached(buildEngine);
+
+      // 使用新的 build store
+      const buildStore = useBuildStore.getState();
+      buildStore.startBuild(novelId, buildEngine);
+
+      await buildAndPollRAGIndex({
+        novelId,
+        engine: buildEngine,
+        onProgress: (progress) => {
+          buildStore.updateProgress(novelId, buildEngine, {
+            status: progress.status as any,
+            message: progress.message,
+            current: progress.current || 0,
+            total: progress.total || 0,
+            queuePosition: progress.queuePosition,
+          });
+        },
+      });
+
+      // 构建成功
+      buildStore.finishBuild(novelId, buildEngine);
+      // 更新 buildStatuses（触发 UI 刷新）
+      setBuildStatuses(prev => ({
+        ...prev,
+        [novelId]: { ...(prev[novelId] || {}), [buildEngine]: { status: "ready" } },
+      }));
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "构建失败";
+      useBuildStore.getState().failBuild(novelId, buildEngine, message);
     }
-    useBuildStore.getState().setProgress({
-      message: result.status === "queued" ? `排队中 (第 ${result.queuePosition} 位)...` : "服务器构建中...",
-      novelId, engine,
-      status: result.status === "queued" ? "queued" : "building",
-      queuePosition: result.queuePosition,
-    } as any);
-    const bs = useBuildStore.getState();
-    buildPollRef.current = setInterval(async () => {
-      try {
-        const sr = await fetch(`/api/rag/${novelId}/status?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
-        const st = await sr.json();
-        if (st.status === "ready") {
-          bs.finish(); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
-          setBuildingId(null); setBuildStatuses((prev: any) => ({ ...prev, [novelId]: st }));
-          // Download built index into browser cache
-          try {
-            const ir = await fetch(`/api/rag/${novelId}/index?engine=${encodeURIComponent(engine)}`, { headers: authHeaders() });
-            if (ir.ok) {
-              const data = await ir.json();
-              const raw = Uint8Array.from(atob(data.vectorsBase64), c => c.charCodeAt(0));
-              const floats = new Float32Array(raw.buffer);
-              const vecs: number[][] = [];
-              for (let i = 0; i < data.chunkCount; i++) {
-                vecs.push(Array.from(floats.slice(i * data.dim, (i + 1) * data.dim)));
-              }
-              const cacheKey = `${novelId}-${engine}`;
-              await db.ragCache.put({ novelId: cacheKey, engine, vectors: vecs, chunks: data.chunks, dim: data.dim, createdAt: Date.now() });
-              addCachedKey(cacheKey);
-            }
-          } catch { /* cache download failed, non-critical */ }
-        } else if (st.status === "error") {
-          bs.fail(st.error || "失败"); if (buildPollRef.current) { clearInterval(buildPollRef.current); buildPollRef.current = null; }
-          setBuildingId(null);
-        } else if (st.status === "queued") {
-          bs.setProgress({ status: "queued", queuePosition: st.queuePosition || "?", message: `排队中 (第 ${st.queuePosition || "?"} 位)...`, novelId, engine } as any);
-        } else {
-          const msg = st.status === "loading" ? "正在加载模型..." : `正在编码 (${st.current ?? 0}/${st.total ?? "?"})`;
-          bs.setProgress({ status: "building", message: msg, current: st.current || 0, total: st.total || 0, novelId, engine });
-        }
-      } catch { /* keep polling */ }
-    }, 3000);
   };
 
   // Scan server novel library on demand
@@ -168,35 +211,36 @@ export function BookSelect() {
       const username = localStorage.getItem("sync-username");
       const url = username ? `/api/novels?username=${encodeURIComponent(username)}` : "/api/novels";
       const r = await fetch(url, { headers: authHeaders() });
-      const list = await r.json();
-      setServerNovels(list.map((n: any) => ({
+      const list: ServerNovel[] = await r.json();
+      setServerNovels(list.map((n) => ({
         id: n.id, title: n.title, author: n.author,
         fileName: n.fileName, fileFormat: n.fileFormat,
         totalChars: n.totalChars, chapterCount: n.chapterCount,
         createdAt: n.createdAt, updatedAt: n.updatedAt,
         joined: n.joined,
-      } as any)));
+      })));
       setServerScanned(true);
     } catch { /* server unreachable */ }
     finally { setScanning(false); }
   };
 
   // Join a server novel (download chapters + register on server)
-  const handleJoinNovel = async (novel: any) => {
+  const handleJoinNovel = async (novel: ServerNovel) => {
     setJoiningId(novel.id);
-    const username = localStorage.getItem("sync-username");
     try {
       const chResp = await fetch(`/api/novels/${novel.id}/chapters`, { headers: authHeaders() });
+      if (!chResp.ok) throw new Error(`获取章节失败 (${chResp.status})`);
       const chapters = await chResp.json();
-      await db.transaction("rw", db.novels, db.chapters, async () => {
-        await db.novels.put({
+      const udb = getUserDB();
+      await udb.transaction("rw", udb.novels, udb.chapters, async () => {
+        await udb.novels.put({
           id: novel.id, title: novel.title, author: novel.author,
           fileName: novel.fileName, fileFormat: novel.fileFormat,
           totalChars: novel.totalChars, chapterCount: chapters.length,
           createdAt: novel.createdAt, updatedAt: Date.now(),
         });
         for (const ch of chapters) {
-          await db.chapters.put({
+          await udb.chapters.put({
             id: ch.id, novelId: novel.id, index: ch.index,
             title: ch.title, content: ch.content,
             startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? (ch.content?.length ?? 0),
@@ -206,7 +250,7 @@ export function BookSelect() {
       addNovel({ ...novel, chapters, chapterCount: chapters.length });
       fetch(`/api/novels/${novel.id}/join`, {
         method: "POST", headers: authHeaders(),
-      }).catch(() => {});
+      }).catch((e) => console.warn("[BookSelect] join novel failed:", e));
       setSavedNovels((prev) => [{ ...novel, chapterCount: chapters.length }, ...prev]);
       setServerNovels((prev) => prev.map((n) => n.id === novel.id ? { ...n, joined: true } : n));
     } catch (e) { console.error("join failed:", e); }
@@ -337,7 +381,7 @@ export function BookSelect() {
     if (!window.confirm(`从书架移除《${title}》？\n\n将删除你关于此书的所有数据：\n- AI 总结和分析\n- 人物关系图谱\n- 笔记\n- 阅读进度\n\n小说本身仍保留在服务器书库中。`)) return;
     fetch(`/api/novels/${novelId}/leave`, {
       method: "POST", headers: authHeaders(),
-    }).catch(() => {});
+    }).catch((e) => console.warn("[BookSelect] leave novel failed:", e));
     await deleteNovel(novelId);
     setSavedNovels((prev) => prev.filter((n) => n.id !== novelId));
     setServerNovels((prev) => prev.map((n) => n.id === novelId ? { ...n, joined: false } : n));
@@ -432,6 +476,15 @@ export function BookSelect() {
           <Card className="border-destructive">
             <CardContent className="py-4">
               <p className="text-sm text-destructive">{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Warning */}
+        {parseWarning && (
+          <Card className="border-amber-500">
+            <CardContent className="py-4">
+              <p className="text-sm text-amber-600">{parseWarning}</p>
             </CardContent>
           </Card>
         )}
@@ -531,50 +584,106 @@ export function BookSelect() {
 
                       {/* Build status indicator — hidden for TF-IDF */}
                       {engine !== "tfidf" && (() => {
-                        const st = buildStatuses[novel.id] || { status: "none" };
+                        const st = buildStatuses[novel.id]?.[engine] || { status: "none" };
                         const chunkCount = st.chunkCount || 0;
                         const chunkLabel = chunkCount >= 10000 ? `${(chunkCount / 1000).toFixed(1)}k` : `${chunkCount}`;
                         const vecBytes = chunkCount * (st.dim || 512) * 4;
                         const sizeLabel = vecBytes >= 1048576 ? `${(vecBytes / 1048576).toFixed(1)}MB` : vecBytes >= 1024 ? `${Math.round(vecBytes / 1024)}KB` : `${vecBytes}B`;
                         const memKey = novel.id + "-" + engine;
-                        const cachedInBrowser = cachedKeys.has(memKey);
+                        const inMemory = lruKeys.has(memKey);
+                        const inIndexedDB = cachedKeys.has(memKey);
+                        const onServer = st.status === "ready";
                         const el = engine.includes("bge") ? "BGE" : engine.includes("gte") ? "GTE" : engine.includes("e5") ? "E5" : engine.includes("MiniLM") ? "MiniLM" : getEngineDisplayName(engine).split(" ")[0];
-                        if (st.status === "ready") {
+                        const buildKey = `${novel.id}-${engine}`;
+                        const buildStatus = builds.get(buildKey);
+                        const isBuilding = buildStatus && (buildStatus.status === "building" || buildStatus.status === "loading" || buildStatus.status === "encoding" || buildStatus.status === "queued");
+                        const statsText = chunkCount > 0 ? ` · ${chunkLabel}片段 · ${sizeLabel}` : "";
+
+                        // 点击 badge 打开构建窗口
+                        const handleBadgeClick = (e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          if (buildStatus) {
+                            useBuildStore.getState().toggleWindow(novel.id, engine);
+                          }
+                        };
+
+                        // Green: loaded in memory, ready for immediate retrieval
+                        if (inMemory) {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                              <Badge variant="outline" className={`text-[10px] ${cachedInBrowser ? "text-green-500 border-green-500/30" : "text-yellow-600 border-yellow-500/30"}`}>
-                                {cachedInBrowser ? `${el} 已缓存` : `${el} 就绪`}
-                                {chunkCount > 0 && ` · ${chunkLabel}片段 · ${sizeLabel}`}
+                              <Badge variant="outline" className="text-[10px] text-green-500 border-green-500/30">
+                                {`${el} 已加载`}{statsText}
                               </Badge>
                             </div>
                           );
                         }
-                        if (st.status === "building" || st.status === "loading" || st.status === "encoding") return (
-                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                            <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />
-                            <span className="text-[10px] text-yellow-500">{el} 构建中...</span>
-                          </div>
-                        );
-                        if (st.status === "queued") {
-                          const qpos = (st as any).queuePosition || "?";
+                        // Yellow: in IndexedDB, needs to be loaded into memory
+                        if (inIndexedDB) {
                           return (
                             <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                              <Badge variant="outline" className="text-[10px] text-yellow-600 border-yellow-500/30">
+                                {`${el} 已缓存`}{statsText}
+                              </Badge>
+                            </div>
+                          );
+                        }
+                        // Blue: on server only, not downloaded to browser
+                        if (onServer) {
+                          return (
+                            <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                              <Badge variant="outline" className="text-[10px] text-blue-500 border-blue-500/30">
+                                {`${el} 就绪`}{statsText}
+                              </Badge>
+                            </div>
+                          );
+                        }
+                        // 构建中 - 可点击打开窗口
+                        if (buildStatus && (buildStatus.status === "building" || buildStatus.status === "loading" || buildStatus.status === "encoding")) {
+                          return (
+                            <div
+                              className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50 cursor-pointer hover:bg-muted/50 rounded px-1"
+                              onClick={handleBadgeClick}
+                            >
+                              <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />
+                              <span className="text-[10px] text-yellow-500">{el} 构建中...</span>
+                            </div>
+                          );
+                        }
+                        // 排队中 - 可点击打开窗口
+                        if (buildStatus && buildStatus.status === "queued") {
+                          const qpos = buildStatus.queuePosition || "?";
+                          return (
+                            <div
+                              className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50 cursor-pointer hover:bg-muted/50 rounded px-1"
+                              onClick={handleBadgeClick}
+                            >
                               <Loader2 className="h-3 w-3 text-blue-400" />
                               <span className="text-[10px] text-blue-400">排队第 {qpos} 位</span>
                             </div>
                           );
                         }
-                        if (st.status === "error") return (
-                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-                            <span className="text-[10px] text-red-400">{el} 失败</span>
-                            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }}>重试</Button>
-                          </div>
-                        );
+                        // 构建失败 - 可点击打开窗口或重试
+                        if (buildStatus && buildStatus.status === "error") {
+                          return (
+                            <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                              <span
+                                className="text-[10px] text-red-400 cursor-pointer hover:underline"
+                                onClick={handleBadgeClick}
+                              >
+                                {el} 失败
+                              </span>
+                              <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }} disabled={offlineMode}>
+                                {offlineMode ? "离线" : "重试"}
+                              </Button>
+                            </div>
+                          );
+                        }
+                        // 未构建
                         return (
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
-                            <span className="text-[10px] text-muted-foreground">{el} 未构建</span>
-                            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }} disabled={buildingId === novel.id}>
-                              {buildingId === novel.id ? "触发中..." : "构建"}
+                            <span className="text-[10px] text-muted-foreground">{offlineMode ? `${el} 离线不可用` : `${el} 未构建`}</span>
+                            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); handleBuild(novel.id); }} disabled={isBuilding || offlineMode}>
+                              {offlineMode ? "离线" : isBuilding ? "触发中..." : "构建"}
                             </Button>
                           </div>
                         );
@@ -593,18 +702,21 @@ export function BookSelect() {
             <h2 className="text-lg font-semibold flex items-center gap-2 text-muted-foreground">
               <FolderOpen className="h-5 w-5" />书库
             </h2>
-            <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning}>
+            <Button variant="outline" size="sm" onClick={scanServer} disabled={scanning || offlineMode}>
               <Search className="h-4 w-4 mr-2" />
-              {scanning ? "扫描中..." : serverScanned ? "重新扫描" : "扫描书库"}
+              {offlineMode ? "离线不可用" : scanning ? "扫描中..." : serverScanned ? "重新扫描" : "扫描书库"}
             </Button>
           </div>
+          {offlineMode && (
+            <p className="text-xs text-muted-foreground text-center py-2">书库需要服务器在线才能访问</p>
+          )}
           {serverScanned && serverNovels.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4">书库为空</p>
           )}
           {serverScanned && serverNovels.length > 0 && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                {serverNovels.map((novel: any) => (
+                {serverNovels.map((novel) => (
                   <Card key={novel.id} className="transition-all hover:shadow-md">
                     <CardContent className="p-5">
                       <div className="flex items-start gap-3 mb-3">
@@ -625,8 +737,8 @@ export function BookSelect() {
                         {novel.joined ? (
                           <Badge variant="outline" className="text-xs text-muted-foreground">已添加</Badge>
                         ) : (
-                          <Button variant="outline" size="sm" onClick={() => handleJoinNovel(novel)} disabled={joiningId === novel.id}>
-                            {joiningId === novel.id ? "加载中..." : "加入书架"}
+                          <Button variant="outline" size="sm" onClick={() => handleJoinNovel(novel)} disabled={joiningId === novel.id || offlineMode}>
+                            {offlineMode ? "离线" : joiningId === novel.id ? "加载中..." : "加入书架"}
                           </Button>
                         )}
                       </div>
@@ -645,6 +757,19 @@ export function BookSelect() {
           </div>
         )}
       </div>
+
+      {/* 构建状态窗口 - 每本书独立 */}
+      {Array.from(builds.values()).map((build) => (
+        <NovelBuildWindow
+          key={`${build.novelId}-${build.engine}`}
+          build={build}
+          onRetry={() => handleBuild(build.novelId)}
+          onFallbackToTFIDF={() => {
+            useRAGStore.getState().setEngine("tfidf");
+            useBuildStore.getState().dismissWindow(build.novelId, build.engine);
+          }}
+        />
+      ))}
     </div>
   );
 }

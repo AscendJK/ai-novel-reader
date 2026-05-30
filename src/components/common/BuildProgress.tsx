@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Loader2, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -6,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface Props {
   open: boolean;
   engine: string;
-  status: "building" | "queued" | "done" | "error";
+  status: string;
   message: string;
   current?: number;
   total?: number;
@@ -21,7 +22,26 @@ interface Props {
 export function BuildProgress({ open, engine, status, message, current, total, error, novelId, queuePosition, onRetry, onFallbackToTFIDF, onDismiss }: Props) {
   if (!open) return null;
 
-  const isQueued = status === "queued";
+  // 跟踪是否已经开始构建（避免状态回退到 queued）
+  const [hasStartedBuilding, setHasStartedBuilding] = useState(false);
+
+  useEffect(() => {
+    if (status === "building" || status === "loading" || status === "encoding") {
+      setHasStartedBuilding(true);
+    }
+    // 重置条件：任务完成、出错或重新开始
+    if (status === "done" || status === "ready" || status === "error" || status === "none") {
+      setHasStartedBuilding(false);
+    }
+  }, [status]);
+
+  // 如果已经开始构建，强制显示为 building 状态
+  const displayStatus = (hasStartedBuilding && status === "queued") ? "building" : status;
+
+  const isQueued = displayStatus === "queued";
+  const isBuilding = displayStatus === "building" || displayStatus === "loading" || displayStatus === "encoding";
+  const isDone = displayStatus === "done" || displayStatus === "ready";
+  const isError = displayStatus === "error";
   const pct = total ? Math.round(((current || 0) / total) * 100) : 0;
 
   return (
@@ -31,14 +51,14 @@ export function BuildProgress({ open, engine, status, message, current, total, e
           <X className="h-4 w-4" />
         </button>
         <CardHeader className="text-center">
-          {status === "queued" && <Loader2 className="h-8 w-8 animate-spin text-blue-400 mx-auto mb-2" />}
-          {status === "building" && <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />}
-          {status === "done" && <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-2" />}
-          {status === "error" && <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />}
+          {isQueued && <Loader2 className="h-8 w-8 animate-spin text-blue-400 mx-auto mb-2" />}
+          {isBuilding && <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />}
+          {isDone && <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-2" />}
+          {isError && <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />}
           <CardTitle>
-            {status === "queued" ? `排队中 (第 ${queuePosition || "?"} 位)`
-              : status === "building" ? "正在构建检索索引"
-              : status === "done" ? "索引构建完成" : "索引构建失败"}
+            {isQueued ? `排队中 (第 ${queuePosition || "?"} 位)`
+              : isBuilding ? "正在构建检索索引"
+              : isDone ? "索引构建完成" : "索引构建失败"}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-center">
@@ -46,7 +66,7 @@ export function BuildProgress({ open, engine, status, message, current, total, e
             引擎: <span className="font-mono">{engine}</span>
           </p>
 
-          {!isQueued && status === "building" && (
+          {!isQueued && isBuilding && (
             <div className="space-y-2">
               <Progress value={total ? pct : undefined} className="h-2" />
               <p className="text-xs text-muted-foreground">
@@ -60,11 +80,11 @@ export function BuildProgress({ open, engine, status, message, current, total, e
 
           <p className="text-sm">{message}</p>
 
-          {status === "error" && error && (
+          {isError && error && (
             <p className="text-xs text-destructive">{error}</p>
           )}
 
-          {status === "error" && (
+          {isError && (
             <div className="flex gap-2 justify-center">
               <Button size="sm" onClick={onRetry}>重试</Button>
               <Button size="sm" variant="outline" onClick={onFallbackToTFIDF}>

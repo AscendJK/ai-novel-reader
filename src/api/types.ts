@@ -1,15 +1,13 @@
-export type ProviderType = "openai" | "anthropic" | "deepseek" | `openai-compat-${number}`;
-export const COMPAT_PREFIX = "openai-compat-";
-export function isCompatProvider(type: string): type is `openai-compat-${number}` {
-  return type.startsWith("openai-compat-");
-}
+export type ProviderFormat = "openai" | "anthropic";
 
 export interface ProviderConfig {
-  type: ProviderType;
+  id: string;
+  format: ProviderFormat;
   name: string;
   apiKey: string;
   baseUrl: string;
   model: string;
+  contextWindow?: number;
   maxTokens?: number;
 }
 
@@ -37,6 +35,6 @@ export interface ChatCompletionResponse {
 }
 
 export interface AIProvider {
-  type: ProviderType;
+  format: ProviderFormat;
   chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse>;
 }

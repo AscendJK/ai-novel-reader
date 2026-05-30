@@ -27,26 +27,6 @@ if [ "$NODE_MAJOR" -ge 24 ]; then
   exit 1
 fi
 
-# Install deps if needed
-if [ ! -d "node_modules" ]; then
-  echo ""
-  echo "First run: installing dependencies..."
-  echo "This may take 1-2 minutes, please wait..."
-  echo ""
-  if ! npm install --loglevel info; then
-    echo ""
-    echo "[ERROR] Failed to install dependencies."
-    echo ""
-    echo "  This is likely because better-sqlite3 could not compile."
-    echo "  Please install Node.js 22 LTS: https://nodejs.org"
-    echo ""
-    exit 1
-  fi
-  echo ""
-  echo "Dependencies installed successfully!"
-  echo ""
-fi
-
 echo "Select launch mode:"
 echo "  [1] Dev mode  (fast reload, sync server + Vite)"
 echo "  [2] Prod mode (stable, single port, recommended for mobile/LAN)"
@@ -56,7 +36,28 @@ read -r -p "Enter choice: " mode
 
 case "$mode" in
   0) exit 0 ;;
+
   2)
+    # Production mode: install only production dependencies
+    if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
+      echo ""
+      echo "Installing production dependencies..."
+      echo "This may take 1-2 minutes, please wait..."
+      echo ""
+      if ! npm install --production --loglevel info; then
+        echo ""
+        echo "[ERROR] Failed to install dependencies."
+        echo ""
+        echo "  This is likely because better-sqlite3 could not compile."
+        echo "  Please install Node.js 22 LTS: https://nodejs.org"
+        echo ""
+        exit 1
+      fi
+      echo ""
+      echo "Production dependencies installed!"
+      echo ""
+    fi
+
     PID=$(lsof -ti:5173 2>/dev/null || true)
     if [ -n "$PID" ]; then
       echo "Stopping old instance PID $PID..."
@@ -71,7 +72,28 @@ case "$mode" in
     echo "  PROD http://localhost:5173"
     echo "=============================="
     ;;
+
   *)
+    # Dev mode: install all dependencies (including dev tools)
+    if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
+      echo ""
+      echo "First run: installing all dependencies (including dev tools)..."
+      echo "This may take 1-2 minutes, please wait..."
+      echo ""
+      if ! npm install --loglevel info; then
+        echo ""
+        echo "[ERROR] Failed to install dependencies."
+        echo ""
+        echo "  This is likely because better-sqlite3 could not compile."
+        echo "  Please install Node.js 22 LTS: https://nodejs.org"
+        echo ""
+        exit 1
+      fi
+      echo ""
+      echo "All dependencies installed!"
+      echo ""
+    fi
+
     # Kill old processes
     for port in 5173 3001; do
       PID=$(lsof -ti:"$port" 2>/dev/null || true)

@@ -1,8 +1,10 @@
-import { db } from "./database";
+import { sharedDB, getUserDB, deleteUserDB } from "./database";
 import type { Novel, NovelMeta } from "@/parsers/types";
 import type { SummaryItem } from "@/stores/summary-store";
+import { useRAGStore } from "@/stores/rag-store";
 
 export async function saveNovel(novel: Novel): Promise<void> {
+  const db = getUserDB();
   try {
     await db.transaction("rw", db.novels, db.chapters, async () => {
       await db.novels.put({
@@ -35,6 +37,7 @@ export async function saveNovel(novel: Novel): Promise<void> {
 }
 
 export async function loadNovel(novelId: string): Promise<Novel | null> {
+  const db = getUserDB();
   try {
     const record = await db.novels.get(novelId);
     if (!record) return null;
@@ -59,9 +62,9 @@ export async function loadNovel(novelId: string): Promise<Novel | null> {
 }
 
 export async function loadAllNovelMeta(): Promise<NovelMeta[]> {
+  const db = getUserDB();
   try {
     const records = await db.novels.orderBy("createdAt").reverse().toArray();
-    // Single bulk query instead of N+1 per-novel queries
     const allChapters = await db.chapters.toArray();
     const countMap = new Map<string, number>();
     for (const ch of allChapters) {
@@ -80,9 +83,9 @@ export async function loadAllNovelMeta(): Promise<NovelMeta[]> {
 }
 
 export async function loadAllNovels(): Promise<Novel[]> {
+  const db = getUserDB();
   try {
     const records = await db.novels.orderBy("createdAt").reverse().toArray();
-    // Single bulk query instead of N+1 per-novel queries
     const allChapters = await db.chapters.toArray();
     const chaptersByNovel = new Map<string, typeof allChapters>();
     for (const ch of allChapters) {
@@ -111,44 +114,45 @@ export async function loadAllNovels(): Promise<Novel[]> {
 }
 
 export async function deleteNovel(novelId: string): Promise<void> {
+  const udb = getUserDB();
   try {
-    await db.transaction("rw", db.chapters, db.summaries, db.notes, db.settings, db.novels, db.ragCache, async () => {
-      await db.chapters.where("novelId").equals(novelId).delete();
+    await udb.transaction("rw", udb.chapters, udb.summaries, udb.notes, udb.novels, async () => {
+      await udb.chapters.where("novelId").equals(novelId).delete();
       // Soft-delete summaries and notes so sync propagates the deletion
       const now = Date.now();
-      const novelSummaries = await db.summaries.where("novelId").equals(novelId).toArray();
+      const novelSummaries = await udb.summaries.where("novelId").equals(novelId).toArray();
       for (const s of novelSummaries) {
-        if (!s.deleted) await db.summaries.put({ ...s, deleted: now, updatedAt: now });
+        if (!s.deleted) await udb.summaries.put({ ...s, deleted: now, updatedAt: now });
       }
-      const novelNotes = await db.notes.where("novelId").equals(novelId).toArray();
+      const novelNotes = await udb.notes.where("novelId").equals(novelId).toArray();
       for (const n of novelNotes) {
-        if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
+        if (!n.deleted) await udb.notes.put({ ...n, deleted: now, updatedAt: now });
       }
-      await db.settings.delete("character-graph-" + novelId).catch(() => {});
-      // Clean up RAG cache entries (key format: "novelId-engine")
-      const allCache = await db.ragCache.toArray();
-      for (const entry of allCache) {
-        if (entry.novelId === novelId || entry.novelId.startsWith(novelId + "-")) {
-          await db.ragCache.delete(entry.novelId);
-        }
-      }
-      await db.novels.delete(novelId);
+      await udb.novels.delete(novelId);
     });
+    // Clean up shared data (settings, ragCache)
+    await sharedDB.settings.delete("character-graph-" + novelId).catch((e) => console.warn("[repositories] delete character-graph failed:", e));
+    const cacheEntries = await sharedDB.ragCache.where("novelId").equals(novelId).toArray();
+    for (const entry of cacheEntries) {
+      await sharedDB.ragCache.delete(entry.id);
+      useRAGStore.getState().removeCachedKey(entry.id);
+    }
 
     try {
-      const stored = localStorage.getItem("novel-reader-positions-v2");
+      const user = localStorage.getItem("sync-username");
+      const posKey = user ? `novel-reader-positions:${user}` : "novel-reader-positions";
+      const stored = localStorage.getItem(posKey);
       if (stored) {
         const positions = JSON.parse(stored);
         delete positions[novelId];
-        localStorage.setItem("novel-reader-positions-v2", JSON.stringify(positions));
+        localStorage.setItem(posKey, JSON.stringify(positions));
       }
-    } catch { /* ignore */ }
-    try {
-      const opened = localStorage.getItem("novel-reader-last-opened");
+      const openedKey = user ? `novel-reader-last-opened:${user}` : "novel-reader-last-opened";
+      const opened = localStorage.getItem(openedKey);
       if (opened) {
         const map = JSON.parse(opened);
         delete map[novelId];
-        localStorage.setItem("novel-reader-last-opened", JSON.stringify(map));
+        localStorage.setItem(openedKey, JSON.stringify(map));
       }
     } catch { /* ignore */ }
   } catch (e) {
@@ -158,7 +162,7 @@ export async function deleteNovel(novelId: string): Promise<void> {
 
 export async function saveSummary(summary: SummaryItem & { novelId: string }): Promise<void> {
   try {
-    await db.summaries.put({
+    await getUserDB().summaries.put({
       id: summary.id, novelId: summary.novelId,
       chapterId: summary.chapterId, chapterTitle: summary.chapterTitle,
       content: summary.content, tokensUsed: summary.tokensUsed,
@@ -172,7 +176,7 @@ export async function saveSummary(summary: SummaryItem & { novelId: string }): P
 
 export async function loadSummaries(novelId: string): Promise<(SummaryItem & { novelId: string })[]> {
   try {
-    const all = await db.summaries.where("novelId").equals(novelId).sortBy("createdAt");
+    const all = await getUserDB().summaries.where("novelId").equals(novelId).sortBy("createdAt");
     return all.filter((s) => !s.deleted);
   } catch (e) {
     console.error("loadSummaries failed:", e);
@@ -182,7 +186,7 @@ export async function loadSummaries(novelId: string): Promise<(SummaryItem & { n
 
 export async function saveSetting(key: string, value: unknown): Promise<void> {
   try {
-    await db.settings.put({ key, value });
+    await sharedDB.settings.put({ key, value });
   } catch (e) {
     console.error("saveSetting failed:", e);
   }
@@ -190,7 +194,7 @@ export async function saveSetting(key: string, value: unknown): Promise<void> {
 
 export async function loadSetting<T>(key: string): Promise<T | null> {
   try {
-    const record = await db.settings.get(key);
+    const record = await sharedDB.settings.get(key);
     return record ? (record.value as T) : null;
   } catch (e) {
     console.error("loadSetting failed:", e);
@@ -214,13 +218,13 @@ export interface NoteItem {
 }
 
 export async function saveNote(note: NoteItem): Promise<void> {
-  try { await db.notes.put({ ...note }); }
+  try { await getUserDB().notes.put({ ...note }); }
   catch (e) { console.error("saveNote failed:", e); }
 }
 
 export async function loadNotes(novelId: string): Promise<NoteItem[]> {
   try {
-    const all = await db.notes.where("novelId").equals(novelId).reverse().sortBy("createdAt");
+    const all = await getUserDB().notes.where("novelId").equals(novelId).reverse().sortBy("createdAt");
     return all.filter((n) => !n.deleted);
   }
   catch (e) { console.error("loadNotes failed:", e); return []; }
@@ -228,7 +232,7 @@ export async function loadNotes(novelId: string): Promise<NoteItem[]> {
 
 export async function loadAllNotes(): Promise<NoteItem[]> {
   try {
-    const all = await db.notes.orderBy("createdAt").reverse().toArray();
+    const all = await getUserDB().notes.orderBy("createdAt").reverse().toArray();
     return all.filter((n) => !n.deleted);
   }
   catch (e) { console.error("loadAllNotes failed:", e); return []; }
@@ -236,6 +240,7 @@ export async function loadAllNotes(): Promise<NoteItem[]> {
 
 export async function deleteNote(noteId: string): Promise<void> {
   try {
+    const db = getUserDB();
     const note = await db.notes.get(noteId);
     if (note) {
       await db.notes.put({ ...note, deleted: Date.now(), updatedAt: Date.now() });
@@ -246,10 +251,64 @@ export async function deleteNote(noteId: string): Promise<void> {
 /** Delete all notes for a given novel+chapter combination */
 export async function deleteNotesByChapter(novelId: string, chapterId: string): Promise<void> {
   try {
+    const db = getUserDB();
     const notes = await db.notes.where({ novelId, chapterId }).toArray();
     const now = Date.now();
     for (const n of notes) {
       if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
     }
   } catch (e) { console.error("deleteNotesByChapter failed:", e); }
+}
+
+// ── Garbage collection for soft-deleted records ──
+
+const GC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export async function cleanupDeletedRecords() {
+  const db = getUserDB();
+  const cutoff = Date.now() - GC_MAX_AGE_MS;
+  try {
+    const oldSummaries = await db.summaries.where("deleted").above(0).toArray();
+    const oldNotes = await db.notes.where("deleted").above(0).toArray();
+    let sCount = 0, nCount = 0;
+    for (const s of oldSummaries) {
+      if ((s.updatedAt || 0) < cutoff) { await db.summaries.delete(s.id); sCount++; }
+    }
+    for (const n of oldNotes) {
+      if ((n.updatedAt || 0) < cutoff) { await db.notes.delete(n.id); nCount++; }
+    }
+    if (sCount || nCount) console.log(`[gc] cleaned ${sCount} summaries, ${nCount} notes`);
+  } catch (e) { console.error("[gc] cleanupDeletedRecords failed:", e); }
+}
+
+// ── Local user management ──
+
+const LOCAL_USERS_KEY = "novel-reader-local-users";
+
+/** Get all usernames that have been used on this device */
+export function getLocalUsers(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || "[]");
+  } catch { return []; }
+}
+
+/** Add a username to the local users list */
+export function addLocalUser(username: string) {
+  const users = getLocalUsers();
+  if (!users.includes(username)) {
+    users.push(username);
+    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+  }
+}
+
+/** Remove a username from the local users list */
+export function removeLocalUser(username: string) {
+  const users = getLocalUsers().filter((u) => u !== username);
+  localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+}
+
+/** Delete a user's entire database and remove from local users list */
+export async function deleteUserData(username: string) {
+  await deleteUserDB(username);
+  removeLocalUser(username);
 }

@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { ArrowLeft, Book, Settings, Moon, Sun, LogOut, User, StickyNote, WifiOff } from "lucide-react";
+import { ArrowLeft, Book, Settings, Moon, Sun, LogOut, User, StickyNote, WifiOff, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
-import { db } from "@/db/database";
 import { syncClient } from "@/sync/sync-client";
 
 interface HeaderProps {
@@ -14,44 +13,37 @@ interface HeaderProps {
 }
 
 export function Header({ inBook, bookTitle, onBack, onSettings, onNotes }: HeaderProps) {
-  const { theme, toggleTheme, offlineMode } = useUIStore();
-  const username = offlineMode ? localStorage.getItem("sync-username") : syncClient.user;
+  const { theme, toggleTheme, offlineMode, setOfflineMode } = useUIStore();
+  const username = syncClient.user || localStorage.getItem("sync-username");
   const [showUser, setShowUser] = useState(false);
+  const [showOfflineTip, setShowOfflineTip] = useState(false);
+
+  // 判断是否为手动离线（非自动离线）
+  const isManualOffline = offlineMode && !syncClient.isAutoOffline;
+
+  const handleToggleOffline = () => {
+    if (offlineMode) {
+      // 切换回在线模式
+      setOfflineMode(false);
+      setShowOfflineTip(false);
+      // 触发同步
+      if (syncClient.isLoggedIn) {
+        syncClient.pushNow();
+      }
+    } else {
+      // 切换到离线模式
+      setOfflineMode(true);
+    }
+  };
 
   const handleLogout = async () => {
-    if (!window.confirm("确定退出登录？\n\n退出后将清除本地数据并返回登录界面。")) return;
-    syncClient.logout();
-    // Clear only app-specific keys, not all localStorage
-    const keysToRemove = [
-      "sync-username", "sync-clientId", "sync-token",
-      "novel-reader-positions-v2", "novel-reader-last-opened",
-      "novel-reader-theme", "novel-reader-debug",
-      "novel-reader-offline-mode",
-    ];
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
-    // Preserve ALL users' API settings (local-only, never synced)
-    const savedApiSettings: Array<{ key: string; value: unknown }> = [];
-    try {
-      const allSettings = await db.settings.toArray();
-      for (const s of allSettings) {
-        if (s.key.startsWith("api-providers:") || s.key.startsWith("api-active-provider:")) {
-          savedApiSettings.push(s);
-        }
-      }
-    } catch { /* ignore */ }
-    db.transaction("rw", db.novels, db.chapters, db.summaries, db.notes, db.settings, async () => {
-      await db.novels.clear();
-      await db.chapters.clear();
-      await db.summaries.clear();
-      await db.notes.clear();
-      await db.settings.clear();
-    }).then(async () => {
-      // Restore all saved API settings
-      for (const s of savedApiSettings) {
-        await db.settings.put(s).catch(() => {});
-      }
-      window.location.reload();
-    }).catch(() => window.location.reload());
+    if (!window.confirm("确定退出登录？\n\n数据保留在本地，重新登录同一用户名可恢复。")) return;
+    // Only clear server session credentials, preserve username and all data
+    syncClient.stop();
+    ["sync-clientId", "sync-token", "novel-reader-offline-mode"].forEach(
+      (k) => localStorage.removeItem(k)
+    );
+    window.location.reload();
   };
 
   return (
@@ -76,12 +68,69 @@ export function Header({ inBook, bookTitle, onBack, onSettings, onNotes }: Heade
       </div>
 
       <div className="flex items-center gap-1">
+        {/* 离线模式标识 */}
         {offlineMode && (
-          <span className="text-xs text-amber-500 flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded mr-1">
-            <WifiOff className="h-3 w-3" />
-            <span className="hidden md:inline">离线</span>
-          </span>
+          <div className="relative">
+            <button
+              className={`text-xs flex items-center gap-1 px-1.5 py-0.5 rounded mr-1 transition-colors ${
+                isManualOffline
+                  ? "text-blue-500 bg-blue-500/10 hover:bg-blue-500/20"
+                  : "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
+              }`}
+              onClick={() => setShowOfflineTip((v) => !v)}
+              title={isManualOffline ? "手动离线模式 - 点击查看详情" : "自动离线模式 - 点击查看详情"}
+            >
+              {isManualOffline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              <span className="hidden md:inline">
+                {isManualOffline ? "手动离线" : "离线"}
+              </span>
+            </button>
+
+            {/* 离线模式详情弹窗 */}
+            {showOfflineTip && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowOfflineTip(false)} />
+                <div className="absolute top-full right-0 mt-1.5 z-50 bg-popover border rounded-md shadow-md p-3 text-xs whitespace-nowrap">
+                  <div className="space-y-2">
+                    <p className="font-medium">
+                      {isManualOffline ? "手动离线模式" : "自动离线模式"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {isManualOffline
+                        ? "您手动开启了离线模式，服务器同步已暂停。"
+                        : "服务器不可达，已自动切换到离线模式。"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      离线模式下：阅读、笔记、AI 分析（直连 API）可用。
+                    </p>
+                    <Button
+                      size="sm"
+                      className="w-full h-7 text-xs"
+                      onClick={handleToggleOffline}
+                    >
+                      <Wifi className="h-3 w-3 mr-1" />
+                      切换回在线
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         )}
+
+        {/* 在线状态（可点击切换到离线） */}
+        {!offlineMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-green-500"
+            onClick={handleToggleOffline}
+            title="在线 - 点击切换到离线模式"
+          >
+            <Wifi className="h-3.5 w-3.5" />
+          </Button>
+        )}
+
         {/* Username + logout */}
         {username && (
           <div className="flex items-center gap-2 mr-1 relative">

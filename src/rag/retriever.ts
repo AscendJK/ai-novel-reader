@@ -6,6 +6,7 @@
 export interface Chunk {
   id: string;
   content: string;
+  chapterIndex?: number; // 0-based chapter index, used for range filtering
 }
 
 interface DocVector {
