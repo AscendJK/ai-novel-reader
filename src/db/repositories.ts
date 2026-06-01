@@ -1,7 +1,10 @@
 import { sharedDB, getUserDB, deleteUserDB } from "./database";
 import type { Novel, NovelMeta } from "@/parsers/types";
 import type { SummaryItem } from "@/stores/summary-store";
+import type { MapRecord } from "./database";
 import { useRAGStore } from "@/stores/rag-store";
+
+export type { MapRecord };
 
 export async function saveNovel(novel: Novel): Promise<void> {
   const db = getUserDB();
@@ -36,28 +39,69 @@ export async function saveNovel(novel: Novel): Promise<void> {
   }
 }
 
-export async function loadNovel(novelId: string): Promise<Novel | null> {
+export async function loadNovel(novelId: string, chapterIndex?: number): Promise<Novel | null> {
   const db = getUserDB();
   try {
     const record = await db.novels.get(novelId);
     if (!record) return null;
 
-    const chapterRecords = await db.chapters.where("novelId").equals(novelId).sortBy("index");
+    const allChapterRecords = await db.chapters.where("novelId").equals(novelId).sortBy("index");
+    const totalCount = allChapterRecords.length;
+
+    // 如果指定了章节索引，只加载当前章节及前后各10章的内容
+    let chaptersToLoad = allChapterRecords;
+    if (chapterIndex !== undefined && totalCount > 21) {
+      const start = Math.max(0, chapterIndex - 10);
+      const end = Math.min(totalCount, chapterIndex + 11);
+      chaptersToLoad = allChapterRecords.slice(start, end);
+    }
+
+    // 构建完整的章节目录（所有章节都有标题，但只有部分有内容）
+    const loadedIndices = new Set(chaptersToLoad.map(ch => ch.index));
+    const chapters = allChapterRecords.map((ch) => ({
+      id: ch.id,
+      novelId: ch.novelId,
+      index: ch.index,
+      title: ch.title,
+      content: loadedIndices.has(ch.index) ? ch.content : "",  // 未加载的章节内容为空
+      startOffset: ch.startOffset ?? 0,
+      endOffset: ch.endOffset ?? ch.content.length,
+    }));
 
     return {
       id: record.id, title: record.title, author: record.author,
       fileName: record.fileName, fileFormat: record.fileFormat,
-      totalChars: record.totalChars, chapterCount: chapterRecords.length,
+      totalChars: record.totalChars, chapterCount: totalCount,
       createdAt: record.createdAt, updatedAt: record.updatedAt,
-      chapters: chapterRecords.map((ch) => ({
-        id: ch.id, novelId: ch.novelId, index: ch.index,
-        title: ch.title, content: ch.content,
-        startOffset: ch.startOffset ?? 0, endOffset: ch.endOffset ?? ch.content.length,
-      })),
+      chapters,
     };
   } catch (e) {
     console.error("loadNovel failed:", e);
     return null;
+  }
+}
+
+/** 加载指定章节（用于懒加载） */
+export async function loadChapter(novelId: string, chapterIndex: number): Promise<ChapterRecord | null> {
+  const db = getUserDB();
+  try {
+    const chapters = await db.chapters.where("novelId").equals(novelId).sortBy("index");
+    return chapters[chapterIndex] || null;
+  } catch (e) {
+    console.error("loadChapter failed:", e);
+    return null;
+  }
+}
+
+/** 批量加载章节（用于懒加载） */
+export async function loadChapters(novelId: string, startIndex: number, count: number): Promise<ChapterRecord[]> {
+  const db = getUserDB();
+  try {
+    const allChapters = await db.chapters.where("novelId").equals(novelId).sortBy("index");
+    return allChapters.slice(startIndex, startIndex + count);
+  } catch (e) {
+    console.error("loadChapters failed:", e);
+    return [];
   }
 }
 
@@ -258,6 +302,53 @@ export async function deleteNotesByChapter(novelId: string, chapterId: string): 
       if (!n.deleted) await db.notes.put({ ...n, deleted: now, updatedAt: now });
     }
   } catch (e) { console.error("deleteNotesByChapter failed:", e); }
+}
+
+// ── Maps ───────────────────────────────────────────────────────────
+
+import type { MapData } from "@/agents/types";
+
+export async function saveMap(novelId: string, data: MapData): Promise<void> {
+  try {
+    const db = getUserDB();
+    const now = Date.now();
+    const existing = await db.maps.get(novelId);
+    await db.maps.put({
+      id: novelId,
+      novelId,
+      data,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    });
+  } catch (e) {
+    console.error("saveMap failed:", e);
+  }
+}
+
+export async function loadMap(novelId: string): Promise<{ data: MapData | null; updatedAt?: number }> {
+  try {
+    const db = getUserDB();
+    const record = await db.maps.get(novelId);
+    if (record && !record.deleted) {
+      return { data: record.data as MapData, updatedAt: record.updatedAt };
+    }
+    return { data: null };
+  } catch (e) {
+    console.error("loadMap failed:", e);
+    return { data: null };
+  }
+}
+
+export async function deleteMap(novelId: string): Promise<void> {
+  try {
+    const db = getUserDB();
+    const record = await db.maps.get(novelId);
+    if (record) {
+      await db.maps.put({ ...record, deleted: Date.now(), updatedAt: Date.now() });
+    }
+  } catch (e) {
+    console.error("deleteMap failed:", e);
+  }
 }
 
 // ── Garbage collection for soft-deleted records ──

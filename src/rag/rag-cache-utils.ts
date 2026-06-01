@@ -17,8 +17,14 @@ export async function computeRagCacheSize(): Promise<number> {
     const all = await db.ragCache.toArray();
     let total = 0;
     for (const entry of all) {
-      if (entry.vectors?.length && entry.dim) {
-        total += entry.vectors.length * entry.dim * 4;
+      if (entry.vectorsBuffer && entry.dim && entry.chunkCount) {
+        // 向量数据大小
+        total += entry.chunkCount * entry.dim * 4;
+        // chunks 数据大小（估算）
+        if (entry.chunks && entry.chunks.length > 0) {
+          const chunksSize = entry.chunks.reduce((sum, c) => sum + (c.content?.length || 0) * 2, 0);
+          total += chunksSize;
+        }
       }
     }
     return total;
@@ -116,8 +122,8 @@ async function evictSmartestRagCacheEntry(skipNovelId?: string): Promise<{ freed
     scored.sort((a, b) => b.score - a.score);
 
     const toEvict = scored[0].entry;
-    const size = toEvict.vectors?.length && toEvict.dim
-      ? toEvict.vectors.length * toEvict.dim * 4
+    const size = toEvict.vectorsBuffer && toEvict.dim && toEvict.chunkCount
+      ? toEvict.chunkCount * toEvict.dim * 4
       : 0;
 
     await db.ragCache.delete(toEvict.id);

@@ -10,3 +10,4 @@ export { MiniCard } from "./MiniCard";
 export type { AnalysisMetadata } from "./MiniCard";
 export { Row } from "./Row";
 export { DataMgr } from "./DataMgr";
+export { NovelMapSection } from "./NovelMapSection";

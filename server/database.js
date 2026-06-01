@@ -127,6 +127,21 @@ try { db.exec("ALTER TABLE notes ADD COLUMN deleted INTEGER DEFAULT 0"); } catch
 try { db.exec("ALTER TABLE summaries ADD COLUMN deleted INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE summaries ADD COLUMN used_fallback INTEGER DEFAULT 0"); } catch {}
 
+// ── Migration: add maps table ────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS maps (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER DEFAULT 0,
+    updated_at INTEGER DEFAULT 0,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_maps_novel_user ON maps(novel_id, username);
+`);
+
 // ── Prepared statements ─────────────────────────────────────
 
 // ── Novels (shared library) ──
@@ -316,6 +331,22 @@ export function deleteNotesByChapter(username, novelId, chapterId) {
   db.prepare("DELETE FROM notes WHERE username = ? AND novel_id = ? AND chapter_id = ?").run(username, novelId, chapterId);
 }
 
+// ── Maps ──
+
+export function getMaps(username, novelId) {
+  return db.prepare("SELECT * FROM maps WHERE username = ? AND novel_id = ? AND (deleted IS NULL OR deleted = 0) ORDER BY updated_at").all(username, novelId);
+}
+
+export function upsertMap(m) {
+  db.prepare(`
+    INSERT INTO maps (id, novel_id, username, data, created_at, updated_at, deleted)
+    VALUES (@id, @novelId, @username, @data, @createdAt, @updatedAt, @deleted)
+    ON CONFLICT(id) DO UPDATE SET
+      data = @data, updated_at = @updatedAt, deleted = @deleted
+    WHERE @updatedAt >= updated_at
+  `).run({ ...m, updatedAt: m.updatedAt || Date.now(), deleted: m.deleted || 0 });
+}
+
 // ── Settings ──
 
 export function getSetting(username, key) {
@@ -366,6 +397,16 @@ export function gatherSyncData(username, since = 0) {
         FROM notes WHERE username = ?
       `).all(username);
 
+  const maps = since > 0
+    ? db.prepare(`
+        SELECT id, novel_id AS "novelId", username, data, created_at AS "createdAt", updated_at AS "updatedAt", deleted
+        FROM maps WHERE username = ? AND updated_at > ? AND (deleted IS NULL OR deleted = 0)
+      `).all(username, since)
+    : db.prepare(`
+        SELECT id, novel_id AS "novelId", username, data, created_at AS "createdAt", updated_at AS "updatedAt", deleted
+        FROM maps WHERE username = ? AND (deleted IS NULL OR deleted = 0)
+      `).all(username);
+
   const progress = getProgress(username);
 
   // Never return API key settings to clients (prefix match for user-specific keys)
@@ -388,8 +429,13 @@ export function gatherSyncData(username, since = 0) {
   for (const n of notes) {
     n.deleted = n.deleted || undefined;
   }
+  // Parse map data JSON
+  for (const m of maps) {
+    try { m.data = JSON.parse(m.data); } catch { m.data = {}; }
+    m.deleted = m.deleted || undefined;
+  }
 
-  return { summaries, notes, settings, progress, joinedNovelIds };
+  return { summaries, notes, maps, settings, progress, joinedNovelIds };
 }
 
 // ── Sync: apply merged data from server ──

@@ -1,15 +1,60 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNovelStore } from "@/stores/novel-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { ChevronRight, PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { ChevronRight, PanelLeftOpen, PanelLeftClose, Loader2 } from "lucide-react";
+import { loadChapters } from "@/db/repositories";
 
 const TOGGLE_W = "w-8";
 const TOGGLE_H = "h-[85px]"; // matches ChapterContent top bar height
 
 export function ChapterNav() {
-  const { currentNovel, selectedChapterId, setSelectedChapter } = useNovelStore();
+  const { currentNovel, selectedChapterId, setSelectedChapter, addChapters } = useNovelStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [loadingChapter, setLoadingChapter] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 当 selectedChapterId 变化或目录展开时，自动滚动到当前章节
+  useEffect(() => {
+    // 延迟执行，确保 DOM 已更新
+    const timer = setTimeout(() => {
+      if (selectedChapterId && scrollRef.current) {
+        const element = scrollRef.current.querySelector(`[data-chapter-id="${selectedChapterId}"]`);
+        if (element) {
+          element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedChapterId, collapsed]);
+
+  const handleChapterClick = useCallback(async (chapterId: string, chapterIndex: number) => {
+    if (!currentNovel) return;
+
+    // 检查章节内容是否已加载
+    const chapter = currentNovel.chapters.find(c => c.id === chapterId);
+    console.log(`[ChapterNav] Click: ${chapterId}, index=${chapterIndex}, hasContent=${!!chapter?.content}`);
+
+    if (chapter && chapter.content) {
+      // 已加载，直接切换
+      setSelectedChapter(chapterId);
+    } else {
+      // 未加载，需要懒加载
+      console.log(`[ChapterNav] Loading chapters around index ${chapterIndex}...`);
+      setLoadingChapter(chapterId);
+      try {
+        const start = Math.max(0, chapterIndex - 10);
+        const chapters = await loadChapters(currentNovel.id, start, 21);
+        console.log(`[ChapterNav] Loaded ${chapters.length} chapters, first: ${chapters[0]?.title}, last: ${chapters[chapters.length-1]?.title}`);
+        addChapters(chapters);
+        setSelectedChapter(chapterId);
+      } catch (err) {
+        console.error("[ChapterNav] Failed to load chapters:", err);
+      } finally {
+        setLoadingChapter(null);
+      }
+    }
+  }, [currentNovel, setSelectedChapter, addChapters]);
 
   if (!currentNovel) return null;
 
@@ -37,27 +82,42 @@ export function ChapterNav() {
           </div>
         </div>
         <ScrollArea className="h-[calc(100vh-150px)]">
-          <div className="p-1.5">
-            {currentNovel.chapters.map((ch) => (
-              <button
-                key={ch.id}
-                onClick={() => setSelectedChapter(ch.id)}
-                className={cn(
-                  "w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors flex items-center gap-1.5",
-                  selectedChapterId === ch.id
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "hover:bg-accent text-muted-foreground"
-                )}
-              >
-                <ChevronRight
+          <div className="p-1.5" ref={scrollRef}>
+            {currentNovel.chapters.map((ch) => {
+              const isLoaded = !!ch.content;
+              const isLoading = loadingChapter === ch.id;
+
+              return (
+                <button
+                  key={ch.id}
+                  data-chapter-id={ch.id}
+                  onClick={() => handleChapterClick(ch.id, ch.index)}
+                  disabled={isLoading}
                   className={cn(
-                    "h-3 w-3 shrink-0 transition-transform",
-                    selectedChapterId === ch.id && "text-primary"
+                    "w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors flex items-center gap-1.5",
+                    selectedChapterId === ch.id
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-accent text-muted-foreground",
+                    !isLoaded && "opacity-60"
                   )}
-                />
-                <span className="truncate">{ch.title}</span>
-              </button>
-            ))}
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <ChevronRight
+                      className={cn(
+                        "h-3 w-3 shrink-0 transition-transform",
+                        selectedChapterId === ch.id && "text-primary"
+                      )}
+                    />
+                  )}
+                  <span className="truncate">{ch.title}</span>
+                  {!isLoaded && !isLoading && (
+                    <span className="text-[10px] text-muted-foreground ml-auto">(未加载)</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </ScrollArea>
       </div>

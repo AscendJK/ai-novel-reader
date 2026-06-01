@@ -124,6 +124,8 @@ async function loadOverview() {
       <div class="stat"><div class="v">${s.userCount}</div><div class="l">用户数</div></div>
       <div class="stat"><div class="v">${s.novelCount}</div><div class="l">小说数</div></div>
       <div class="stat"><div class="v">${s.summaryCount}</div><div class="l">AI 总结数</div></div>
+      <div class="stat"><div class="v">${s.mapCount || 0}</div><div class="l">小说地图数</div></div>
+      <div class="stat"><div class="v">${s.graphCount || 0}</div><div class="l">人物图谱数</div></div>
       <div class="stat"><div class="v">${s.dbSizeMB} MB</div><div class="l">数据库大小</div></div>
     </div>
     <p style="color:#555;font-size:12px">数据库: server/data/novels.db</p>
@@ -150,14 +152,15 @@ async function loadUsers() {
     const statusDot = u.online
       ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4a4;margin-right:6px"></span>在线'
       : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px"></span>离线';
-    tr.innerHTML = `<td>${h(u.username)}</td><td>${statusDot}</td><td>${fmtLastSeen(u.lastSeen)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td>`;
+    const devicesHtml = (u.devices || []).map(d => `<code style="font-size:10px;background:#f0f0f0;padding:1px 4px;border-radius:3px">${h(d.slice(0, 8))}...</code>`).join(" ") || "-";
+    tr.innerHTML = `<td>${h(u.username)}</td><td>${statusDot}</td><td>${fmtLastSeen(u.lastSeen)}</td><td>${fmt(u.created_at)}</td><td>${u.novel_count}</td><td>${u.summary_count}</td><td>${u.note_count}</td><td>${u.map_count || 0}</td><td>${u.graph_count || 0}</td><td>${devicesHtml}</td>`;
     const td = document.createElement("td");
     const btn = document.createElement("button");
     btn.className = "danger"; btn.textContent = "删除";
     btn.addEventListener("click", () => delUser(u.username));
     td.appendChild(btn); tr.appendChild(td); tbody.appendChild(tr);
   }
-  document.getElementById("content").innerHTML = `<table><thead><tr><th>用户名</th><th>状态</th><th>最后活跃</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>操作</th></tr></thead></table>`;
+  document.getElementById("content").innerHTML = `<table><thead><tr><th>用户名</th><th>状态</th><th>最后活跃</th><th>创建时间</th><th>小说数</th><th>总结数</th><th>笔记数</th><th>地图数</th><th>图谱数</th><th>设备ID</th><th>操作</th></tr></thead></table>`;
   document.getElementById("content").querySelector("table").appendChild(tbody);
 }
 

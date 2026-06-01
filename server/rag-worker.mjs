@@ -17,7 +17,9 @@ async function run() {
 
   for (let b = 0; b < totalBatches; b++) {
     const batch = chunks.slice(b * batchSize, Math.min((b + 1) * batchSize, chunks.length));
-    const result = await pipe(batch, { pooling: "mean", normalize: true });
+    // 提取 content 字段（chunks 可能是字符串或对象）
+    const texts = batch.map(c => typeof c === "string" ? c : c.content);
+    const result = await pipe(texts, { pooling: "mean", normalize: true });
     const arr = await result.tolist();
     for (const row of arr) vectors.push(row);
     dim = vectors[0]?.length || dim;

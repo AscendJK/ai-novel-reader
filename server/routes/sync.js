@@ -72,7 +72,8 @@ router.post("/register", (req, res) => {
 
   if (!exists) db.createUser(trimmed);
 
-  const clientId = crypto.randomBytes(12).toString("hex");
+  // 优先使用客户端发送的 clientId，没有则生成新的
+  const clientId = req.body.clientId || crypto.randomBytes(12).toString("hex");
   const token = createSession(trimmed);
   const activeCount = register(trimmed, clientId, token);
   const lastSyncAt = Date.now();

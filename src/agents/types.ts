@@ -46,3 +46,38 @@ export interface OrchestratorTask {
   status: "pending" | "running" | "completed" | "failed";
   result?: AgentResult;
 }
+
+/** 地图数据结构 */
+export interface MapData {
+  /** 层级定义 */
+  layers: Array<{
+    level: number;
+    name: string;
+    description: string;
+  }>;
+  /** 地点 */
+  places: Array<{
+    id: string;
+    name: string;
+    type: string;
+    level: number;
+    parentId: string;
+    description: string;
+    importance: number;
+    x: number;
+    y: number;
+    affiliation: string;
+  }>;
+  /** 区域 */
+  regions: Array<{
+    name: string;
+    places: string[];
+  }>;
+  /** 势力 */
+  forces: Array<{
+    id: string;
+    name: string;
+    type: string;
+    places: string[];
+  }>;
+}

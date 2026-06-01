@@ -7,8 +7,8 @@ import { getEngineDisplayName, isEmbeddingEngine } from "@/rag/engines";
 import { authHeaders } from "@/lib/auth-headers";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useSummarizer } from "@/hooks/useSummarizer";
-import type { GraphData } from "@/hooks/useSummarizer";
-import { loadSetting, saveSetting, saveNote } from "@/db/repositories";
+import type { GraphData, MapData } from "@/hooks/useSummarizer";
+import { loadSetting, saveSetting, saveNote, loadMap } from "@/db/repositories";
 import type { NoteItem } from "@/db/repositories";
 import { syncClient } from "@/sync/sync-client";
 
@@ -30,18 +30,22 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   // Graph data
   const [characterGraphData, setCharacterGraphData] = useState<GraphData | null>(null);
 
+  // Map data
+  const [mapData, setMapData] = useState<MapData | null>(null);
+
   const { currentNovel, selectedChapterId } = useNovelStore();
   // Ref for latest selectedChapterId to avoid stale closures in callbacks
   const selectedChapterRef = useRef(selectedChapterId);
   selectedChapterRef.current = selectedChapterId;
   const { getSummariesByNovel, isGenerating, generateProgress } = useSummaryStore();
   const {
-    isRunning, currentTask, error,
+    isRunning, currentTask, currentTaskType, error,
     summarizeChapter, summarizeAllChapters, stopBatchSummary, regenerateChapter,
     generateGlobalSummary, regenerateGlobal,
     generateCharacterAnalysis, generateTimeline,
     generateCharacterGraph, regenerateCharacterGraph,
     regenerateCharacters, regenerateTimeline,
+    generateMap, regenerateMap,
     clearError, ragEngineUsed,
   } = useSummarizer();
 
@@ -64,6 +68,13 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   const offlineMode = useUIStore((s) => s.offlineMode);
   const buildPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 判断各个功能是否正在执行（使用 currentTaskType，不会被 Agent 的 onStatus 回调覆盖）
+  const isTimelineRunning = isRunning && currentTaskType.includes("时间线");
+  const isCharacterRunning = isRunning && (currentTaskType.includes("人物") || currentTaskType.includes("图谱"));
+  const isGlobalRunning = isRunning && currentTaskType.includes("全书");
+  const isMapRunning = isRunning && currentTaskType.includes("地图");
+  const isChapterRunning = isRunning && !isTimelineRunning && !isCharacterRunning && !isGlobalRunning && !isMapRunning;
+
   // Cleanup build poll on unmount
   useEffect(() => {
     return () => { if (buildPollRef.current) clearInterval(buildPollRef.current); };
@@ -72,9 +83,24 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
   // Check if current novel+engine has a built index + preload into memory
   const [indexReady, setIndexReady] = useState<boolean | null>(null);
   const [actualEngine, setActualEngine] = useState<string>("");
+  const addIndexLoadingKey = useRAGStore((s) => s.addIndexLoadingKey);
+  const removeIndexLoadingKey = useRAGStore((s) => s.removeIndexLoadingKey);
   useEffect(() => {
     if (!currentNovel) { setIndexReady(null); setActualEngine(""); return; }
     let cancelled = false;
+
+    // 使用全局变量避免重复加载（多个 SummaryPanel 实例共享）
+    const preloadKey = `${currentNovel.id}-${engine}`;
+    if ((window as any).__ragPreloaded?.has(preloadKey)) {
+      return;
+    }
+    if (!(window as any).__ragPreloaded) {
+      (window as any).__ragPreloaded = new Set();
+    }
+    (window as any).__ragPreloaded.add(preloadKey);
+
+    // 标记开始加载
+    addIndexLoadingKey(preloadKey);
 
     // Preload index into memory and determine actual engine
     (async () => {
@@ -88,6 +114,8 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       } else {
         if (!cancelled) setActualEngine("tfidf");
       }
+      // 标记加载完成
+      if (!cancelled) removeIndexLoadingKey(preloadKey);
     })();
 
     // Check server-side build status (for badge display)
@@ -174,7 +202,7 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       : n.chapterId === "__book__"
   );
 
-  // Load graph + notes on novel switch, clear QA
+  // Load graph + map + notes on novel switch, clear QA
   useEffect(() => {
     qaHook.setQaMessages([]); qaHook.setRangeResults([]); qaHook.setCustomQuestion(""); qaHook.setRangeFrom(""); qaHook.setRangeTo("");
     notesHook.setNoteContent(""); searchHook.setSearchQuery(""); searchHook.clearSearch();
@@ -184,9 +212,13 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
       loadSetting<GraphData>(`character-graph-${currentNovel.id}`).then((gd) => {
         if (!cancelled) setCharacterGraphData(gd);
       });
+      loadMap(currentNovel.id).then((md) => {
+        if (!cancelled) setMapData(md);
+      });
       notesHook.loadNotesList();
     } else {
       setCharacterGraphData(null);
+      setMapData(null);
       notesHook.setNotes([]);
     }
     return () => { cancelled = true; };
@@ -214,7 +246,6 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
         <div className="mx-2.5 mt-2 p-1.5 rounded bg-primary/10 border border-primary/20 flex items-center gap-2 text-xs text-primary shrink-0">
           <Loader2 className="h-3 w-3 animate-spin shrink-0" />
           <span>AI 正在执行：{currentTask || qaHook.qaLoading ? "问答中..." : "分析任务"}...</span>
-          <span className="text-[10px] text-muted-foreground ml-auto">请等待完成后再执行其他操作</span>
         </div>
       )}
 
@@ -292,12 +323,17 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
           {/* ====== 全书分析 Tab ====== */}
           <TabsContent value="book" className="m-0">
             <BookTab
+              novelId={currentNovel.id}
               timelineSummaries={tlSummaries}
               characterSummaries={charSummaries}
               globalSummaries={globalSummaries}
               bookSub={bookSub}
               setBookSub={setBookSub}
               loading={loading}
+              timelineLoading={isTimelineRunning}
+              characterLoading={isCharacterRunning}
+              globalLoading={isGlobalRunning}
+              mapLoading={isMapRunning}
               characterGraphData={characterGraphData}
               onGenerateTimeline={generateTimeline}
               onRegenerateTimeline={regenerateTimeline}
@@ -307,6 +343,8 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
               onRegenerateGraph={async () => { const gd = await regenerateCharacterGraph(); if (gd) saveGraph(gd); }}
               onGenerateGlobal={generateGlobalSummary}
               onRegenerateGlobal={regenerateGlobal}
+              onGenerateMap={generateMap}
+              onRegenerateMap={regenerateMap}
             />
           </TabsContent>
 
@@ -343,6 +381,8 @@ export function SummaryPanel({ defaultTab = "chapter" }: { defaultTab?: string }
           <div className="mt-1.5 max-h-32 overflow-auto">
             <DataMgr novelId={currentNovel.id} summaries={summaries} hasGraph={!!characterGraphData}
               onDeleteGraph={() => saveGraph(null)}
+              hasMap={!!mapData}
+              onDeleteMap={() => setMapData(null)}
               onNotesChanged={() => notesHook.loadNotesList()}
               noteCount={{
                 chapter: notesHook.notes.filter((n) => n.chapterId !== "__book__").length,

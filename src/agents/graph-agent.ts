@@ -27,9 +27,9 @@ class CharacterGraphAgent extends BaseAgent {
     const chapterList = novel.chapters.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
 
     const { content: relevantContent, label: promptLabel } = getRelevantContent(context, novel.chapters);
-    const charLimit = useUIStore.getState().graphCharacterLimit;
+    const charLimit = useUIStore.getState().graphCharacterLimit ?? 50;
 
-    context.onStatus?.("正在组织提示词...");
+    context.onStatus?.("正在准备分析数据...");
     const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，生成人物关系图谱的JSON数据。
 
 **小说：**《${novel.title}》
@@ -40,12 +40,14 @@ ${chapterList}
 ${relevantContent}
 
 请**只输出**一个JSON对象（不要其他任何文字），格式如下：
-{"nodes":[{"id":"张三","group":"主角","description":"勇敢的青年剑客"}],"edges":[{"source":"张三","target":"李四","label":"敌对"}]}
+{"nodes":[{"id":"张三","group":"主角","description":"勇敢的青年剑客，性格坚毅"}],"edges":[{"source":"张三","target":"李四","label":"敌对"}]}
 
 要求：
 - 识别10-${charLimit}个重要角色
-- group可选值：主角/配角/反派/导师/恋人/其他
-- label可选值：亲情/友情/爱情/敌对/师徒/利用/暗恋/仇敌/合作
+- **每个角色必须包含 description 字段**：用 15-30 字描述角色的身份、性格或关键特征
+- group 用于分类角色类型，你可以根据小说特点自定义分类，常见的有：主角/配角/反派/导师/恋人/中立/悲剧/幕后黑手/工具人/其他
+- label 用于描述人物关系，你可以根据小说特点自定义关系类型，常见的有：亲情/友情/爱情/敌对/师徒/利用/暗恋/仇敌/合作/主仆/同门/邻居/信任/背叛/保护/被保护
+- 确保同一类别的值保持一致（如不要同时使用"主角"和"主要角色"）
 - 确保所有source和target都在nodes中存在`;
 
     const estimatedInput = estimateTokens(prompt);
@@ -55,20 +57,25 @@ ${relevantContent}
       : prompt;
 
     try {
-      context.onStatus?.("正在等待 AI 回答...");
+      context.onStatus?.("AI 正在生成分析...");
       const response = await provider.chat({
         model: "",
         messages: [
           { role: "system", content: "你是一个JSON数据生成器。只输出JSON，不要任何解释文字。" },
           { role: "user", content: usePrompt },
         ],
-        max_tokens: 2048,
+        max_tokens: 16384,
         temperature: 0.3,
         signal: context.signal,
       });
 
+      // 检查响应内容
+      if (!response.content || response.content.trim().length === 0) {
+        return { success: false, error: "API 返回了空响应，请检查 API 配置或稍后重试。" };
+      }
+
       // Parse JSON from response
-      context.onStatus?.("正在解析人物图谱...");
+      context.onStatus?.("正在解析分析结果...");
       const graphData = this.parseGraphData(response.content);
 
       if (!graphData) {
@@ -92,26 +99,49 @@ ${relevantContent}
    */
   private parseGraphData(content: string): GraphData | null {
     let raw = content.trim();
+
     // Remove ```json ... ``` or ``` ... ``` wrappers
     raw = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```[\s\S]*$/i, "");
+
+    // Remove single-line comments (// ...)
+    raw = raw.replace(/\/\/.*$/gm, "");
+
+    // Remove trailing commas before } or ]
+    raw = raw.replace(/,\s*([}\]])/g, "$1");
 
     // Try direct parse first
     try {
       return JSON.parse(raw);
-    } catch {
-      // Fallback: extract first balanced JSON object
-      const start = raw.indexOf("{");
-      if (start >= 0) {
-        let depth = 0;
-        for (let i = start; i < raw.length; i++) {
-          if (raw[i] === "{") depth++;
-          else if (raw[i] === "}") depth--;
-          if (depth === 0) {
-            try {
-              return JSON.parse(raw.slice(start, i + 1));
-            } catch { /* not valid JSON */ }
-            break;
-          }
+    } catch { /* not valid JSON */ }
+
+    // Fallback: extract first balanced JSON object (considering strings)
+    const start = raw.indexOf("{");
+    if (start >= 0) {
+      let depth = 0;
+      let inString = false;
+      let escapeNext = false;
+      for (let i = start; i < raw.length; i++) {
+        const char = raw[i];
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (char === "\\") {
+          escapeNext = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (char === "{") depth++;
+        else if (char === "}") depth--;
+        if (depth === 0) {
+          try {
+            return JSON.parse(raw.slice(start, i + 1));
+          } catch { /* not valid JSON */ }
+          break;
         }
       }
     }
@@ -119,7 +149,7 @@ ${relevantContent}
   }
 
   /**
-   * 验证图谱数据结构
+   * 验证图谱数据结构（会修改输入数据：过滤无效的边、补全缺失字段）
    */
   private validateGraphData(graphData: GraphData): string | null {
     if (!Array.isArray(graphData?.nodes) || graphData.nodes.length === 0) {
@@ -127,6 +157,16 @@ ${relevantContent}
     }
     if (!Array.isArray(graphData?.edges) || graphData.edges.length === 0) {
       return "图谱数据不完整（edges 为空或不是数组），请重试。";
+    }
+
+    // 补全缺失的 description 字段
+    for (const node of graphData.nodes) {
+      if (!node.description) {
+        node.description = `${node.id}（${node.group || "未知"}）`;
+      }
+      if (!node.group) {
+        node.group = "其他";
+      }
     }
 
     // Filter out invalid edges (edges referencing non-existent nodes)

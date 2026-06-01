@@ -108,3 +108,16 @@
     display: none !important;
   }
 }
+
+/* Immersive reading on desktop */
+@media (min-width: 768px) {
+  html.immersive header {
+    display: none !important;
+  }
+  html.immersive [data-sidebar="chapter-nav"] {
+    display: none !important;
+  }
+  html.immersive [data-sidebar="summary-panel"] {
+    display: none !important;
+  }
+}

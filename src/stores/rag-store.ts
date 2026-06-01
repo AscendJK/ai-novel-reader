@@ -77,6 +77,7 @@ interface RAGState {
   ragCacheSizeBytes: number;
   cachedKeys: Set<string>;   // keys in IndexedDB (persistent browser cache)
   lruKeys: Set<string>;      // keys in LRU memory (ready for immediate retrieval)
+  indexLoadingKeys: Set<string>;  // keys currently loading from IndexedDB to memory
   topKDefault: number;
   topKTiers: TopKTier[];
   setEngine: (e: EngineId, name?: string, size?: string) => void;
@@ -89,6 +90,8 @@ interface RAGState {
   hasCachedKey: (key: string) => boolean;
   addLruKey: (key: string) => void;
   removeLruKey: (key: string) => void;
+  addIndexLoadingKey: (key: string) => void;
+  removeIndexLoadingKey: (key: string) => void;
   setTopKDefault: (val: number) => void;
   setTopKTiers: (tiers: TopKTier[]) => void;
   resetTopKConfig: () => void;
@@ -104,6 +107,7 @@ export const useRAGStore = create<RAGState>((set, get) => ({
   ragCacheSizeBytes: 0,
   cachedKeys: new Set<string>(),
   lruKeys: new Set<string>(),
+  indexLoadingKeys: new Set<string>(),
   topKDefault: _topKConfig.default,
   topKTiers: _topKConfig.tiers,
 
@@ -165,6 +169,18 @@ export const useRAGStore = create<RAGState>((set, get) => ({
     const next = new Set(get().lruKeys);
     next.delete(key);
     set({ lruKeys: next });
+  },
+
+  addIndexLoadingKey: (key) => {
+    const next = new Set(get().indexLoadingKeys);
+    next.add(key);
+    set({ indexLoadingKeys: next });
+  },
+
+  removeIndexLoadingKey: (key) => {
+    const next = new Set(get().indexLoadingKeys);
+    next.delete(key);
+    set({ indexLoadingKeys: next });
   },
 
   setTopKDefault: (val) => {

@@ -34,7 +34,7 @@ class SummarizerAgent extends BaseAgent {
     let truncated = false;
 
     for (const chapter of chapters) {
-      context.onStatus?.("正在组织提示词...");
+      context.onStatus?.("正在准备分析数据...");
       const originalLength = chapter.content.length;
       let chapterContent = chapter.content;
 
@@ -48,7 +48,7 @@ class SummarizerAgent extends BaseAgent {
       const prompt = buildChapterSummaryPrompt(chapter.title, chapterContent);
 
       try {
-        context.onStatus?.("正在等待 AI 回答...");
+        context.onStatus?.("AI 正在生成分析...");
         const response = await provider.chat({
           model: "",
           messages: [{ role: "user", content: prompt }],
@@ -124,13 +124,13 @@ class GlobalSummarizerAgent extends BaseAgent {
     const fallbackPrompt = this.buildFallbackPrompt(novel, chapterList, relevantContent, budget.maxInputTokens);
 
     // If the full prompt is too large, use the fallback
-    context.onStatus?.("正在估算 Token...");
+    context.onStatus?.("正在准备分析数据...");
     const estimatedInput = estimateTokens(metadataPrompt);
     const useFallback = estimatedInput >= budget.maxInputTokens * 0.7;
     const usePrompt = useFallback ? fallbackPrompt : metadataPrompt;
 
     try {
-      context.onStatus?.("正在等待 AI 回答...");
+      context.onStatus?.("AI 正在生成分析...");
       const response = await provider.chat({
         model: "",
         messages: [

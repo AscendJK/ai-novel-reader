@@ -24,7 +24,7 @@ class CharacterAnalysisAgent extends BaseAgent {
 
     const { content: relevantContent, label: promptLabel } = getRelevantContent(context, novel.chapters);
 
-    context.onStatus?.("正在组织提示词...");
+    context.onStatus?.("正在准备分析数据...");
     const prompt = `你是一位专业的小说人物关系分析专家。请根据以下小说信息，深入分析主要人物及其关系网络。
 
 **小说：**《${novel.title}》${novel.author ? ` · 作者：${novel.author}` : ""}
@@ -46,13 +46,13 @@ ${relevantContent}
 5. **人物重要性评估**：按剧情推动作用排序，说明每个角色对主线的影响`;
 
     const estimatedInput = estimateTokens(prompt);
-    const useFallback = estimatedInput >= budget.maxInputTokens * 0.7;
-    const usePrompt = useFallback
+    const usedFallback = estimatedInput >= budget.maxInputTokens * 0.7;
+    const usePrompt = usedFallback
       ? `请根据小说《${novel.title}》的章节目录分析人物关系。\n\n章节目录：\n${chapterList}\n\n请分析主要人物的关系网络、性格特征与成长变化。`
       : prompt;
 
     try {
-      context.onStatus?.("正在等待 AI 回答...");
+      context.onStatus?.("AI 正在生成分析...");
       const response = await provider.chat({
         model: "",
         messages: [
@@ -96,7 +96,7 @@ class TimelineAgent extends BaseAgent {
 
     const { content: relevantContent, label: promptLabel } = getRelevantContent(context, novel.chapters);
 
-    context.onStatus?.("正在组织提示词...");
+    context.onStatus?.("正在准备分析数据...");
     const prompt = `你是一位专业的小说剧情分析师。请根据以下小说信息，提取关键剧情时间线。
 
 **小说：**《${novel.title}》${novel.author ? ` · 作者：${novel.author}` : ""}
@@ -128,13 +128,13 @@ ${relevantContent}
 列出重要的伏笔及其回收章节。`;
 
     const estimatedInput = estimateTokens(prompt);
-    const useFallback = estimatedInput >= budget.maxInputTokens * 0.7;
-    const usePrompt = useFallback
+    const usedFallback = estimatedInput >= budget.maxInputTokens * 0.7;
+    const usePrompt = usedFallback
       ? `请根据《${novel.title}》的章节目录推断剧情时间线。\n章节目录：\n${chapterList}\n\n请按时间顺序逐条列出关键事件（不要用表格，不要在列表项内使用子列表），每个事件格式：\n1. **【事件名称】**（第X章 · 类型）发生了什么。→ 因果关系。\n\n标注"基于目录推断"。`
       : prompt;
 
     try {
-      context.onStatus?.("正在等待 AI 回答...");
+      context.onStatus?.("AI 正在生成分析...");
       const response = await provider.chat({
         model: "",
         messages: [

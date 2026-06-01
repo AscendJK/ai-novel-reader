@@ -65,6 +65,32 @@ case "$mode" in
     fi
     echo "Building for production..."
     npm run build
+
+    # Install SSL certificate to trusted root store
+    if [ -f "server/data/cert.pem" ]; then
+      echo "Installing SSL certificate..."
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain server/data/cert.pem 2>/dev/null && \
+          echo "SSL certificate installed (macOS)" || \
+          echo "[WARNING] Failed to install certificate. Run with sudo if needed."
+      elif [ -f /etc/debian_version ]; then
+        # Ubuntu/Debian
+        sudo cp server/data/cert.pem /usr/local/share/ca-certificates/ai-novel-reader.crt 2>/dev/null && \
+        sudo update-ca-certificates 2>/dev/null && \
+          echo "SSL certificate installed (Debian/Ubuntu)" || \
+          echo "[WARNING] Failed to install certificate. Run with sudo if needed."
+      elif [ -f /etc/redhat-release ]; then
+        # CentOS/RHEL
+        sudo cp server/data/cert.pem /etc/pki/ca-trust/source/anchors/ai-novel-reader.crt 2>/dev/null && \
+        sudo update-ca-trust 2>/dev/null && \
+          echo "SSL certificate installed (CentOS/RHEL)" || \
+          echo "[WARNING] Failed to install certificate. Run with sudo if needed."
+      else
+        echo "[INFO] Please manually install server/data/cert.pem to your system trust store."
+      fi
+    fi
+
     echo "Starting production server (port 5173)..."
     nohup node server/index.js --full > /dev/null 2>&1 &
     sleep 2

@@ -428,7 +428,7 @@ export function RAGSettings() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-muted/50">
-                  <th className="text-left px-3 py-1.5 font-medium">Chunk 数量上限</th>
+                  <th className="text-left px-3 py-1.5 font-medium">向量数量上限</th>
                   <th className="text-left px-3 py-1.5 font-medium">对应 TopK</th>
                   <th className="text-left px-3 py-1.5 font-medium">适用场景</th>
                 </tr>
@@ -481,10 +481,10 @@ export function RAGSettings() {
           {/* Preview */}
           <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
             <span className="font-medium text-foreground/70">预览：</span>
-            100 chunks → {getTopK(100)}，
-            500 chunks → {getTopK(500)}，
-            2000 chunks → {getTopK(2000)}，
-            6000 chunks → {getTopK(6000)}
+            100 向量 → {getTopK(100)}，
+            500 向量 → {getTopK(500)}，
+            2000 向量 → {getTopK(2000)}，
+            6000 向量 → {getTopK(6000)}
           </div>
 
           {/* Recommendations and warnings */}

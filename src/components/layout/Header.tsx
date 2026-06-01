@@ -39,8 +39,9 @@ export function Header({ inBook, bookTitle, onBack, onSettings, onNotes }: Heade
   const handleLogout = async () => {
     if (!window.confirm("确定退出登录？\n\n数据保留在本地，重新登录同一用户名可恢复。")) return;
     // Only clear server session credentials, preserve username and all data
+    // 保留 sync-clientId，这样重新登录时会被识别为已知设备
     syncClient.stop();
-    ["sync-clientId", "sync-token", "novel-reader-offline-mode"].forEach(
+    ["sync-token", "novel-reader-offline-mode"].forEach(
       (k) => localStorage.removeItem(k)
     );
     window.location.reload();

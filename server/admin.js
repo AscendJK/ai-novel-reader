@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as db from "./database.js";
 import { getTimeoutConfig, setPerChunkTimeout } from "./rag-builder.js";
-import { getUsersOnlineStatus } from "./sync-handler.js";
+import { getUsersOnlineStatus, getUserDevices } from "./sync-handler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, "data", ".admin_token");
@@ -36,7 +36,9 @@ export function mountAdminRoutes(app) {
     const userCount = db.db.prepare("SELECT COUNT(*) as c FROM users").get().c;
     const novelCount = db.db.prepare("SELECT COUNT(*) as c FROM novels").get().c;
     const summaryCount = db.db.prepare("SELECT COUNT(*) as c FROM summaries").get().c;
-    res.json({ userCount, novelCount, summaryCount, dbSize, dbSizeMB: (dbSize / 1048576).toFixed(1) });
+    const mapCount = db.db.prepare("SELECT COUNT(*) as c FROM maps WHERE deleted IS NULL OR deleted = 0").get().c;
+    const graphCount = db.db.prepare("SELECT COUNT(*) as c FROM user_settings WHERE key LIKE 'character-graph-%'").get().c;
+    res.json({ userCount, novelCount, summaryCount, mapCount, graphCount, dbSize, dbSizeMB: (dbSize / 1048576).toFixed(1) });
   });
 
   // ── Users ──
@@ -47,7 +49,9 @@ export function mountAdminRoutes(app) {
       SELECT u.username, u.created_at,
         (SELECT COUNT(*) FROM user_novels un WHERE un.username = u.username) as novel_count,
         (SELECT COUNT(*) FROM summaries s WHERE s.username = u.username) as summary_count,
-        (SELECT COUNT(*) FROM notes n WHERE n.username = u.username) as note_count
+        (SELECT COUNT(*) FROM notes n WHERE n.username = u.username) as note_count,
+        (SELECT COUNT(*) FROM maps m WHERE m.username = u.username AND (m.deleted IS NULL OR m.deleted = 0)) as map_count,
+        (SELECT COUNT(*) FROM user_settings us WHERE us.username = u.username AND us.key LIKE 'character-graph-%') as graph_count
       FROM users u ORDER BY u.created_at DESC
     `).all();
     const onlineMap = getUsersOnlineStatus();
@@ -55,6 +59,7 @@ export function mountAdminRoutes(app) {
       ...r,
       online: onlineMap[r.username]?.online || false,
       lastSeen: onlineMap[r.username]?.lastSeen || null,
+      devices: getUserDevices(r.username),
     })));
   });
 

@@ -3,7 +3,8 @@
  * 从 SummaryPanel.tsx 中提取
  */
 
-import { Loader2, MessageSquare, PlusCircle, Bookmark } from "lucide-react";
+import { useState } from "react";
+import { Loader2, MessageSquare, PlusCircle, Bookmark, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,42 +33,56 @@ export function QATab({
   selectedChapterId,
   onBookmark,
 }: QATabProps) {
+  const [rangeExpanded, setRangeExpanded] = useState(true);
+
   return (
     <>
       {/* QA input at top — always visible first */}
       <div className="px-2.5 pt-2 pb-2 space-y-1.5 border-b">
         <Card className="shadow-none">
           <CardContent className="p-2 space-y-1.5">
-            <p className="text-xs font-medium">范围总结</p>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">第</span>
-              <Input
-                id="range-from"
-                name="range-from"
-                className="h-6 text-xs w-10 text-center"
-                placeholder="1"
-                value={qaHook.rangeFrom}
-                onChange={(e) => qaHook.setRangeFrom(e.target.value)}
-              />
-              <span className="text-xs text-muted-foreground">-</span>
-              <Input
-                id="range-to"
-                name="range-to"
-                className="h-6 text-xs w-10 text-center"
-                placeholder={String(chapterCount)}
-                value={qaHook.rangeTo}
-                onChange={(e) => qaHook.setRangeTo(e.target.value)}
-              />
-              <span className="text-xs text-muted-foreground">章</span>
-              <Button
-                size="sm"
-                className="h-6 text-xs"
-                onClick={qaHook.handleRangeSummary}
-                disabled={loading}
-              >
-                生成
-              </Button>
+            <div
+              className="flex items-center justify-between cursor-pointer select-none"
+              onClick={() => setRangeExpanded(!rangeExpanded)}
+            >
+              <p className="text-xs font-medium">范围总结</p>
+              {rangeExpanded ? (
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              )}
             </div>
+            {rangeExpanded && (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-muted-foreground">第</span>
+                <Input
+                  id="range-from"
+                  name="range-from"
+                  className="h-6 text-xs w-16 text-center"
+                  placeholder="1"
+                  value={qaHook.rangeFrom}
+                  onChange={(e) => qaHook.setRangeFrom(e.target.value)}
+                />
+                <span className="text-xs text-muted-foreground">-</span>
+                <Input
+                  id="range-to"
+                  name="range-to"
+                  className="h-6 text-xs w-16 text-center"
+                  placeholder={String(chapterCount)}
+                  value={qaHook.rangeTo}
+                  onChange={(e) => qaHook.setRangeTo(e.target.value)}
+                />
+                <span className="text-xs text-muted-foreground">章</span>
+                <Button
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={qaHook.handleRangeSummary}
+                  disabled={loading}
+                >
+                  生成
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -127,6 +142,7 @@ export function QATab({
             onRemove={() =>
               qaHook.setRangeResults((p) => p.filter((x) => x.id !== r.id))
             }
+            onBookmark={() => onBookmark(r.title, r.content, "__book__", "book")}
           />
         ))}
 

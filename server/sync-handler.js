@@ -60,23 +60,20 @@ export function register(username, clientId, token) {
   const devices = knownDevices.get(username);
   const isKnownDevice = devices.has(clientId);
 
+  // 无论是否已知设备，都踢掉其他 session（单设备在线策略）
+  devices.add(clientId);
+  for (const [t, s] of sessions) {
+    if (s.username === username && t !== token) {
+      sessions.delete(t);
+    }
+  }
+  connections.set(username, clientId);
+  connectionLastSeen.set(username, Date.now());
+
   if (isKnownDevice) {
-    // Known device reconnecting — refresh token, don't kick active device
-    devices.add(clientId);
-    connections.set(username, clientId);
-    connectionLastSeen.set(username, Date.now());
     console.log(`[sync] device reconnected: ${username} (${clientId.slice(0, 8)})`);
   } else {
-    // New device — kick existing session (single-session enforcement)
-    devices.add(clientId);
-    for (const [t, s] of sessions) {
-      if (s.username === username && t !== token) {
-        sessions.delete(t);
-      }
-    }
-    connections.set(username, clientId);
-    connectionLastSeen.set(username, Date.now());
-    console.log(`[sync] new device, session replaced: ${username} (${clientId.slice(0, 8)})`);
+    console.log(`[sync] new device registered: ${username} (${clientId.slice(0, 8)})`);
   }
 
   let activeCount = 0;
@@ -147,6 +144,16 @@ export function checkUserOnline(username) {
   };
 }
 
+/**
+ * Get all device clientIds for a user
+ * @param {string} username
+ * @returns {string[]} Array of clientId strings
+ */
+export function getUserDevices(username) {
+  const devices = knownDevices.get(username);
+  return devices ? Array.from(devices) : [];
+}
+
 // Settings that contain sensitive data (API keys) — never sync these (prefix match for user-specific keys like "api-providers:user1")
 const SENSITIVE_PREFIXES = ["api-providers", "api-active-provider"];
 function isSensitiveKey(key) {
@@ -168,6 +175,13 @@ export function mergeAndSave(username, changes, lastSyncTime = 0) {
         if (!n.id || !n.novelId) continue;
         if (!db.getNovel(n.novelId)) continue; // skip orphaned records
         db.upsertNote({ ...n, username });
+      }
+    }
+    if (changes.maps?.length) {
+      for (const m of changes.maps) {
+        if (!m.id || !m.novelId) continue;
+        if (!db.getNovel(m.novelId)) continue; // skip orphaned records
+        db.upsertMap({ ...m, username, data: JSON.stringify(m.data) });
       }
     }
     if (changes.settings && Object.keys(changes.settings).length > 0) {

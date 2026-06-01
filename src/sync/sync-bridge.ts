@@ -21,9 +21,15 @@ export async function gatherChanges(lastSyncTime: number): Promise<Partial<SyncD
     ? allNotes.filter((n) => (n.updatedAt || 0) > lastSyncTime)
     : allNotes;
 
+  const allMaps = await udb.maps.toArray();
+  const filteredMaps = lastSyncTime > 0
+    ? allMaps.filter((m) => (m.updatedAt || 0) > lastSyncTime && !m.deleted)
+    : allMaps.filter((m) => !m.deleted);
+
   // 分批：只取前 BATCH_SIZE 条记录
   const summaries = filteredSummaries.slice(0, BATCH_SIZE);
   const notes = filteredNotes.slice(0, BATCH_SIZE);
+  const maps = filteredMaps.slice(0, BATCH_SIZE);
 
   // 如果有更多数据，记录日志
   if (filteredSummaries.length > BATCH_SIZE) {
@@ -31,6 +37,9 @@ export async function gatherChanges(lastSyncTime: number): Promise<Partial<SyncD
   }
   if (filteredNotes.length > BATCH_SIZE) {
     console.log(`[sync] notes batch: ${notes.length}/${filteredNotes.length}`);
+  }
+  if (filteredMaps.length > BATCH_SIZE) {
+    console.log(`[sync] maps batch: ${maps.length}/${filteredMaps.length}`);
   }
 
   // Gather settings (graph, RAG) — never sync API keys
@@ -53,9 +62,19 @@ export async function gatherChanges(lastSyncTime: number): Promise<Partial<SyncD
     lastOpened = JSON.parse(localStorage.getItem(userKey("novel-reader-last-opened")) || "{}");
   } catch { /* ignore */ }
 
+  // 调试日志
+  console.log("[sync] gatherChanges:", {
+    summaries: summaries.length,
+    notes: notes.length,
+    maps: maps.length,
+    settings: Object.keys(settings).length,
+    settingsKeys: Object.keys(settings),
+  });
+
   return {
     summaries,
     notes,
+    maps,
     settings,
     progress: { readingPositions, lastOpened },
   };
@@ -103,6 +122,18 @@ export async function applyServerData(data: SyncData): Promise<void> {
         const existing = await udb.notes.get(n.id);
         if (!existing || (n.updatedAt || 0) >= (existing.updatedAt || 0)) {
           await udb.notes.put(n);
+        }
+      }
+    });
+  }
+
+  // Maps — conflict resolution by updatedAt
+  if (data.maps?.length) {
+    await udb.transaction("rw", udb.maps, async () => {
+      for (const m of data.maps) {
+        const existing = await udb.maps.get(m.id);
+        if (!existing || (m.updatedAt || 0) >= (existing.updatedAt || 0)) {
+          await udb.maps.put(m);
         }
       }
     });

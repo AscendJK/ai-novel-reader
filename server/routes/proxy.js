@@ -49,6 +49,9 @@ router.post("/chat", rateLimit(60), async (req, res) => {
       }
     }
 
+    console.log(`[proxy] 请求: ${url}`);
+    const startTime = Date.now();
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -56,13 +59,40 @@ router.post("/chat", rateLimit(60), async (req, res) => {
         ...safeHeaders,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(180000), // 3 分钟超时
     });
 
-    const data = await response.json();
-    res.json(data);
+    const elapsed = Date.now() - startTime;
+    console.log(`[proxy] 响应: ${response.status} (${elapsed}ms)`);
+
+    // 检查响应是否成功
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[proxy] API 错误: ${response.status} ${response.statusText}`, errorText);
+      return res.status(response.status).json({
+        error: `API 返回错误: ${response.status} ${response.statusText}`,
+        details: errorText
+      });
+    }
+
+    const responseText = await response.text();
+    console.log(`[proxy] 响应内容长度: ${responseText.length} 字符`);
+
+    try {
+      const data = JSON.parse(responseText);
+      res.json(data);
+    } catch (e) {
+      console.error(`[proxy] JSON 解析失败:`, e);
+      console.error(`[proxy] 原始响应:`, responseText.slice(0, 500));
+      res.status(500).json({ error: "API 返回了无效的 JSON", raw: responseText.slice(0, 1000) });
+    }
   } catch (e) {
     console.error("[proxy] error:", e);
-    res.status(500).json({ error: "代理请求失败" });
+    if (e.name === "TimeoutError") {
+      res.status(504).json({ error: "代理请求超时（3分钟），API 服务器响应过慢" });
+    } else {
+      res.status(500).json({ error: "代理请求失败" });
+    }
   }
 });
 

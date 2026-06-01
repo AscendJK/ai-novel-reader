@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import type { GraphData } from "@/hooks/useSummarizer";
 import { Button } from "@/components/ui/button";
-import { Maximize2, Minimize2, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
+import { Maximize2, X, RefreshCw, ZoomIn, ZoomOut, Download } from "lucide-react";
 
 interface Props {
   graphData: GraphData;
@@ -15,11 +15,29 @@ const GROUP_COLORS: Record<string, string> = {
   "反派": "#dc2626",
   "导师": "#059669",
   "恋人": "#ec4899",
+  "中立": "#f59e0b",
+  "悲剧": "#6366f1",
+  "幕后黑手": "#7c2d12",
+  "工具人": "#84cc16",
   "其他": "#6b7280",
 };
 
+/**
+ * 根据 group 名称获取颜色
+ * 如果是预定义的颜色，直接返回
+ * 否则根据名称生成一致的颜色
+ */
 function getColor(group: string): string {
-  return GROUP_COLORS[group] || GROUP_COLORS["其他"];
+  // 预定义颜色
+  if (GROUP_COLORS[group]) {
+    return GROUP_COLORS[group];
+  }
+
+  // 根据名称生成颜色
+  const hash = group.split("").reduce((acc, char) => {
+    return char.charCodeAt(0) + ((acc << 5) - acc);
+  }, 0);
+  return `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
 }
 
 interface SimNode { id: string; group: string; description: string; x: number; y: number }
@@ -27,6 +45,7 @@ interface SimEdge { source: SimNode; target: SimNode; label: string }
 
 export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [simData, setSimData] = useState<{ nodes: SimNode[]; edges: SimEdge[] } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -46,6 +65,80 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
   const handleZoom = useCallback((delta: number) => {
     setZoom((z) => Math.max(0.3, Math.min(5, z + delta)));
   }, []);
+
+  // 导出图片
+  const handleExportImage = useCallback(() => {
+    const svgEl = svgRef.current || containerRef.current?.querySelector("svg");
+    if (!svgEl) return;
+    try {
+      // 克隆 SVG 以避免修改原始元素
+      const cloned = svgEl.cloneNode(true) as SVGSVGElement;
+      // 从 viewBox 提取坐标和尺寸
+      const vb = (svgEl.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+      const vbX = vb[0] || 0;
+      const vbY = vb[1] || 0;
+      const vbW = vb[2] || 800;
+      const vbH = vb[3] || 600;
+      // 设置明确的宽高，确保导出完整内容
+      const exportW = Math.max(vbW, 800);
+      const exportH = Math.max(vbH, 600);
+      cloned.setAttribute("width", String(exportW));
+      cloned.setAttribute("height", String(exportH));
+      cloned.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      // 添加白色背景（覆盖整个 viewBox 区域）
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("x", String(vbX));
+      bg.setAttribute("y", String(vbY));
+      bg.setAttribute("width", String(vbW));
+      bg.setAttribute("height", String(vbH));
+      bg.setAttribute("fill", "#ffffff");
+      cloned.insertBefore(bg, cloned.firstChild);
+
+      const svgData = new XMLSerializer().serializeToString(cloned);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      img.onload = () => {
+        const scale = 2; // 2x 分辨率
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth * scale;
+        canvas.height = img.naturalHeight * scale;
+        const ctx = canvas.getContext("2d")!;
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `character-graph-${Date.now()}.png`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          }
+        }, "image/png");
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } catch (err) {
+      console.error("Export image failed:", err);
+    }
+  }, []);
+
+  // 导出 JSON
+  const handleExportJson = useCallback(() => {
+    if (!graphData) return;
+    try {
+      const jsonStr = JSON.stringify(graphData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `character-graph-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export JSON failed:", err);
+    }
+  }, [graphData]);
 
   useEffect(() => {
     if (!graphData.nodes.length) return;
@@ -190,59 +283,111 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
     <>
       {/* Inline graph */}
       <div className="relative border rounded-lg bg-muted/20 overflow-hidden" style={{ height: inlineHeight }}>
-        <div className="absolute top-1 right-1 z-10 flex gap-1">
-          {onRegenerate && (
+        {onRegenerate && (
+          <div className="absolute top-1 right-1 z-10">
             <Button variant="ghost" size="icon" className="h-6 w-6 bg-background/80" onClick={onRegenerate} title="重绘">
               <RefreshCw className="h-3 w-3" />
             </Button>
-          )}
-          <Button variant="ghost" size="icon" className="h-6 w-6 bg-background/80" onClick={() => setExpanded(true)} title="放大">
-            <Maximize2 className="h-3 w-3" />
-          </Button>
-        </div>
+          </div>
+        )}
         <div className="w-full h-full flex items-center justify-center">
-          <svg viewBox={viewBoxStr}
+          <svg ref={svgRef} viewBox={viewBoxStr}
             className="w-full h-full" preserveAspectRatio="xMidYMid meet">
             {simData.nodes.map((n) => (
               <g key={n.id}>
-                {n.description && (
-                    <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
-                      onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
-                      onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
-                      onMouseLeave={() => setTooltip(null)}
-                      onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y }) as any}
-                    />
-                  )}
                 <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                   stroke="var(--background)" strokeWidth={1.5} />
                 <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
                   className="fill-foreground font-medium" fontSize={fontSize}>
                   {n.id}
                 </text>
+                {n.description && (
+                  <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
+                    onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
+                    onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
+                    onMouseLeave={() => setTooltip(null)}
+                    onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y })}
+                  />
+                )}
               </g>
             ))}
             {simData.edges.map((e, i) => {
               if (!e.source || !e.target) return null;
+              const mx = (e.source.x + e.target.x) / 2;
+              const my = (e.source.y + e.target.y) / 2;
               return (
-                <line key={`e-${i}`} x1={e.source.x} y1={e.source.y} x2={e.target.x} y2={e.target.y}
-                  stroke="currentColor" strokeOpacity={0.12} strokeWidth={0.8} />
+                <g key={`e-${i}`}>
+                  <line x1={e.source.x} y1={e.source.y} x2={e.target.x} y2={e.target.y}
+                    stroke="currentColor" strokeOpacity={0.12} strokeWidth={0.8} />
+                  <text x={mx} y={my} textAnchor="middle" dominantBaseline="middle"
+                    className="fill-muted-foreground" fontSize={fontSize * 0.85} dy={6}>
+                    {e.label}
+                  </text>
+                </g>
               );
             })}
           </svg>
         </div>
+        {/* Bottom gradient overlay with info and export buttons */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-2">
+          <div className="flex justify-between items-end">
+            <div className="text-xs text-white">
+              <p>{simData.nodes.length} 人 · {simData.edges.length} 条关系</p>
+            </div>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-6 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded(true);
+                }}
+              >
+                <Maximize2 className="h-3 w-3 mr-1" />
+                大图
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-6 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExportImage();
+                }}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                导出图片
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-6 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExportJson();
+                }}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                导出JSON
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
+      {/* Inline tooltip - fixed positioning to avoid overflow-hidden clipping */}
+      {!expanded && tooltip && (
+        <div className="fixed z-[60] px-2 py-1 rounded bg-black/90 text-white text-xs max-w-56 pointer-events-none"
+          style={{ left: ttScreen.sx + 12, top: ttScreen.sy - 10 }}>
+          {tooltip.desc}
+        </div>
+      )}
 
       {/* Expanded fullscreen */}
       {expanded && (
         <div className="fixed inset-0 z-50 bg-background/95 flex flex-col">
           {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
-            <div className="flex items-center gap-3">
-              <h3 className="font-semibold text-sm">人物关系图谱</h3>
-              <span className="text-xs text-muted-foreground">
-                {simData.nodes.length} 人 · {simData.edges.length} 条关系 · 可拖拽平移
-              </span>
-            </div>
             <div className="flex gap-1.5 items-center">
               <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(-0.2)} title="缩小">
                 <ZoomOut className="h-3.5 w-3.5" />
@@ -251,13 +396,10 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
               <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleZoom(0.2)} title="放大">
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
-              {onRegenerate && (
-                <Button variant="outline" size="sm" onClick={onRegenerate}>重绘</Button>
-              )}
-              <Button variant="outline" size="icon" onClick={() => setExpanded(false)}>
-                <Minimize2 className="h-4 w-4" />
-              </Button>
             </div>
+            <Button variant="outline" size="icon" onClick={() => setExpanded(false)}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
           {/* Scrollable graph area */}
           <div
@@ -303,18 +445,18 @@ export function CharacterGraph({ graphData, onRegenerate }: Props) {
                   <g key={n.id}>
                     <circle cx={n.x} cy={n.y} r={nodeRadius} fill={getColor(n.group)}
                       stroke="var(--background)" strokeWidth={2} />
-                    {n.description && (
-                    <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
-                      onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
-                      onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
-                      onMouseLeave={() => setTooltip(null)}
-                      onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y }) as any}
-                    />
-                  )}
                     <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" dy="0.1em"
                       className="fill-foreground font-medium" fontSize={fontSize}>
                       {n.id}
                     </text>
+                    {n.description && (
+                      <circle cx={n.x} cy={n.y} r={nodeRadius * 2} fill="transparent" style={{ pointerEvents: "all", cursor: "pointer" }}
+                        onMouseEnter={(e) => { setTooltip({ desc: n.description, x: n.x, y: n.y }); setTTScreen({ sx: e.clientX, sy: e.clientY }); }}
+                        onMouseMove={(e) => setTTScreen({ sx: e.clientX, sy: e.clientY })}
+                        onMouseLeave={() => setTooltip(null)}
+                        onClick={(e) => setTooltip((prev) => prev ? null : { desc: n.description, x: n.x, y: n.y }) as any}
+                      />
+                    )}
                   </g>
                 ))}
                 {/* Legend */}

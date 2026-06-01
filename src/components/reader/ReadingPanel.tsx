@@ -3,7 +3,7 @@ import { ChapterNav } from "./ChapterNav";
 import { ChapterContent } from "./ChapterContent";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
 import { LocalErrorBoundary } from "@/components/common/LocalErrorBoundary";
-import { PanelRightOpen, PanelRightClose, List, FileText, BookOpen, MessageSquare, StickyNote, X } from "lucide-react";
+import { PanelRightOpen, PanelRightClose, List, FileText, BookOpen, MessageSquare, StickyNote, Search, X } from "lucide-react";
 import { useSummaryStore } from "@/stores/summary-store";
 import { useNovelStore } from "@/stores/novel-store";
 
@@ -36,7 +36,7 @@ export function ReadingPanel() {
 
   return (
     <div className="flex h-full relative">
-      <div className="hidden md:flex shrink-0">
+      <div className="hidden md:flex shrink-0" data-sidebar="chapter-nav">
         <ChapterNav />
       </div>
 
@@ -73,29 +73,34 @@ export function ReadingPanel() {
           className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
           <StickyNote className="h-4 w-4" />笔记
         </button>
+        <button onClick={() => openMobileTab("search")}
+          className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-primary">
+          <Search className="h-4 w-4" />搜索
+        </button>
       </div>
       )}
 
       {/* Desktop: right panel */}
-      <div className="hidden md:flex">
-        {!summaryOpen && (
-          <button onClick={() => setSummaryOpen(true)}
-            className="h-[85px] w-8 bg-card border border-r-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0 relative">
+      <div className="hidden md:flex" data-sidebar="summary-panel">
+        {/* 折叠按钮 - 始终显示 */}
+        <button onClick={() => setSummaryOpen(!summaryOpen)}
+          className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0 relative">
+          {summaryOpen ? (
+            <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+          ) : (
             <PanelRightOpen className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            {hasCurrentSummary && <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />}
-          </button>
-        )}
-        {summaryOpen && (
-          <div className="flex">
-            <button onClick={() => setSummaryOpen(false)}
-              className="h-[85px] w-8 bg-card border border-l-0 rounded-l-md flex items-center justify-center hover:bg-accent transition-colors group shadow-sm shrink-0">
-              <PanelRightClose className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            </button>
-            <LocalErrorBoundary name="SummaryPanel">
-              <SummaryPanel />
-            </LocalErrorBoundary>
-          </div>
-        )}
+          )}
+          {!summaryOpen && hasCurrentSummary && (
+            <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+          )}
+        </button>
+
+        {/* SummaryPanel - 始终渲染，用 CSS 隐藏 */}
+        <div style={{ display: summaryOpen ? undefined : "none" }}>
+          <LocalErrorBoundary name="SummaryPanel">
+            <SummaryPanel />
+          </LocalErrorBoundary>
+        </div>
       </div>
 
       {/* Mobile: chapter nav drawer (left) */}

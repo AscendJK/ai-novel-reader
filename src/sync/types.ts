@@ -1,9 +1,10 @@
 import type { SummaryItem } from "@/stores/summary-store";
-import type { NoteItem } from "@/db/repositories";
+import type { NoteItem, MapRecord } from "@/db/repositories";
 
 export interface SyncData {
   summaries: SummaryItem[];
   notes: NoteItem[];
+  maps: MapRecord[];
   settings: Record<string, unknown>;
   progress: {
     readingPositions: Record<string, { chapterId: string; chapterIndex: number }>;

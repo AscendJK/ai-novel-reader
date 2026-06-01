@@ -14,7 +14,6 @@ import { useUIStore } from "@/stores/ui-store";
 import { syncClient } from "@/sync/sync-client";
 import { RAGSettings } from "./RAGSettings";
 import { ExportPanel } from "./ExportPanel";
-import { ShortcutHelp } from "@/components/common/ShortcutHelp";
 
 function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -24,7 +23,6 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
   const { providers, addProvider, removeProvider, activeProviderId, setActiveProvider } = useAPIStore();
   const { offlineMode, setOfflineMode } = useUIStore();
   const [editing, setEditing] = useState<ProviderConfig | null>(null);
-  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
 
   const handleAdd = () => {
     setEditing({
@@ -220,10 +218,30 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
           <CardDescription>阅读时可用的快捷键</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">滚动模式</p>
           {[
             ["← / →", "上一章 / 下一章"],
             ["+ / −", "增大 / 减小字号"],
             ["i", "切换沉浸模式"],
+          ].map(([key, desc]) => (
+            <div key={key} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{desc}</span>
+              <kbd className="px-2 py-0.5 text-xs rounded border bg-muted font-mono">{key}</kbd>
+            </div>
+          ))}
+          <p className="text-xs font-medium text-muted-foreground pt-2">翻页模式（单页/双页）</p>
+          {[
+            ["← / → / Space", "上一页 / 下一页"],
+            ["+ / −", "增大 / 减小字号"],
+            ["i", "切换沉浸模式"],
+          ].map(([key, desc]) => (
+            <div key={key} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{desc}</span>
+              <kbd className="px-2 py-0.5 text-xs rounded border bg-muted font-mono">{key}</kbd>
+            </div>
+          ))}
+          <p className="text-xs font-medium text-muted-foreground pt-2">全局</p>
+          {[
             ["t", "切换主题"],
             ["Esc", "关闭弹窗"],
             ["Shift + ?", "显示快捷键帮助"],
@@ -233,9 +251,6 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
               <kbd className="px-2 py-0.5 text-xs rounded border bg-muted font-mono">{key}</kbd>
             </div>
           ))}
-          <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowShortcutHelp(true)}>
-            查看全部快捷键
-          </Button>
         </CardContent>
       </Card>
 
@@ -270,13 +285,6 @@ export function ApiSettings({ onBack }: { onBack?: () => void }) {
       <Separator />
 
       <ExportPanel />
-
-      {showShortcutHelp && (
-        <ShortcutHelp shortcuts={[
-          { key: "ArrowLeft", action: () => {}, description: "上一章" },
-          { key: "ArrowRight", action: () => {}, description: "下一章" },
-        ]} onClose={() => setShowShortcutHelp(false)} />
-      )}
     </div>
   );
 }

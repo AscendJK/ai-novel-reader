@@ -162,28 +162,55 @@ export async function downloadAndCacheIndex(options: DownloadOptions): Promise<D
     throw new Error(`索引下载失败 (${resp.status})`);
   }
 
-  const data = await resp.json();
+  // 解析二进制响应
+  const buffer = await resp.arrayBuffer();
 
-  // 解码 base64 vectors
-  const raw = Uint8Array.from(atob(data.vectorsBase64), c => c.charCodeAt(0));
-  const floats = new Float32Array(raw.buffer);
-  const vecs: number[][] = [];
-  for (let i = 0; i < data.chunkCount; i++) {
-    vecs.push(Array.from(floats.slice(i * data.dim, (i + 1) * data.dim)));
+  // 边界验证
+  if (buffer.byteLength < 12) {
+    throw new Error("索引数据过小，无法解析 header");
   }
 
-  // 预检查缓存空间
-  const requiredBytes = data.chunkCount * data.dim * 4;
-  await ensureCacheSpace(requiredBytes);
+  const headerView = new DataView(buffer.slice(0, 12));
+  const chunksJsonLen = headerView.getUint32(0, true);
+  const dim = headerView.getUint32(4, true);
+  const chunkCount = headerView.getUint32(8, true);
 
-  // 存入 IndexedDB
+  // 验证 header 值的合理性
+  if (dim === 0 || dim > 4096) {
+    throw new Error(`向量维度异常: ${dim}`);
+  }
+  if (chunkCount === 0 || chunkCount > 1000000) {
+    throw new Error(`chunk 数量异常: ${chunkCount}`);
+  }
+
+  const expectedMinSize = 12 + chunksJsonLen;
+  if (expectedMinSize > buffer.byteLength) {
+    throw new Error(`chunksJsonLen (${chunksJsonLen}) 超出数据范围`);
+  }
+
+  const expectedVectorBytes = chunkCount * dim * 4;
+  const actualVectorBytes = buffer.byteLength - expectedMinSize;
+  if (actualVectorBytes < expectedVectorBytes) {
+    throw new Error(`向量数据不完整: 期望 ${expectedVectorBytes} 字节, 实际 ${actualVectorBytes} 字节`);
+  }
+
+  // 解析 chunks JSON
+  const chunksJsonBytes = new Uint8Array(buffer.slice(12, 12 + chunksJsonLen));
+  const chunksJson = new TextDecoder().decode(chunksJsonBytes);
+  const chunks = JSON.parse(chunksJson);
+
+  // 提取 vectors 二进制数据
+  const vectorsBuffer = buffer.slice(12 + chunksJsonLen);
+
+  // 存入 IndexedDB（直接存二进制）
   await sharedDB.ragCache.put({
     id: cacheKey,
     novelId,
     engine,
-    vectors: vecs,
-    chunks: normalizeChunks(data.chunks),
-    dim: data.dim,
+    vectorsBuffer,
+    chunks: normalizeChunks(chunks),
+    dim,
+    chunkCount,
     createdAt: Date.now(),
     lastAccessed: Date.now(),
     accessCount: 0,
@@ -196,15 +223,15 @@ export async function downloadAndCacheIndex(options: DownloadOptions): Promise<D
     } catch { /* ignore */ }
   }
 
-  // 清理超限缓存（兜底）
+  // 清理超限缓存（合并了 ensureCacheSpace 的逻辑，只执行一次全表扫描）
   enforceIndexedDBQuota();
 
-  ragLog(`索引下载完成: ${data.chunkCount} 片段 · ${data.dim} 维`);
+  ragLog(`索引下载完成: ${chunkCount} 片段 · ${dim} 维`);
 
   return {
     cacheKey,
-    chunkCount: data.chunkCount,
-    dim: data.dim,
+    chunkCount,
+    dim,
   };
 }
 

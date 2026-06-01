@@ -180,14 +180,20 @@ async function _doBuild(novelId, engine, key) {
   console.log(`[rag] chapters: ${chapters.length}`);
   if (!chapters.length) throw new Error("No chapters found");
 
-  // Chunk
+  // Chunk（包含 chapterIndex 用于范围过滤）
   const chunks = [];
-  for (const ch of chapters) {
+  for (let ci = 0; ci < chapters.length; ci++) {
+    const ch = chapters[ci];
     let start = 0;
     while (start < ch.content.length) {
       const end = Math.min(start + CHUNK_SIZE, ch.content.length);
       const text = ch.content.slice(start, end).trim();
-      if (text.replace(/\s/g, "").length >= 10) chunks.push(`[${ch.title}] ${text}`);
+      if (text.replace(/\s/g, "").length >= 10) {
+        chunks.push({
+          content: `[${ch.title}] ${text}`,
+          chapterIndex: ci,  // 0-based 章节索引
+        });
+      }
       start += CHUNK_SIZE - OVERLAP;
     }
   }

@@ -88,6 +88,27 @@ export class EmbeddingRetriever {
     return r;
   }
 
+  /**
+   * 从 ArrayBuffer 零拷贝创建实例
+   * 使用 Float32Array.subarray 创建视图，不复制数据
+   */
+  static fromArrayBuffer(buffer: ArrayBuffer, chunks: Chunk[], dim: number, engine: string = "bge-small-zh"): EmbeddingRetriever {
+    const r = new EmbeddingRetriever(engine);
+    r.loadFromBuffer(buffer, chunks, dim);
+    return r;
+  }
+
+  /**
+   * 从 ArrayBuffer 零拷贝加载数据到当前实例
+   * 使用 Float32Array.subarray 创建视图，不复制数据
+   */
+  loadFromBuffer(buffer: ArrayBuffer, chunks: Chunk[], dim: number): void {
+    const f32 = new Float32Array(buffer);
+    this.vectors = Array.from({ length: chunks.length }, (_, i) => f32.subarray(i * dim, (i + 1) * dim));
+    this.chunks = chunks;
+    this.dim = dim;
+  }
+
   async init(
     novelId: string,
     _allChunks: Chunk[],
@@ -113,11 +134,17 @@ export class EmbeddingRetriever {
     // Check IndexedDB cache
     try {
       const cached = await db.ragCache.get(memCacheKey);
-      if (cached && cached.vectors?.length > 0) {
-        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
-        this.vectors = data.vectors;
-        this.chunks = data.chunks;
-        this.dim = data.dim;
+      if (cached && cached.vectorsBuffer && cached.dim > 0 && cached.chunks?.length > 0) {
+        // 验证数据完整性
+        const expectedBytes = cached.chunkCount * cached.dim * 4;
+        if (cached.vectorsBuffer.byteLength !== expectedBytes) {
+          ragLog(`缓存数据损坏: 期望 ${expectedBytes} 字节, 实际 ${cached.vectorsBuffer.byteLength} 字节`);
+          await db.ragCache.delete(memCacheKey);
+          return;
+        }
+
+        // 零拷贝加载
+        this.loadFromBuffer(cached.vectorsBuffer, cached.chunks, cached.dim);
         useRAGStore.getState().addCachedKey(memCacheKey);
         lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
         // 更新访问记录（用于智能淘汰策略）
@@ -138,11 +165,8 @@ export class EmbeddingRetriever {
       await downloadAndCacheIndex({ novelId, engine: this.engine, updateStore: false });
       // 从 IndexedDB 重新加载到内存
       const cached = await db.ragCache.get(memCacheKey);
-      if (cached && cached.vectors?.length > 0) {
-        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
-        this.vectors = data.vectors;
-        this.chunks = data.chunks;
-        this.dim = data.dim;
+      if (cached && cached.vectorsBuffer && cached.dim > 0 && cached.chunks?.length > 0) {
+        this.loadFromBuffer(cached.vectorsBuffer, cached.chunks, cached.dim);
         useRAGStore.getState().addCachedKey(memCacheKey);
         lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
       }
@@ -179,11 +203,8 @@ export class EmbeddingRetriever {
 
       // 从 IndexedDB 加载到内存
       const cached = await db.ragCache.get(memCacheKey);
-      if (cached && cached.vectors?.length > 0) {
-        const data = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks: cached.chunks, dim: cached.dim }, this.engine);
-        this.vectors = data.vectors;
-        this.chunks = data.chunks;
-        this.dim = data.dim;
+      if (cached && cached.vectorsBuffer && cached.dim > 0 && cached.chunks?.length > 0) {
+        this.loadFromBuffer(cached.vectorsBuffer, cached.chunks, cached.dim);
         useRAGStore.getState().addCachedKey(memCacheKey);
         lruAdd(memCacheKey, this.vectors, this.chunks, this.dim);
       }
@@ -223,6 +244,12 @@ export class EmbeddingRetriever {
 
     if (!qVec) {
       ragLog("查询编码失败, 返回空");
+      return [];
+    }
+
+    // 验证向量维度
+    if (qVec.length !== this.dim) {
+      ragLog(`查询向量维度不匹配: 期望 ${this.dim}, 实际 ${qVec.length}`);
       return [];
     }
 

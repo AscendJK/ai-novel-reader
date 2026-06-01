@@ -65,6 +65,18 @@ function getInitialGraphCharacterLimit(): number {
   } catch { return 50; }
 }
 
+function getInitialReadingMode(): "scroll" | "single" | "double" {
+  try {
+    const stored = localStorage.getItem("novel-reader-reading-mode");
+    if (stored === "single" || stored === "double") return stored;
+  } catch { /* ignore */ }
+  return "scroll";
+}
+
+function getInitialAutoSwitchPageMode(): boolean {
+  try { return localStorage.getItem("novel-reader-auto-switch-page") !== "false"; } catch { return true; }
+}
+
 interface UIState {
   theme: "light" | "dark";
   fontSize: number;
@@ -75,6 +87,8 @@ interface UIState {
   fontFamily: string;
   offlineMode: boolean;
   graphCharacterLimit: number;
+  readingMode: "scroll" | "single" | "double";
+  autoSwitchPageMode: boolean;
   setTheme: (theme: "light" | "dark") => void;
   toggleTheme: () => void;
   setFontSize: (size: number) => void;
@@ -85,6 +99,8 @@ interface UIState {
   setFontFamily: (v: string) => void;
   setOfflineMode: (v: boolean) => void;
   setGraphCharacterLimit: (v: number) => void;
+  setReadingMode: (mode: "scroll" | "single" | "double") => void;
+  setAutoSwitchPageMode: (auto: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -97,6 +113,8 @@ export const useUIStore = create<UIState>((set) => ({
   fontFamily: getInitialFontFamily(),
   offlineMode: getInitialOfflineMode(),
   graphCharacterLimit: getInitialGraphCharacterLimit(),
+  readingMode: getInitialReadingMode(),
+  autoSwitchPageMode: getInitialAutoSwitchPageMode(),
 
   setTheme: (theme) => {
     try { localStorage.setItem("novel-reader-theme", theme); } catch { /* ignore */ }
@@ -153,5 +171,15 @@ export const useUIStore = create<UIState>((set) => ({
     const clamped = Math.max(10, Math.min(150, Math.round(v)));
     try { localStorage.setItem("novel-reader-graph-char-limit", String(clamped)); } catch { /* ignore */ }
     set({ graphCharacterLimit: clamped });
+  },
+
+  setReadingMode: (mode) => {
+    try { localStorage.setItem("novel-reader-reading-mode", mode); } catch { /* ignore */ }
+    set({ readingMode: mode });
+  },
+
+  setAutoSwitchPageMode: (auto) => {
+    try { localStorage.setItem("novel-reader-auto-switch-page", String(auto)); } catch { /* ignore */ }
+    set({ autoSwitchPageMode: auto });
   },
 }));

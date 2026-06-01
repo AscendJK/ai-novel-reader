@@ -132,19 +132,27 @@ router.post("/:novelId/build", rateLimit(5), (req, res) => {
   }
 });
 
-// GET /api/rag/:novelId/index?engine=bge-small-zh — download built index
+// GET /api/rag/:novelId/index?engine=bge-small-zh — download built index (binary)
 router.get("/:novelId/index", (req, res) => {
   if (!authNovel(req, res)) return;
   try {
     const engine = req.query.engine || "bge-small-zh";
     const data = getIndexData(req.params.novelId, engine);
     if (!data) return res.status(404).json({ error: "索引未构建" });
-    res.json({
-      chunks: JSON.parse(data.chunks_json),
-      vectorsBase64: data.vectors_blob.toString("base64"),
-      dim: data.dim,
-      chunkCount: data.chunk_count,
-    });
+
+    // 返回二进制格式：chunks JSON + vectors ArrayBuffer
+    const chunksBuf = Buffer.from(data.chunks_json, "utf-8");
+    const headerBuf = Buffer.alloc(12);
+    headerBuf.writeUInt32LE(chunksBuf.length, 0);   // chunks JSON 长度
+    headerBuf.writeUInt32LE(data.dim, 4);            // 向量维度
+    headerBuf.writeUInt32LE(data.chunk_count, 8);    // chunk 数量
+
+    // 合并为单个二进制响应
+    const binary = Buffer.concat([headerBuf, chunksBuf, data.vectors_blob]);
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", binary.length);
+    res.send(binary);
   } catch (e) {
     console.error("[rag] get index error:", e);
     res.status(500).json({ error: "获取索引失败" });

@@ -54,13 +54,24 @@ export async function buildIndex(
   if (isEmbeddingEngine(engine)) {
     try {
       const cached = await db.ragCache.get(cacheKey);
-      if (cached && cached.dim > 0 && cached.vectors?.length > 0 && cached.chunks?.length > 0) {
+      if (cached && cached.vectorsBuffer && cached.dim > 0 && cached.chunks?.length > 0) {
+        // 验证数据完整性
+        const expectedBytes = cached.chunkCount * cached.dim * 4;
+        if (cached.vectorsBuffer.byteLength !== expectedBytes) {
+          ragLog(`缓存数据损坏: 期望 ${expectedBytes} 字节, 实际 ${cached.vectorsBuffer.byteLength} 字节`);
+          await db.ragCache.delete(cacheKey);
+          return null;
+        }
+
         const chunks = normalizeChunks(cached.chunks);
-        ragLog(`从缓存加载索引: ${chunks.length}片段 · ${cached.dim}维`);
-        const emb = EmbeddingRetriever.fromData({ vectors: cached.vectors, chunks, dim: cached.dim }, engine);
+        const caller = new Error().stack?.split('\n').slice(1, 4).map(s => s.trim()).join(' <- ') || 'unknown';
+        ragLog(`从缓存加载索引: ${chunks.length}片段 · ${cached.dim}维 (调用者: ${caller})`);
+
+        // 零拷贝创建 EmbeddingRetriever
+        const emb = EmbeddingRetriever.fromArrayBuffer(cached.vectorsBuffer, chunks, cached.dim, engine);
+
         useRAGStore.getState().addCachedKey(cacheKey);
-        const f32Vectors = cached.vectors.map(v => new Float32Array(v));
-        lruAdd(cacheKey, f32Vectors, chunks, cached.dim);
+        lruAdd(cacheKey, emb.vectors, chunks, cached.dim);
         const entry: IndexEntry = { novelId, engine, retriever: new Retriever(chunks), embedding: emb, chunks, buildTime: 0 };
         indexCache.set(cacheKey, entry);
         return emb;

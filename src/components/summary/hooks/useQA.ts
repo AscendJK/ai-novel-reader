@@ -134,6 +134,11 @@ export function useQA(): UseQAReturn {
       return;
     }
 
+    if (to - from + 1 > 20) {
+      setQaError("范围不能超过 20 章");
+      return;
+    }
+
     setQaLoading(true);
     setQaError(null);
 

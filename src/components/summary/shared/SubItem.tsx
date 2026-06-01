@@ -4,7 +4,7 @@
  */
 
 import type { ReactNode } from "react";
-import { ChevronDown, ChevronRight, RefreshCw, Maximize2, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CharacterGraph } from "../CharacterGraph";
 import { MiniCard } from "./MiniCard";
@@ -33,8 +33,10 @@ interface SubItemProps {
   onGenerate: () => void;
   /** 重新生成总结 */
   onRegenerate: () => void;
-  /** 是否正在加载 */
+  /** 是否正在加载（全局，用于禁用按钮） */
   loading: boolean;
+  /** 自身是否正在加载（用于显示转圈图标） */
+  selfLoading?: boolean;
   /** 空状态提示 */
   emptyLabel: string;
   /** 图谱数据 */
@@ -54,13 +56,16 @@ export function SubItem({
   onGenerate,
   onRegenerate,
   loading,
+  selfLoading,
   emptyLabel,
   graphData,
   onGenerateGraph,
   onRegenerateGraph,
 }: SubItemProps) {
+  const showSpinner = selfLoading ?? loading;
   // 空状态：显示生成按钮
-  if (summaries.length === 0 && !graphData) {
+  const isEmptyGraph = !graphData || (graphData.nodes.length === 0 && graphData.edges.length === 0);
+  if (summaries.length === 0 && isEmptyGraph) {
     return (
       <div className="flex items-center gap-1.5">
         <button
@@ -68,7 +73,8 @@ export function SubItem({
           disabled={loading}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors py-0.5"
         >
-          {icon}{emptyLabel}
+          {showSpinner ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
+          {emptyLabel}
         </button>
         {onGenerateGraph && (
           <button
@@ -92,7 +98,8 @@ export function SubItem({
           className="flex items-center gap-1 text-xs font-medium hover:text-primary transition-colors flex-1 text-left"
         >
           {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-          {icon}{label}
+          {showSpinner ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
+          {label}
         </button>
         <Button
           variant="ghost"
@@ -103,17 +110,6 @@ export function SubItem({
         >
           <RefreshCw className="h-2.5 w-2.5" />
         </Button>
-        {onRegenerateGraph && graphData && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5"
-            onClick={onRegenerateGraph}
-            disabled={loading}
-          >
-            <Maximize2 className="h-2.5 w-2.5" />
-          </Button>
-        )}
       </div>
 
       {isOpen && (

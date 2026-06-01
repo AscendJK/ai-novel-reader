@@ -5,11 +5,13 @@ import { useSummaryStore, type SummaryItem } from "@/stores/summary-store";
 import { summarizerAgent, globalSummarizerAgent } from "@/agents/summarizer";
 import { characterAnalysisAgent, timelineAgent } from "@/agents/analyzers";
 import { characterGraphAgent } from "@/agents/graph-agent";
-import type { Agent, AgentContext, AgentResult } from "@/agents/types";
+import { mapAgent } from "@/agents/map-agent";
+import type { Agent, AgentContext, AgentResult, MapData } from "@/agents/types";
 import { getProvider } from "@/api/registry";
-import { saveSummary } from "@/db/repositories";
+import { saveSummary, saveMap, loadMap, deleteMap, loadChapters } from "@/db/repositories";
 import { getUserDB } from "@/db/database";
 import { APIError } from "@/api/error-handler";
+import { getTokenBudget } from "@/api/token-manager";
 import { buildIndex, retrieveRelevantWithDetails, retrieveRelevantForRange } from "@/rag/index";
 import { isEmbeddingEngine } from "@/rag/engines";
 import { useRAGStore } from "@/stores/rag-store";
@@ -54,6 +56,7 @@ function keywordOverlap(a: string, b: string): number {
 export function useSummarizer() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTask, setCurrentTask] = useState("");
+  const [currentTaskType, setCurrentTaskType] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const { currentNovel } = useNovelStore();
   const { getActiveProvider } = useAPIStore();
@@ -64,6 +67,7 @@ export function useSummarizer() {
 
   const startTask = useCallback((name: string) => {
     setCurrentTask(name);
+    setCurrentTaskType(name);
     setIsRunning(true);
     setAiRunning(true);
     setError(null);
@@ -73,6 +77,7 @@ export function useSummarizer() {
     setIsRunning(false);
     setAiRunning(false);
     setCurrentTask("");
+    setCurrentTaskType("");
   }, []);
 
   // Index is loaded on-demand via getRelevantText (only from cache).
@@ -406,6 +411,30 @@ export function useSummarizer() {
     });
   }, [currentNovel, checkProvider, runAgentTask, saveGlobalSummary]);
 
+  // --- Map generation ---
+  const generateMap = useCallback(async (): Promise<MapData | null> => {
+    if (!currentNovel || !checkProvider()) return null;
+    const result = await runAgentTask({
+      taskName: "生成小说地图",
+      agent: mapAgent,
+      context: { novelId: currentNovel.id, signal: createSignal(), onStatus: setCurrentTask },
+      errorMessage: "地图生成失败",
+      returnData: true,
+    });
+    if (result && typeof result === "object" && "mapData" in result) {
+      const mapData = (result as { mapData: MapData }).mapData;
+      await saveMap(currentNovel.id, mapData);
+      return mapData;
+    }
+    return null;
+  }, [currentNovel, checkProvider, runAgentTask]);
+
+  const regenerateMap = useCallback(async (): Promise<MapData | null> => {
+    if (!currentNovel) return null;
+    await deleteMap(currentNovel.id);
+    return await generateMap();
+  }, [currentNovel, generateMap]);
+
   // --- Temporary: range summary (in-memory, not saved to DB) ---
   const generateRangeSummary = useCallback(
     async (fromChapter: number, toChapter: number): Promise<TempResult | null> => {
@@ -415,29 +444,35 @@ export function useSummarizer() {
 
       startTask(`第${fromChapter}-${toChapter}章 范围总结`);
       try {
-        // Use RAG index filtered by chapter range
-        setCurrentTask(`正在检索第${fromChapter}-${toChapter}章...`);
+        // 从 IndexedDB 直接读取指定范围的章节
+        setCurrentTask(`正在加载第${fromChapter}-${toChapter}章...`);
+        const startIndex = fromChapter - 1;
+        const count = toChapter - fromChapter + 1;
+        const rangeChapters = await loadChapters(currentNovel.id, startIndex, count);
+        // 根据模型 Token 预算计算最大字符数（预留 50% 给 prompt 和输出）
+        const provider = getActiveProvider();
+        const budget = provider ? getTokenBudget(provider.model, provider.contextWindow) : null;
+        const maxTokens = budget ? Math.floor(budget.maxInputTokens * 0.5) : 30000;
+        const maxChars = maxTokens * 3; // 约 3 字符/token
         let combinedText = "";
-        const prefEngine = useRAGStore.getState().engine;
-        if (isEmbeddingEngine(prefEngine)) {
-          try {
-            await buildIndex(currentNovel.id, currentNovel.chapters, prefEngine, undefined, { cacheOnly: true });
-            const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节、关键事件、人物变化与剧情发展`, fromChapter - 1, toChapter - 1, undefined, prefEngine);
-            combinedText = r.text;
-          } catch {
-            // Fall back to TF-IDF with range filter
-            await buildIndex(currentNovel.id, currentNovel.chapters, "tfidf");
-            const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节`, fromChapter - 1, toChapter - 1, undefined, "tfidf");
-            combinedText = r.text;
-          }
-        } else {
-          await buildIndex(currentNovel.id, currentNovel.chapters, "tfidf");
-          const r = await retrieveRelevantForRange(currentNovel.id, `第${fromChapter}章到第${toChapter}章的核心情节`, fromChapter - 1, toChapter - 1, undefined, "tfidf");
-          combinedText = r.text;
+        let totalChars = 0;
+        const includedTitles: string[] = [];
+        for (const ch of rangeChapters) {
+          if (!ch.content) continue;
+          const remaining = maxChars - totalChars;
+          if (remaining <= 0) break;
+          const text = ch.content.length > remaining ? ch.content.slice(0, remaining) : ch.content;
+          combinedText += `\n\n--- ${ch.title} ---\n${text}`;
+          totalChars += text.length;
+          includedTitles.push(ch.title);
         }
-        ragLog(`范围总结: combinedText=${combinedText.length}字`);
+        const actualFrom = rangeChapters[0]?.title || `第${fromChapter}章`;
+        const actualTo = rangeChapters[rangeChapters.length - 1]?.title || `第${toChapter}章`;
+        ragLog(`范围总结: ${includedTitles.length}章, combinedText=${totalChars}字`);
 
-        const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围（第${fromChapter}章到第${toChapter}章）进行总结分析。
+        const prompt = `你是一位专业的小说分析助手。请对以下小说章节范围进行总结分析。
+
+章节范围：${actualFrom} 到 ${actualTo}（共 ${includedTitles.length} 章）
 
 要求：
 1. **核心情节**（概括该段落的整体剧情走向）
@@ -542,12 +577,13 @@ ${relevantText || "（无额外参考信息，请基于章节目录回答）"}
   );
 
   return {
-    isRunning, currentTask, error,
+    isRunning, currentTask, currentTaskType, error,
     summarizeChapter, summarizeAllChapters, stopBatchSummary, regenerateChapter,
     generateGlobalSummary, regenerateGlobal,
     generateCharacterAnalysis, regenerateCharacters,
     generateCharacterGraph, regenerateCharacterGraph,
     generateTimeline, regenerateTimeline,
+    generateMap, regenerateMap,
     generateRangeSummary, askCustomQuestion,
     clearQaCache: () => { qaRagCacheRef.current = null; },
     clearError: () => setError(null),

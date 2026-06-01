@@ -76,7 +76,8 @@ export function AppLayout() {
     kickedRef.current = true;
     alert("该账号已在另一设备登录，当前会话已下线。\n\n您的本地数据已保留，重新登录后可继续使用。");
     // 只清除登录状态，保留本地数据（小说、笔记、总结等）
-    ["sync-username", "sync-clientId", "sync-token", "novel-reader-last-sync-time", "novel-reader-offline-mode"
+    // 保留 sync-clientId，这样重新登录时会被识别为已知设备
+    ["sync-username", "sync-token", "novel-reader-last-sync-time", "novel-reader-offline-mode"
     ].forEach((k) => localStorage.removeItem(k));
     // 不删除用户数据库，保留本地数据
     // 刷新页面回到登录界面
@@ -104,8 +105,8 @@ export function AppLayout() {
         const validKeys = new Set<string>();
         let totalBytes = 0;
         for (const entry of all) {
-          if (entry.vectors?.length && entry.dim) {
-            totalBytes += entry.vectors.length * entry.dim * 4;
+          if (entry.vectorsBuffer && entry.dim && entry.chunkCount) {
+            totalBytes += entry.chunkCount * entry.dim * 4;
             if (entry.id) validKeys.add(entry.id);
           }
         }
@@ -539,7 +540,20 @@ export function AppLayout() {
         )}
       </main>
       {debugMode && !isMobile && <DebugPanel />}
-      {showShortcutHelp && <ShortcutHelp shortcuts={globalShortcuts} onClose={() => setShowShortcutHelp(false)} />}
+      {showShortcutHelp && (
+        <ShortcutHelp
+          shortcuts={[
+            ...globalShortcuts,
+            { key: "ArrowLeft", action: () => {}, description: "滚动: 上一章 / 翻页: 上一页" },
+            { key: "ArrowRight", action: () => {}, description: "滚动: 下一章 / 翻页: 下一页" },
+            { key: " ", action: () => {}, description: "翻页模式: 下一页" },
+            { key: "+", action: () => {}, description: "增大字号" },
+            { key: "-", action: () => {}, description: "减小字号" },
+            { key: "i", action: () => {}, description: "切换沉浸模式" },
+          ]}
+          onClose={() => setShowShortcutHelp(false)}
+        />
+      )}
     </div>
   );
 }

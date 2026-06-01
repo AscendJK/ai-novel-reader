@@ -4,7 +4,7 @@
  */
 
 import { getUserDB } from "@/db/database";
-import { saveSetting } from "@/db/repositories";
+import { saveSetting, deleteMap } from "@/db/repositories";
 import { useSummaryStore } from "@/stores/summary-store";
 import { syncClient } from "@/sync/sync-client";
 import { Row } from "./Row";
@@ -18,6 +18,10 @@ interface DataMgrProps {
   hasGraph: boolean;
   /** 删除图谱回调 */
   onDeleteGraph: () => void;
+  /** 是否有地图数据 */
+  hasMap: boolean;
+  /** 删除地图回调 */
+  onDeleteMap: () => void;
   /** 笔记数量 */
   noteCount: { chapter: number; book: number };
   /** 笔记变更回调 */
@@ -29,6 +33,8 @@ export function DataMgr({
   summaries,
   hasGraph,
   onDeleteGraph,
+  hasMap,
+  onDeleteMap,
   noteCount,
   onNotesChanged,
 }: DataMgrProps) {
@@ -54,6 +60,14 @@ export function DataMgr({
     if (!window.confirm("确认删除人物关系图谱？")) return;
     await saveSetting("character-graph-" + novelId, null);
     onDeleteGraph();
+  };
+
+  // 删除地图
+  const delMap = async () => {
+    if (!window.confirm("确认删除小说地图？")) return;
+    await deleteMap(novelId);
+    onDeleteMap();
+    syncClient.pushNow();
   };
 
   // 删除笔记
@@ -93,6 +107,9 @@ export function DataMgr({
       )}
       {hasGraph && (
         <Row label="人物关系图谱" onDelete={delGraph} />
+      )}
+      {hasMap && (
+        <Row label="小说地图" onDelete={delMap} />
       )}
       {noteCount.chapter > 0 && (
         <Row label={`章节笔记 (${noteCount.chapter})`} onDelete={() => delNotesByFilter(false, "章节笔记")} />

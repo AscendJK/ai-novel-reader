@@ -62,16 +62,26 @@ export function createOpenAIProvider(config: ProviderConfig): AIProvider {
       const offline = useUIStore.getState().offlineMode;
       const hasToken = !!localStorage.getItem("sync-token");
 
+      // 离线模式或没有 token 时，直接调用（可能失败）
       if (offline || !hasToken) {
         return parseResponse(await doDirect(req));
       }
 
       try {
+        // 先尝试直连
         return parseResponse(await doDirect(req));
       } catch (err) {
+        // 如果是取消请求，直接抛出
         if (err instanceof DOMException && err.name === "AbortError") throw err;
+        // 如果是认证错误，直接抛出（代理也无法解决）
         if (err instanceof APIError && err.code === "auth") throw err;
-        return parseResponse(await doProxy(req));
+        // 其他错误（包括 CORS、网络错误等）都走代理
+        try {
+          return parseResponse(await doProxy(req));
+        } catch (proxyErr) {
+          // 代理也失败了，抛出原始错误
+          throw err;
+        }
       }
     },
   };

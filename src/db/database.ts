@@ -59,12 +59,22 @@ export interface RAGCacheRecord {
   id: string;           // composite key: "${novelId}-${engine}"
   novelId: string;      // raw novel UUID
   engine: string;
-  vectors: number[][];  // serialized Float32Array as nested number arrays
+  vectorsBuffer: ArrayBuffer;  // Float32Array 二进制数据
   chunks: { id: string; content: string }[];
   dim: number;
+  chunkCount: number;   // chunk 数量
   createdAt: number;
   lastAccessed?: number;  // 最后访问时间（用于智能淘汰）
   accessCount?: number;   // 访问次数（用于智能淘汰）
+}
+
+export interface MapRecord {
+  id: string;           // novelId
+  novelId: string;
+  data: unknown;        // MapData JSON
+  createdAt: number;
+  updatedAt: number;
+  deleted?: number;
 }
 
 // ── Shared database (settings + ragCache, not per-user) ──
@@ -87,13 +97,14 @@ class SharedDB extends Dexie {
   }
 }
 
-// ── User database (novels, chapters, summaries, notes, per-user) ──
+// ── User database (novels, chapters, summaries, notes, maps per-user) ──
 
 class UserDB extends Dexie {
   novels!: Table<NovelRecord, string>;
   chapters!: Table<ChapterRecord, string>;
   summaries!: Table<SummaryRecord, string>;
   notes!: Table<NoteRecord, string>;
+  maps!: Table<MapRecord, string>;
 
   constructor(username: string) {
     super(`ai-novel-reader-${username}`);
@@ -109,6 +120,14 @@ class UserDB extends Dexie {
       chapters: "id, novelId, index",
       summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type], [novelId+type]",
       notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
+    });
+    // 添加 maps 表
+    this.version(3).stores({
+      novels: "id, createdAt",
+      chapters: "id, novelId, index",
+      summaries: "id, novelId, chapterId, type, updatedAt, deleted, [novelId+chapterId+type], [novelId+type]",
+      notes: "id, novelId, chapterId, source, createdAt, updatedAt, deleted",
+      maps: "id, novelId, updatedAt, deleted",
     });
   }
 }

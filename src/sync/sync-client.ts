@@ -32,11 +32,10 @@ export class SyncClient {
     this.clientId = localStorage.getItem("sync-clientId");
     this.token = localStorage.getItem("sync-token");
     this.lastSyncTime = parseInt(localStorage.getItem("novel-reader-last-sync-time") || "0", 10) || 0;
-    // If we have username/clientId but no token (pre-auth migration), clear stale session
-    if ((this.username || this.clientId) && !this.token) {
-      this.username = null; this.clientId = null;
+    // If we have username but no token, clear username (but keep clientId)
+    if (this.username && !this.token) {
+      this.username = null;
       localStorage.removeItem("sync-username");
-      localStorage.removeItem("sync-clientId");
     }
   }
 
@@ -79,7 +78,7 @@ export class SyncClient {
       const resp = await fetch("/api/sync/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, mode }),
+        body: JSON.stringify({ username, mode, clientId: this.clientId }),
       });
       console.log("[sync] register response:", resp.status);
       if (resp.status === 404) {
@@ -182,11 +181,15 @@ export class SyncClient {
       const changes = await this.gatherChanges(this.lastSyncTime);
       const pushS = changes.summaries?.length || 0;
       const pushN = changes.notes?.length || 0;
+      const pushM = changes.maps?.length || 0;
+      const pushSt = changes.settings ? Object.keys(changes.settings).length : 0;
+      console.log(`[sync] pushing: s=${pushS} n=${pushN} m=${pushM} settings=${pushSt}`);
       const resp = await fetch("/api/sync/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, clientId: this.clientId, token: this.token, changes, lastSyncTime: this.lastSyncTime }),
       });
+      console.log(`[sync] push response: ${resp.status}`);
       if (resp.status === 409) {
         // Username conflict — another device has the same username
         console.warn("[sync] 409 username conflict");
@@ -337,7 +340,7 @@ export class SyncClient {
       let resp = await fetch("/api/sync/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, mode: "join" }),
+        body: JSON.stringify({ username: this.username, mode: "join", clientId: this.clientId }),
       });
       // If 404, user doesn't exist on server — try "create"
       if (resp.status === 404) {
@@ -345,7 +348,7 @@ export class SyncClient {
         resp = await fetch("/api/sync/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: this.username, mode: "create" }),
+          body: JSON.stringify({ username: this.username, mode: "create", clientId: this.clientId }),
         });
       }
       if (resp.ok) {
@@ -459,12 +462,11 @@ export class SyncClient {
     const kickedUser = this.username;
     this.stop();
     this.username = null;
-    this.clientId = null;
+    // 保留 clientId，这样重新登录时会被识别为已知设备
     this.token = null;
     this.activeCount = 0;
     this.lastSyncTime = 0;
     localStorage.removeItem("sync-username");
-    localStorage.removeItem("sync-clientId");
     localStorage.removeItem("sync-token");
     localStorage.removeItem("novel-reader-last-sync-time");
     // 通知其他标签页用户已登出

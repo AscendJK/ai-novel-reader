@@ -16,6 +16,7 @@ interface NovelState {
   removeNovel: (novelId: string) => void;
   getReadingPosition: (novelId: string) => ReadPosition | null;
   saveReadingPosition: (novelId: string, chapterId: string, chapterIndex: number) => void;
+  addChapters: (chapters: Novel["chapters"]) => void;
 }
 
 function loadPositions(): Record<string, ReadPosition> {
@@ -109,5 +110,36 @@ export const useNovelStore = create<NovelState>((set, get) => ({
     const positions = { ...get().readingPositions, [novelId]: { chapterId, chapterIndex } };
     savePositions(positions);
     set({ readingPositions: positions });
+  },
+
+  addChapters: (chapters) => {
+    const { currentNovel } = get();
+    if (!currentNovel) return;
+
+    // 创建章节映射（id -> 章节）
+    const chapterMap = new Map(currentNovel.chapters.map(c => [c.id, c]));
+
+    // 更新或添加章节
+    for (const ch of chapters) {
+      const existing = chapterMap.get(ch.id);
+      if (existing) {
+        // 更新现有章节（保留标题，更新内容）
+        chapterMap.set(ch.id, { ...existing, content: ch.content });
+      } else {
+        // 添加新章节
+        chapterMap.set(ch.id, ch);
+      }
+    }
+
+    // 转换为数组并排序
+    const mergedChapters = Array.from(chapterMap.values())
+      .sort((a, b) => a.index - b.index);
+
+    set({
+      currentNovel: {
+        ...currentNovel,
+        chapters: mergedChapters,
+      },
+    });
   },
 }));

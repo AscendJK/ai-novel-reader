@@ -61,17 +61,27 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-echo Starting server in background...
-rem Create a VBScript to run node in hidden window
-echo Set WshShell = CreateObject("WScript.Shell") > "%TEMP%\start-server.vbs"
-echo WshShell.Run "cmd /c cd /d ""%~dp0"" && node server/index.js --full", 0, False >> "%TEMP%\start-server.vbs"
-cscript //nologo "%TEMP%\start-server.vbs"
-del "%TEMP%\start-server.vbs"
-timeout /t 3 /nobreak >nul
+
+rem Install SSL certificate to trusted root store
+if exist "server\data\cert.pem" (
+    echo Installing SSL certificate...
+    certutil -addstore -f "Root" server\data\cert.pem >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo SSL certificate installed successfully.
+    ) else (
+        echo [WARNING] Failed to install SSL certificate. Run as administrator if needed.
+    )
+)
+
 echo.
-echo Prod running: http://localhost:5173
+echo Starting server...
+echo Prod running: https://localhost:8443 or http://localhost:5173
+echo Press Ctrl+C to stop the server.
 echo.
-echo Server is running in the background. Use stop.bat to stop it.
-echo.
-pause
-exit /b
+node server/index.js --full
+if %errorlevel% neq 0 (
+    echo.
+    echo [ERROR] Server failed to start. Check if ports 443 or 5173 are already in use.
+    echo.
+    pause
+)

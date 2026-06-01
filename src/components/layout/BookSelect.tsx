@@ -102,11 +102,11 @@ export function BookSelect() {
         const novelIdSet = new Set(ids);
         let totalBytes = 0;
         for (const entry of all) {
-          if (novelIdSet.has(entry.novelId) && entry.vectors?.length) {
+          if (novelIdSet.has(entry.novelId) && entry.vectorsBuffer) {
             addCachedKey(entry.id);
           }
-          if (entry.vectors?.length && entry.dim) {
-            totalBytes += entry.vectors.length * entry.dim * 4;
+          if (entry.vectorsBuffer && entry.dim && entry.chunkCount) {
+            totalBytes += entry.chunkCount * entry.dim * 4;
           }
         }
         useRAGStore.getState().updateRagCacheSize(totalBytes);
@@ -126,6 +126,47 @@ export function BookSelect() {
         if (!active || !resp.ok) return;
         const statuses = await resp.json();
         setBuildStatuses(statuses);
+
+        // 同步更新 Zustand store（用于构建状态窗口显示）
+        const buildStore = useBuildStore.getState();
+        for (const [novelId, engines] of Object.entries(statuses) as [string, Record<string, any>][]) {
+          for (const [engine, st] of Object.entries(engines)) {
+            if (st && typeof st === "object" && st.status) {
+              const existing = buildStore.getBuildStatus(novelId, engine);
+              const isBuilding = st.status === "building" || st.status === "loading" || st.status === "encoding" || st.status === "queued";
+              const isDone = st.status === "ready" || st.status === "done";
+              const isError = st.status === "error";
+
+              // 如果 Zustand store 中没有这个构建状态，且服务器显示正在构建中，则添加
+              if (!existing && isBuilding) {
+                buildStore.startBuild(novelId, engine);
+                buildStore.updateProgress(novelId, engine, {
+                  status: st.status as any,
+                  message: st.message || "正在构建...",
+                  current: st.current || 0,
+                  total: st.total || 0,
+                  queuePosition: st.queuePosition,
+                });
+              } else if (existing) {
+                // 更新现有状态
+                if (isBuilding) {
+                  buildStore.updateProgress(novelId, engine, {
+                    status: st.status as any,
+                    message: st.message || "正在构建...",
+                    current: st.current || 0,
+                    total: st.total || 0,
+                    queuePosition: st.queuePosition,
+                  });
+                } else if (isDone && existing.status !== "done" && existing.status !== "ready") {
+                  buildStore.finishBuild(novelId, engine);
+                } else if (isError && existing.status !== "error") {
+                  buildStore.failBuild(novelId, engine, st.error || "构建失败");
+                }
+              }
+            }
+          }
+        }
+
         // Clear building keys that are now ready or errored
         setBuildingKeys(prev => {
           const next = new Set(prev);
@@ -520,7 +561,10 @@ export function BookSelect() {
                     key={novel.id}
                     className="cursor-pointer transition-all hover:shadow-md hover:border-primary/50 group relative"
                     onClick={async () => {
-                      const full = await loadNovel(novel.id);
+                      // 根据阅读进度加载对应的章节范围
+                      const pos = readingPositions[novel.id];
+                      const chapterIndex = pos ? pos.chapterIndex : 0;
+                      const full = await loadNovel(novel.id, chapterIndex);
                       if (full) setCurrentNovel(full);
                     }}
                   >
@@ -586,8 +630,10 @@ export function BookSelect() {
                       {engine !== "tfidf" && (() => {
                         const st = buildStatuses[novel.id]?.[engine] || { status: "none" };
                         const chunkCount = st.chunkCount || 0;
-                        const chunkLabel = chunkCount >= 10000 ? `${(chunkCount / 1000).toFixed(1)}k` : `${chunkCount}`;
-                        const vecBytes = chunkCount * (st.dim || 512) * 4;
+                        const dim = st.dim || 0;
+                        const vecCount = chunkCount;  // Float32Array 数量 = chunk 数量
+                        const vecBytes = chunkCount * dim * 4;  // 每个 Float32Array 大小 = dim * 4 bytes
+                        const countLabel = vecCount >= 10000 ? `${(vecCount / 1000).toFixed(1)}k` : `${vecCount}`;
                         const sizeLabel = vecBytes >= 1048576 ? `${(vecBytes / 1048576).toFixed(1)}MB` : vecBytes >= 1024 ? `${Math.round(vecBytes / 1024)}KB` : `${vecBytes}B`;
                         const memKey = novel.id + "-" + engine;
                         const inMemory = lruKeys.has(memKey);
@@ -597,7 +643,7 @@ export function BookSelect() {
                         const buildKey = `${novel.id}-${engine}`;
                         const buildStatus = builds.get(buildKey);
                         const isBuilding = buildStatus && (buildStatus.status === "building" || buildStatus.status === "loading" || buildStatus.status === "encoding" || buildStatus.status === "queued");
-                        const statsText = chunkCount > 0 ? ` · ${chunkLabel}片段 · ${sizeLabel}` : "";
+                        const statsText = vecCount > 0 ? ` · ${countLabel}向量 · ${sizeLabel}` : "";
 
                         // 点击 badge 打开构建窗口
                         const handleBadgeClick = (e: React.MouseEvent) => {
